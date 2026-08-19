@@ -180,12 +180,12 @@
     max-width: 92%; box-shadow: 0 6px 24px rgba(0,0,0,.5);
   }
   .map-full-btn {
-    position: absolute; top: 10px; right: 10px; z-index: 500;
+    position: absolute; top: 10px; right: 10px; z-index: 900;
     min-height: 40px; padding: 6px 12px; font-size: 18px; border-radius: 10px;
     background: rgba(21,27,35,.92); color: var(--txt); border: 1px solid var(--line);
   }
   .map-ctrl {
-  position: absolute; top: 10px; left: 10px; z-index: 500;
+  position: absolute; top: 10px; left: 10px; z-index: 900;
   display: flex; flex-direction: column; gap: 6px;
 }
 .map-ctrl button {
@@ -383,6 +383,15 @@
           </select>
         </div>
         <div class="set-row">
+          <span>Offset bussola (montaggio)</span>
+          <select id="compassOffset">
+            <option value="0" selected>0°</option>
+            <option value="90">90°</option>
+            <option value="180">180°</option>
+            <option value="270">270°</option>
+          </select>
+        </div>
+        <div class="set-row">
           <span>Stato calibrazione</span>
           <span id="calibStatus" class="hint">non calibrato</span>
         </div>
@@ -450,6 +459,8 @@ const state = {
   camCooldown: {},
   follow: false,
   trackUp: false,
+  compass: null,
+  compassOffset: 0,
 };
 
 let lastT = performance.now();
@@ -509,7 +520,7 @@ const els = {
   sessionList: $('sessionList'), sessionDetail: $('sessionDetail'),
   btnExportCsv: $('btnExportCsv'), btnExportGpx: $('btnExportGpx'), btnExportCsvHist: $('btnExportCsvHist'),
   camAlert: $('camAlert'), camAlertsChk: $('camAlerts'), camDistSel: $('camDist'), btnMapFull: $('btnMapFull'),
-  btnCenter: $('btnCenter'), btnFollow: $('btnFollow'), btnTrackUp: $('btnTrackUp'),
+  btnCenter: $('btnCenter'), btnFollow: $('btnFollow'), btnTrackUp: $('btnTrackUp'), compassOffsetSel: $('compassOffset'),
 };
 
 /* ============================== Gauge SVG ============================== */
@@ -586,18 +597,20 @@ function loadSettings() {
   state.wakeLockOn = s.wakeLockOn !== false;
   state.camAlerts = s.camAlerts !== false;
   state.camDist = s.camDist || 400;
+  state.compassOffset = s.compassOffset || 0;
   els.mountSel.value = state.mount;
   els.invertLean.checked = state.invertLean;
   els.wakeLockChk.checked = state.wakeLockOn;
   els.camAlertsChk.checked = state.camAlerts;
   els.camDistSel.value = String(state.camDist);
+  els.compassOffsetSel.value = String(state.compassOffset);
   const c = store.get('cruscotto.calib', null);
   if (c) { state.calib = c; updateCalibStatus(); }
 }
 function saveSettings() {
   store.set('cruscotto.settings', {
     mount: state.mount, invertLean: state.invertLean, wakeLockOn: state.wakeLockOn,
-    camAlerts: state.camAlerts, camDist: state.camDist
+    camAlerts: state.camAlerts, camDist: state.camDist, compassOffset: state.compassOffset
   });
 }
 function updateCalibStatus() {
@@ -660,6 +673,9 @@ function onDeviceMotion(e) {
 
 function onDeviceOrientation(e) {
   if (state.demo) return;
+  // bussola device (heading magnetico) → track-up anche da fermo
+  if (e.webkitCompassHeading != null) state.compass = e.webkitCompassHeading;
+  else if (e.alpha != null) state.compass = e.alpha;
   if (e.beta == null || e.gamma == null) return;
   const b = e.beta * Math.PI / 180, g = e.gamma * Math.PI / 180;
   const up = { x: -Math.cos(b) * Math.sin(g), y: Math.sin(b), z: Math.cos(b) * Math.cos(g) };
@@ -833,6 +849,12 @@ function renderCameras() {
   if (state.mapType === 'canvas') drawCanvasMap();
 }
 
+function trackUpHeading() {
+  const h = state.gps.heading;
+  if (h != null && !isNaN(h)) return h;
+  if (state.compass != null) return (state.compass + state.compassOffset) % 360;
+  return null;
+}
 function setFollow(on) {
   state.follow = on;
   els.btnFollow.classList.toggle('on', on);
@@ -842,8 +864,8 @@ function setTrackUp(on) {
   state.trackUp = on;
   els.btnTrackUp.classList.toggle('on', on);
   if (state.mapType === 'leaflet' && state.map) {
-    if (on && state.gps.heading != null) state.map.setBearing(-state.gps.heading);
-    else if (!on) state.map.resetNorth();
+    if (on) { const h = trackUpHeading(); if (h != null) state.map.setBearing(-h); }
+    else state.map.resetNorth();
   }
 }
 function centerMap() {
@@ -1173,7 +1195,8 @@ function initLeaflet() {
   if (state.mapReady) return;
   state.mapReady = true;
   state.mapType = 'leaflet';
-  const map = L.map('map', { zoomControl: true });
+  const map = L.map('map', { zoomControl: false });
+  L.control.zoom({ position: 'bottomright' }).addTo(map);
   L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
     attribution: '© OpenStreetMap', maxZoom: 19
   }).addTo(map);
@@ -1196,7 +1219,7 @@ function updateLeaflet() {
     if (!state.mapFit) { state.map.fitBounds(pts, { padding: [30, 30] }); state.mapFit = true; }
   }
   if (state.follow && state.gps.lat != null) state.map.panTo([state.gps.lat, state.gps.lon]);
-  if (state.trackUp && state.gps.heading != null) state.map.setBearing(-state.gps.heading);
+  if (state.trackUp) { const h = trackUpHeading(); if (h != null) state.map.setBearing(-h); }
 }
 
 function initCanvasMap() {
@@ -1512,6 +1535,7 @@ function init() {
   els.wakeLockChk.addEventListener('change', () => { state.wakeLockOn = els.wakeLockChk.checked; saveSettings(); if (state.wakeLockOn) requestWakeLock(); });
   els.camAlertsChk.addEventListener('change', () => { state.camAlerts = els.camAlertsChk.checked; saveSettings(); });
   els.camDistSel.addEventListener('change', () => { state.camDist = parseInt(els.camDistSel.value, 10); saveSettings(); });
+  els.compassOffsetSel.addEventListener('change', () => { state.compassOffset = parseInt(els.compassOffsetSel.value, 10); saveSettings(); });
 
   els.btnMapFull.addEventListener('click', () => {
     const full = document.body.classList.toggle('map-fullscreen');
