@@ -36,7 +36,7 @@
     min-height: 100%;
     display: flex;
     flex-direction: column;
-    padding: calc(6px + env(safe-area-inset-top)) 12px calc(6px + env(safe-area-inset-bottom));
+    padding: calc(6px + env(safe-area-inset-top)) 12px calc(88px + env(safe-area-inset-bottom));
     gap: 10px;
   }
 
@@ -158,8 +158,12 @@
   /* ===== Tab bar ===== */
   nav.tabbar {
     display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px;
-    padding-top: 6px;
-    position: sticky; bottom: 0; z-index: 10; background: var(--bg);
+    position: fixed; bottom: 0; left: 0; right: 0;
+    z-index: 50;
+    max-width: 1080px; margin: 0 auto;
+    padding: 6px 12px calc(6px + env(safe-area-inset-bottom));
+    background: var(--bg);
+    border-top: 1px solid var(--line);
   }
   nav.tabbar button {
     min-height: 52px; padding: 8px 4px; font-size: 12px; border-radius: 12px;
@@ -350,6 +354,10 @@ const FLUSH_MS = 10000;
 const MAX_ROWS = 180000;
 const TRACK_MAX = 10000;
 const CHART_WINDOW = 60000;
+const SPEED_EMA = 0.3;         // peso valore precedente (smoothing velocità)
+const SPEED_DEADBAND_MS = 0.55; // sotto ~2 km/h → 0 (fermo)
+const TRACK_MIN_M = 5;         // distanza minima tra punti traccia (m)
+const GPS_ACC_MAX = 30;        // scarta fix con accuratezza peggiore (m)
 
 const state = {
   mount: 'landscape-left',
@@ -584,18 +592,39 @@ function onDeviceOrientation(e) {
 function onGeolocation(pos) {
   if (state.demo) return;
   const c = pos.coords;
-  if (c.speed != null && c.speed >= 0) {
-    state.speedMs = c.speed;
-    state.speedKph = c.speed * 3.6;
+
+  // Velocità: EMA + deadband (da fermo → 0, niente km/h residui)
+  const rawMs = (c.speed != null && c.speed >= 0) ? c.speed : 0;
+  state.speedMs = SPEED_EMA * state.speedMs + (1 - SPEED_EMA) * rawMs;
+  if (state.speedMs < SPEED_DEADBAND_MS) state.speedMs = 0;
+  state.speedKph = state.speedMs * 3.6;
+
+  // Posizione: leggero smoothing (EMA) per ridurre jitter del marker
+  if (state.gps.lat == null) {
+    state.gps.lat = c.latitude; state.gps.lon = c.longitude;
+  } else {
+    state.gps.lat = 0.6 * state.gps.lat + 0.4 * c.latitude;
+    state.gps.lon = 0.6 * state.gps.lon + 0.4 * c.longitude;
   }
-  state.gps = { lat: c.latitude, lon: c.longitude, alt: c.altitude, heading: c.heading, acc: c.accuracy };
+  state.gps.alt = c.altitude; state.gps.heading = c.heading; state.gps.acc = c.accuracy;
   state.gpsStatus = 'ok';
   updateGpsStatus();
-  if (state.session.lastPos) {
-    state.session.distKm += haversine(state.session.lastPos, { lat: c.latitude, lon: c.longitude });
+
+  // Traccia + distanza: gate su distanza minima + accuratezza (no jitter da fermo)
+  const okAcc = c.accuracy == null || c.accuracy <= GPS_ACC_MAX;
+  if (!okAcc) return;
+  const last = state.session.lastPos;
+  if (last) {
+    const d = haversine(last, { lat: c.latitude, lon: c.longitude }) * 1000; // m
+    if (d >= TRACK_MIN_M) {
+      state.session.distKm += d / 1000;
+      state.session.lastPos = { lat: c.latitude, lon: c.longitude };
+      appendTrackPoint(c.latitude, c.longitude, c.altitude);
+    }
+  } else {
+    state.session.lastPos = { lat: c.latitude, lon: c.longitude };
+    appendTrackPoint(c.latitude, c.longitude, c.altitude);
   }
-  state.session.lastPos = { lat: c.latitude, lon: c.longitude };
-  appendTrackPoint(c.latitude, c.longitude, c.altitude);
 }
 
 function onGeolocationErr() {
@@ -941,6 +970,7 @@ function initLeaflet() {
   L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
     attribution: '© OpenStreetMap', maxZoom: 19
   }).addTo(map);
+  map.setView([42.5, 12.5], 5); // vista iniziale (Italia) prima del primo fix
   state.map = map;
   state.mapLayer = L.layerGroup().addTo(map);
   state.mapPos = L.circleMarker([0, 0], { radius: 8, color: '#29b6f6', fillColor: '#29b6f6', fillOpacity: 0.9 }).addTo(state.mapLayer);
