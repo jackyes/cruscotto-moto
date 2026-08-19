@@ -1,0 +1,855 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#0b0f14">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<title>Cruscotto Moto</title>
+<style>
+  :root {
+    --bg: #0b0f14;
+    --card: #151b23;
+    --card-2: #1b232e;
+    --line: #27303c;
+    --txt: #e7edf3;
+    --dim: #8b98a8;
+    --accent: #29b6f6;
+    --good: #34d399;
+    --warn: #fbbf24;
+    --bad: #f87171;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+  html, body { height: 100%; }
+  body {
+    background: var(--bg);
+    color: var(--txt);
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    touch-action: manipulation;
+    overflow-x: hidden;
+  }
+  .wrap {
+    max-width: 1080px;
+    margin: 0 auto;
+    padding: calc(8px + env(safe-area-inset-top)) 12px calc(12px + env(safe-area-inset-bottom));
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    min-height: 100%;
+  }
+
+  /* Header */
+  header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    flex-wrap: wrap;
+  }
+  header h1 {
+    font-size: 20px;
+    font-weight: 700;
+    letter-spacing: .5px;
+  }
+  header h1 .dot { color: var(--accent); }
+  .status-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 13px;
+    color: var(--dim);
+  }
+  .status-dot {
+    width: 10px; height: 10px; border-radius: 50%;
+    background: var(--dim);
+  }
+  .status-dot.ok { background: var(--good); box-shadow: 0 0 8px var(--good); }
+  .status-dot.err { background: var(--bad); }
+  .status-dot.wait { background: var(--warn); }
+
+  /* Cards */
+  .grid {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 12px;
+  }
+  .card {
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 16px;
+    padding: 16px;
+  }
+  .card h2 {
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 1.2px;
+    color: var(--dim);
+    font-weight: 600;
+    margin-bottom: 8px;
+  }
+
+  /* Speed */
+  .speed-row { display: flex; align-items: baseline; gap: 10px; }
+  .speed-val { font-size: clamp(64px, 20vw, 140px); font-weight: 800; line-height: 1; }
+  .speed-unit { font-size: 24px; color: var(--dim); font-weight: 600; }
+
+  /* Lean gauge */
+  .lean-wrap { display: flex; flex-direction: column; align-items: center; }
+  .lean-num { font-size: 44px; font-weight: 800; line-height: 1; margin-top: -4px; }
+  .lean-num .deg { font-size: 22px; color: var(--dim); }
+  .lean-dir {
+    font-size: 15px; color: var(--dim); font-weight: 600; letter-spacing: 2px;
+    min-height: 1.2em;
+  }
+  .lean-dir.right { color: var(--accent); }
+  .lean-dir.left { color: var(--good); }
+  .lean-max {
+    display: flex; justify-content: space-between; width: 100%;
+    font-size: 14px; color: var(--dim); margin-top: 6px;
+  }
+  .lean-max b { font-size: 18px; }
+  .lean-max .mx-r { color: var(--accent); }
+  .lean-max .mx-l { color: var(--good); }
+
+  /* Accel */
+  .accel-row { display: flex; flex-direction: column; gap: 10px; }
+  .accel-item { }
+  .accel-top { display: flex; justify-content: space-between; font-size: 14px; margin-bottom: 4px; }
+  .accel-top .lbl { color: var(--dim); font-weight: 600; }
+  .accel-top .val { font-weight: 700; font-variant-numeric: tabular-nums; }
+  .bar {
+    position: relative; height: 12px; background: var(--card-2);
+    border-radius: 6px; overflow: hidden;
+  }
+  .bar .mid { position: absolute; left: 50%; top: 0; bottom: 0; width: 2px; background: var(--line); }
+  .bar .fill {
+    position: absolute; top: 0; bottom: 0; left: 50%; width: 0;
+    background: var(--accent); border-radius: 6px; transition: width .08s linear;
+  }
+  .bar .fill.neg { background: var(--warn); }
+
+  /* Stats */
+  .stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+  .stat { text-align: center; }
+  .stat .v { font-size: 26px; font-weight: 800; font-variant-numeric: tabular-nums; }
+  .stat .k { font-size: 11px; color: var(--dim); text-transform: uppercase; letter-spacing: .8px; }
+
+  /* Controls */
+  .controls { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; }
+  .controls.full { grid-template-columns: repeat(5, 1fr); }
+  button {
+    background: var(--card-2);
+    color: var(--txt);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    padding: 14px 10px;
+    font-size: 15px;
+    font-weight: 600;
+    cursor: pointer;
+    min-height: 48px;
+    touch-action: manipulation;
+  }
+  button:active { background: #243040; }
+  button.primary { background: var(--accent); color: #06222f; border-color: var(--accent); }
+  button.rec { background: var(--bad); color: #2a0808; border-color: var(--bad); }
+  button.on { background: var(--good); color: #062b1d; border-color: var(--good); }
+
+  /* Settings */
+  details {
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    padding: 10px 14px;
+  }
+  summary { cursor: pointer; font-size: 14px; color: var(--dim); font-weight: 600; }
+  details[open] summary { margin-bottom: 10px; }
+  .set-row {
+    display: flex; align-items: center; justify-content: space-between;
+    gap: 10px; padding: 8px 0; border-top: 1px solid var(--line); font-size: 14px;
+  }
+  .set-row:first-of-type { border-top: 0; }
+  select {
+    background: var(--card-2); color: var(--txt);
+    border: 1px solid var(--line); border-radius: 8px;
+    padding: 8px; font-size: 14px;
+  }
+  input[type=checkbox] { width: 20px; height: 20px; accent-color: var(--accent); }
+  .hint { font-size: 12px; color: var(--dim); line-height: 1.4; }
+
+  /* Landscape layout (phone mounted sideways) */
+  @media (min-width: 720px) {
+    .grid { grid-template-columns: 1fr 1fr; }
+    .controls.full { grid-template-columns: repeat(5, 1fr); }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>CRUSCOTTO<span class="dot">·</span>MOTO</h1>
+    <div class="status-row">
+      <span class="status-dot wait" id="gpsDot"></span>
+      <span id="gpsTxt">GPS in attesa</span>
+      <span id="recBadge" style="display:none; color:var(--bad); font-weight:700;">● REC</span>
+    </div>
+  </header>
+
+  <button id="permBtn" style="display:none; width:100%; background:var(--warn); color:#2a1a04; border-color:var(--warn);">
+    Consenti sensori (motion/orientation)
+  </button>
+
+  <div class="grid">
+    <div class="card" id="speedCard">
+      <h2>Velocità</h2>
+      <div class="speed-row">
+        <span class="speed-val" id="speedVal">0</span>
+        <span class="speed-unit">km/h</span>
+      </div>
+    </div>
+
+    <div class="card" id="leanCard">
+      <h2>Angolo di piega</h2>
+      <div class="lean-wrap">
+        <svg id="gauge" viewBox="0 0 260 150" width="100%" style="max-width:320px;"></svg>
+        <div class="lean-num"><span id="leanVal">--</span><span class="deg">°</span></div>
+        <div class="lean-dir" id="leanDir">&nbsp;</div>
+        <div class="lean-max">
+          <span>Max S <b class="mx-l" id="maxLeanL">0°</b></span>
+          <span>Max D <b class="mx-r" id="maxLeanR">0°</b></span>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Accelerazioni (G)</h2>
+      <div class="accel-row">
+        <div class="accel-item">
+          <div class="accel-top"><span class="lbl">Laterale</span><span class="val" id="latVal">0.00</span></div>
+          <div class="bar"><div class="mid"></div><div class="fill" id="latBar"></div></div>
+        </div>
+        <div class="accel-item">
+          <div class="accel-top"><span class="lbl">Longitudinale (+ accel / − freno)</span><span class="val" id="lonVal">0.00</span></div>
+          <div class="bar"><div class="mid"></div><div class="fill" id="lonBar"></div></div>
+        </div>
+        <div class="accel-item">
+          <div class="accel-top"><span class="lbl">Verticale</span><span class="val" id="vertVal">0.00</span></div>
+          <div class="bar"><div class="mid"></div><div class="fill" id="vertBar"></div></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Sessione</h2>
+      <div class="stats">
+        <div class="stat"><div class="v" id="statMaxSpeed">0</div><div class="k">km/h max</div></div>
+        <div class="stat"><div class="v" id="statDist">0.00</div><div class="k">km</div></div>
+        <div class="stat"><div class="v" id="statTime">00:00</div><div class="k">durata</div></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="controls" id="controls">
+    <button id="btnCalib">Calibra</button>
+    <button id="btnLog" class="primary">▶ Start Log</button>
+    <button id="btnExport">Export CSV</button>
+    <button id="btnFullscreen">⛶ Fullscreen</button>
+    <button id="btnDemo">Demo</button>
+  </div>
+
+  <details>
+    <summary>Impostazioni</summary>
+    <div class="set-row">
+      <span>Orientamento montaggio</span>
+      <select id="mountSel">
+        <option value="landscape-left">Landscape — top a sinistra</option>
+        <option value="landscape-right">Landscape — top a destra</option>
+        <option value="portrait">Portrait — verticale</option>
+      </select>
+    </div>
+    <div class="set-row">
+      <span>Inverti segno piega</span>
+      <input type="checkbox" id="invertLean">
+    </div>
+    <div class="set-row">
+      <span>Schermo sempre acceso (wake lock)</span>
+      <input type="checkbox" id="wakeLockChk" checked>
+    </div>
+    <div class="set-row">
+      <span>Stato calibrazione</span>
+      <span id="calibStatus" class="hint">non calibrato</span>
+    </div>
+    <p class="hint" style="margin-top:8px;">
+      Calibrazione: monta il telefono rigidamente, tieni la moto <b>dritta e ferma su piano</b>, premi "Calibra".
+      Rifai la calibrazione se cambi supporto o orientamento.
+    </p>
+  </details>
+</div>
+
+<script>
+'use strict';
+
+/* ============================== Stato ============================== */
+const G = 9.80665;
+const LOG_HZ = 20;              // frequenza campionamento log (Hz)
+const FLUSH_MS = 10000;         // flush su localStorage ogni 10s
+const MAX_ROWS = 180000;        // ~2.5h @ 20Hz
+
+const state = {
+  mount: 'landscape-left',
+  invertLean: false,
+  wakeLockOn: true,
+  calib: null,                  // { x, y, z } up-vettore calibrato (device frame)
+  lean: 0,                      // gradi, + = destra
+  leanFused: null,              // stato filtro complementare
+  gyroRoll: 0,                  // deg/s su asse longitudinale
+  latG: 0, lonG: 0, vertG: 0,   // accelerazioni lineari in g (frame moto)
+  speedKph: 0, speedMs: 0,
+  gps: { lat: null, lon: null, alt: null, heading: null, acc: null },
+  gpsStatus: 'waiting',         // waiting | ok | err
+  logging: false,
+  rows: [],                     // buffer in memoria
+  session: { maxSpeed: 0, maxLeanR: 0, maxLeanL: 0, distKm: 0, start: 0, lastPos: null },
+  demo: false,
+};
+
+let lastT = performance.now();
+let lastSample = performance.now();
+let lastFlush = performance.now();
+let wakeLock = null;
+
+/* ============================== Mapping assi ==============================
+   Frame moto: forward = +X, up = +Z, left = +Y.
+   Telefono (schermo rivolto al pilota): forward moto = -dZ (normale schermo).
+   L'asse longitudinale è quindi SEMPRE -dZ: la piega NON dipende dall'orientamento.
+   Il montaggio definisce solo quale asse dispositivo è "laterale"/"verticale" per le accelerazioni.
+*/
+const MOUNT = {
+  'landscape-left':  { vert: 'x', lat:  'y',  lon: '-z' }, // up=+dX, left=+dY
+  'landscape-right': { vert: '-x', lat: '-y', lon: '-z' }, // up=-dX, left=-dY
+  'portrait':        { vert: 'y', lat: '-x', lon: '-z' }, // up=+dY, left=-dX
+};
+
+function axis(v, key) {
+  // key come 'x','-y' etc → componente (con segno) del vettore device-frame
+  const neg = key[0] === '-';
+  const c = key[neg ? 1 : 0];
+  const val = v[c] || 0;
+  return neg ? -val : val;
+}
+
+/* ============================== Lean (piega) ==============================
+   Piega = angolo di rotazione dell'up-vettore attorno all'asse longitudinale (-dZ),
+   rispetto all'up-vettore calibrato U0. Proiezione sul piano dX-dY (la componente Z
+   è invariante sotto roll). Fisicamente: l'accelerometro "sente" gravità + centrifuga;
+   a regime la risultante è normale al telaio → coincide con la piega reale.
+*/
+function upVector(accIncG) {
+  const x = accIncG.x || 0, y = accIncG.y || 0, z = accIncG.z || 0;
+  const m = Math.hypot(x, y, z) || 1;
+  return { x: x / m, y: y / m, z: z / m };
+}
+
+function leanFromUp(U, U0) {
+  const cross = U0.x * U.y - U0.y * U.x;   // sin dell'angolo (segnato)
+  const dot   = U0.x * U.x + U0.y * U.y;   // cos
+  let raw = Math.atan2(cross, dot) * 180 / Math.PI; // piega a destra → negativo
+  return -raw;                              // piega a destra → positivo
+}
+
+/* ============================== DOM ============================== */
+const $ = id => document.getElementById(id);
+const els = {
+  gpsDot: $('gpsDot'), gpsTxt: $('gpsTxt'), recBadge: $('recBadge'),
+  speedVal: $('speedVal'), leanVal: $('leanVal'), leanDir: $('leanDir'),
+  maxLeanL: $('maxLeanL'), maxLeanR: $('maxLeanR'),
+  latVal: $('latVal'), lonVal: $('lonVal'), vertVal: $('vertVal'),
+  latBar: $('latBar'), lonBar: $('lonBar'), vertBar: $('vertBar'),
+  statMaxSpeed: $('statMaxSpeed'), statDist: $('statDist'), statTime: $('statTime'),
+  btnCalib: $('btnCalib'), btnLog: $('btnLog'), btnExport: $('btnExport'),
+  btnFullscreen: $('btnFullscreen'), btnDemo: $('btnDemo'),
+  mountSel: $('mountSel'), invertLean: $('invertLean'), wakeLockChk: $('wakeLockChk'),
+  calibStatus: $('calibStatus'), permBtn: $('permBtn'), gauge: $('gauge'),
+};
+
+/* ============================== Gauge SVG ============================== */
+function buildGauge() {
+  const cx = 130, cy = 130, r = 96;
+  const svg = els.gauge;
+  svg.innerHTML = '';
+  const NS = 'http://www.w3.org/2000/svg';
+  const pt = (ang) => { // ang in gradi, 0=destra, CCW+; return {x,y}
+    const a = ang * Math.PI / 180;
+    return { x: cx + r * Math.cos(a), y: cy - r * Math.sin(a) };
+  };
+  // arco banda -60..+60 (da 150° a 30°)
+  const p0 = pt(150), p1 = pt(90), p2 = pt(30);
+  const path = document.createElementNS(NS, 'path');
+  path.setAttribute('d', `M ${p0.x} ${p0.y} A ${r} ${r} 0 0 1 ${p2.x} ${p2.y}`);
+  path.setAttribute('fill', 'none');
+  path.setAttribute('stroke', '#27303c');
+  path.setAttribute('stroke-width', '14');
+  path.setAttribute('stroke-linecap', 'round');
+  svg.appendChild(path);
+  // tacche ogni 10°, etichette ogni 30°
+  for (let a = -60; a <= 60; a += 10) {
+    const ang = 90 - a; // a di piega → angolo standard
+    const major = a % 30 === 0;
+    const r1 = major ? r - 22 : r - 16, r2 = r - 6;
+    const t1 = pt(ang), t2 = pt(ang);
+    const line = document.createElementNS(NS, 'line');
+    line.setAttribute('x1', cx + (r1) * Math.cos(ang * Math.PI / 180));
+    line.setAttribute('y1', cy - (r1) * Math.sin(ang * Math.PI / 180));
+    line.setAttribute('x2', cx + (r2) * Math.cos(ang * Math.PI / 180));
+    line.setAttribute('y2', cy - (r2) * Math.sin(ang * Math.PI / 180));
+    line.setAttribute('stroke', major ? '#8b98a8' : '#3a4552');
+    line.setAttribute('stroke-width', major ? 2 : 1);
+    svg.appendChild(line);
+    if (major) {
+      const lp = pt(ang);
+      const tx = cx + (r - 34) * Math.cos(ang * Math.PI / 180);
+      const ty = cy - (r - 34) * Math.sin(ang * Math.PI / 180) + 4;
+      const txt = document.createElementNS(NS, 'text');
+      txt.setAttribute('x', tx); txt.setAttribute('y', ty);
+      txt.setAttribute('text-anchor', 'middle');
+      txt.setAttribute('font-size', '11');
+      txt.setAttribute('fill', '#8b98a8');
+      txt.textContent = Math.abs(a);
+      svg.appendChild(txt);
+    }
+  }
+  // ago
+  const needle = document.createElementNS(NS, 'g');
+  const nline = document.createElementNS(NS, 'line');
+  nline.setAttribute('x1', cx); nline.setAttribute('y1', cy);
+  nline.setAttribute('x2', cx); nline.setAttribute('y2', cy - (r - 26));
+  nline.setAttribute('stroke', '#29b6f6');
+  nline.setAttribute('stroke-width', '5');
+  nline.setAttribute('stroke-linecap', 'round');
+  needle.appendChild(nline);
+  const hub = document.createElementNS(NS, 'circle');
+  hub.setAttribute('cx', cx); hub.setAttribute('cy', cy); hub.setAttribute('r', 7);
+  hub.setAttribute('fill', '#29b6f6');
+  needle.appendChild(hub);
+  svg.appendChild(needle);
+  state._needle = needle;
+  state._cx = cx; state._cy = cy;
+}
+
+function setNeedle(lean) {
+  if (!state._needle) return;
+  const a = Math.max(-60, Math.min(60, lean));
+  // SVG: rotazione positiva = oraria; piega destra (a>0) → ago a destra
+  state._needle.setAttribute('transform', `rotate(${a} ${state._cx} ${state._cy})`);
+}
+
+/* ============================== Persistenza ============================== */
+const store = {
+  get(k, d) { try { const v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
+  set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} },
+};
+
+function loadSettings() {
+  const s = store.get('cruscotto.settings', {});
+  state.mount = s.mount || 'landscape-left';
+  state.invertLean = !!s.invertLean;
+  state.wakeLockOn = s.wakeLockOn !== false;
+  els.mountSel.value = state.mount;
+  els.invertLean.checked = state.invertLean;
+  els.wakeLockChk.checked = state.wakeLockOn;
+  const c = store.get('cruscotto.calib', null);
+  if (c) { state.calib = c; updateCalibStatus(); }
+}
+
+function saveSettings() {
+  store.set('cruscotto.settings', {
+    mount: state.mount, invertLean: state.invertLean, wakeLockOn: state.wakeLockOn
+  });
+}
+
+function updateCalibStatus() {
+  els.calibStatus.textContent = state.calib ? 'calibrato' : 'non calibrato';
+  els.calibStatus.style.color = state.calib ? 'var(--good)' : 'var(--dim)';
+}
+
+/* ============================== Sensori ============================== */
+function accIncG(e) {
+  const a = e.accelerationIncludingGravity;
+  if (a && (a.x != null || a.y != null || a.z != null)) return { x: a.x || 0, y: a.y || 0, z: a.z || 0 };
+  return null;
+}
+function linearAccel(e) {
+  const a = e.acceleration;
+  if (a && (a.x != null || a.y != null || a.z != null)) return { x: a.x || 0, y: a.y || 0, z: a.z || 0 };
+  return null;
+}
+
+function onDeviceMotion(e) {
+  if (state.demo) return;
+  const now = performance.now();
+  let dt = (now - lastT) / 1000;
+  lastT = now;
+  if (!(dt > 0) || dt > 0.05) dt = 0.02; // clamp
+
+  const ig = accIncG(e);
+  const la = linearAccel(e);
+  const m = MOUNT[state.mount];
+
+  // Accelerazioni lineari in frame moto (g)
+  if (la) {
+    state.latG = axis(la, m.lat) / G;
+    state.lonG = axis(la, m.lon) / G;
+    state.vertG = axis(la, m.vert) / G;
+  } else if (ig) {
+    // fallback: non disponibile gravità-rimossa → mostra 0
+    state.latG = 0; state.lonG = 0; state.vertG = 0;
+  }
+
+  // Gyro: velocità angolare su asse longitudinale (-dZ) → deg/s
+  const rr = e.rotationRate;
+  state.gyroRoll = rr ? -(rr.gamma || 0) : 0;
+
+  // Piega da up-vettore
+  if (ig && state.calib) {
+    const U = upVector(ig);
+    state._lastUp = U;
+    let lean = leanFromUp(U, state.calib);
+    if (state.invertLean) lean = -lean;
+    const roll = state.invertLean ? -state.gyroRoll : state.gyroRoll;
+
+    // Filtro complementare: gyro per transitori, accel per drift-free
+    if (state.leanFused == null) {
+      state.leanFused = lean;
+    } else {
+      const a = 0.98; // peso integrazione gyro
+      state.leanFused = a * (state.leanFused + roll * dt) + (1 - a) * lean;
+    }
+    state.lean = state.leanFused;
+  } else if (ig && !state.calib) {
+    state._lastUp = upVector(ig);
+    state.leanFused = null;
+    state.lean = 0;
+  }
+}
+
+function onGeolocation(pos) {
+  if (state.demo) return;
+  const c = pos.coords;
+  if (c.speed != null && c.speed >= 0) {
+    state.speedMs = c.speed;
+    state.speedKph = c.speed * 3.6;
+  }
+  state.gps = {
+    lat: c.latitude, lon: c.longitude,
+    alt: c.altitude, heading: c.heading, acc: c.accuracy
+  };
+  state.gpsStatus = 'ok';
+  updateGpsStatus();
+
+  // distanza (haversine tra fix successivi)
+  if (state.session.lastPos) {
+    state.session.distKm += haversine(state.session.lastPos, { lat: c.latitude, lon: c.longitude });
+  }
+  state.session.lastPos = { lat: c.latitude, lon: c.longitude };
+}
+
+function onGeolocationErr(err) {
+  if (state.demo) return;
+  state.gpsStatus = 'err';
+  updateGpsStatus();
+}
+
+function updateGpsStatus() {
+  if (state.demo) {
+    els.gpsDot.className = 'status-dot ok';
+    els.gpsTxt.textContent = 'GPS demo';
+    return;
+  }
+  if (state.gpsStatus === 'ok') {
+    els.gpsDot.className = 'status-dot ok';
+    els.gpsTxt.textContent = 'GPS ok' + (state.gps.acc != null ? ' (±' + Math.round(state.gps.acc) + 'm)' : '');
+  } else if (state.gpsStatus === 'err') {
+    els.gpsDot.className = 'status-dot err';
+    els.gpsTxt.textContent = 'GPS errore';
+  } else {
+    els.gpsDot.className = 'status-dot wait';
+    els.gpsTxt.textContent = 'GPS in attesa';
+  }
+}
+
+function haversine(a, b) {
+  const R = 6371000;
+  const dLat = (b.lat - a.lat) * Math.PI / 180;
+  const dLon = (b.lon - a.lon) * Math.PI / 180;
+  const la1 = a.lat * Math.PI / 180, la2 = b.lat * Math.PI / 180;
+  const h = Math.sin(dLat/2)**2 + Math.cos(la1)*Math.cos(la2)*Math.sin(dLon/2)**2;
+  return 2 * R * Math.asin(Math.sqrt(h)) / 1000; // km
+}
+
+function setupSensors() {
+  // Permessi iOS (feature-detected): mostrano il pulsante, l'utente tocca
+  const needPerm = (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function')
+    || (typeof DeviceMotionEvent !== 'undefined' && typeof DeviceMotionEvent.requestPermission === 'function');
+  if (needPerm) {
+    els.permBtn.style.display = 'block';
+    els.permBtn.addEventListener('click', async () => {
+      try {
+        if (typeof DeviceOrientationEvent.requestPermission === 'function')
+          await DeviceOrientationEvent.requestPermission();
+        if (typeof DeviceMotionEvent.requestPermission === 'function')
+          await DeviceMotionEvent.requestPermission();
+      } catch (e) {}
+      els.permBtn.style.display = 'none';
+      addListeners();
+    });
+    return;
+  }
+  addListeners();
+}
+
+function addListeners() {
+  if (window.DeviceMotionEvent) window.addEventListener('devicemotion', onDeviceMotion, true);
+  if (window.DeviceOrientationEvent) window.addEventListener('deviceorientation', () => {}, true);
+  if (navigator.geolocation) {
+    navigator.geolocation.watchPosition(onGeolocation, onGeolocationErr, {
+      enableHighAccuracy: true, maximumAge: 0, timeout: 10000
+    });
+  } else {
+    state.gpsStatus = 'err'; updateGpsStatus();
+  }
+}
+
+/* ============================== Wake lock / Fullscreen ============================== */
+async function requestWakeLock() {
+  if (!state.wakeLockOn || !('wakeLock' in navigator)) return;
+  try { wakeLock = await navigator.wakeLock.request('screen'); }
+  catch (e) { /* non supportato o non consentito */ }
+}
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible') requestWakeLock();
+});
+
+function toggleFullscreen() {
+  if (!document.fullscreenElement) {
+    document.documentElement.requestFullscreen && document.documentElement.requestFullscreen().catch(() => {});
+  } else {
+    document.exitFullscreen && document.exitFullscreen().catch(() => {});
+  }
+}
+
+/* ============================== Logging ============================== */
+function snapshot() {
+  const t = state.session.start ? (performance.now() - state.session.start) / 1000 : 0;
+  return {
+    t: t, speedKmh: state.speedKph, speedMs: state.speedMs,
+    lean: state.lean, latG: state.latG, lonG: state.lonG, vertG: state.vertG,
+    gyro: state.gyroRoll,
+    lat: state.gps.lat, lon: state.gps.lon, alt: state.gps.alt,
+    heading: state.gps.heading, gpsAcc: state.gps.acc
+  };
+}
+
+function startLog() {
+  state.logging = true;
+  state.rows = [];
+  state.session = { maxSpeed: 0, maxLeanR: 0, maxLeanL: 0, distKm: 0, start: performance.now(), lastPos: state.gps.lat != null ? { lat: state.gps.lat, lon: state.gps.lon } : null };
+  lastSample = lastFlush = performance.now();
+  els.btnLog.textContent = '■ Stop Log';
+  els.btnLog.classList.remove('primary');
+  els.btnLog.classList.add('rec');
+  els.recBadge.style.display = 'inline';
+}
+
+function stopLog() {
+  state.logging = false;
+  els.btnLog.textContent = '▶ Start Log';
+  els.btnLog.classList.add('primary');
+  els.btnLog.classList.remove('rec');
+  els.recBadge.style.display = 'none';
+  flushLog();
+}
+
+function flushLog() {
+  if (!state.rows.length) return;
+  try { localStorage.setItem('cruscotto.log', JSON.stringify(state.rows)); }
+  catch (e) { /* quota superata: il buffer in memoria resta */ }
+}
+
+function exportCsv() {
+  const rows = state.rows.length ? state.rows : store.get('cruscotto.log', []);
+  if (!rows.length) { alert('Nessun dato da esportare. Avvia il log.'); return; }
+  const header = 't,speed_kmh,speed_ms,lean_deg,lat_accel_g,lon_accel_g,vert_accel_g,gyro_roll_dps,lat,lon,alt_m,heading_deg,gps_acc_m';
+  const meta = [
+    '# cruscotto-moto export',
+    '# sessione: ' + new Date().toISOString(),
+    '# max_lean_D: ' + state.session.maxLeanR.toFixed(1) + ', max_lean_S: ' + state.session.maxLeanL.toFixed(1),
+    '# max_speed_kmh: ' + state.session.maxSpeed.toFixed(1),
+    '# distanza_km: ' + state.session.distKm.toFixed(3),
+  ].join('\n');
+  const lines = rows.map(r => [
+    r.t.toFixed(3), r.speedKmh.toFixed(1), r.speedMs.toFixed(2), r.lean.toFixed(2),
+    (r.latG||0).toFixed(3), (r.lonG||0).toFixed(3), (r.vertG||0).toFixed(3),
+    (r.gyro||0).toFixed(2),
+    r.lat == null ? '' : r.lat.toFixed(6), r.lon == null ? '' : r.lon.toFixed(6),
+    r.alt == null ? '' : r.alt.toFixed(1), r.heading == null ? '' : r.heading.toFixed(1),
+    r.gpsAcc == null ? '' : r.gpsAcc.toFixed(1)
+  ].join(','));
+  const csv = meta + '\n' + header + '\n' + lines.join('\n');
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+  const a = document.createElement('a');
+  const d = new Date();
+  const pad = n => String(n).padStart(2, '0');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'cruscotto_' + d.getFullYear() + pad(d.getMonth()+1) + pad(d.getDate()) + '_' + pad(d.getHours()) + pad(d.getMinutes()) + pad(d.getSeconds()) + '.csv';
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(a.href);
+}
+
+/* ============================== Demo ============================== */
+let demoStart = null;
+function tickDemo(now) {
+  if (!state.demo) return;
+  if (demoStart == null) demoStart = now;
+  const t = (now - demoStart) / 1000;
+  // piega: S-curve sinusoidali + velocità correlata
+  const lean = 38 * Math.sin(t * 0.45) * Math.sin(t * 0.13 + 0.6);
+  state.lean = lean;
+  const speed = 70 + 45 * Math.sin(t * 0.31 + 1.0) * Math.sin(t * 0.11);
+  state.speedKph = Math.max(0, speed);
+  state.speedMs = state.speedKph / 3.6;
+  state.latG = Math.tan(lean * Math.PI / 180); // fisicamente coerente: tan(piega)=a_lat/g
+  state.lonG = 0.18 * Math.sin(t * 0.7);
+  state.vertG = 0.05 * Math.sin(t * 2.2);
+  state.gyroRoll = 0;
+  state.gps = { lat: 45.0, lon: 9.0, alt: 120, heading: 90, acc: 5 };
+  state.gpsStatus = 'ok';
+  // distanza demo
+  state.session.lastPos = state.session.lastPos || { lat: 45.0, lon: 9.0 };
+  state.session.distKm += (state.speedMs * 0.05) / 1000;
+}
+
+/* ============================== Loop display ============================== */
+function updateDisplay() {
+  els.speedVal.textContent = Math.round(state.speedKph);
+
+  if (state.demo || state.calib) {
+    els.leanVal.textContent = Math.abs(state.lean).toFixed(1);
+    if (Math.abs(state.lean) < 1) { els.leanDir.textContent = ' '; els.leanDir.className = 'lean-dir'; }
+    else if (state.lean > 0) { els.leanDir.textContent = 'DESTRA'; els.leanDir.className = 'lean-dir right'; }
+    else { els.leanDir.textContent = 'SINISTRA'; els.leanDir.className = 'lean-dir left'; }
+  } else {
+    els.leanVal.textContent = '--';
+    els.leanDir.textContent = 'CALIBRA';
+    els.leanDir.className = 'lean-dir';
+  }
+  setNeedle(state.lean);
+
+  // accelerazioni
+  const latAbs = Math.abs(state.latG), lonAbs = Math.abs(state.lonG), vertAbs = Math.abs(state.vertG);
+  els.latVal.textContent = (state.latG >= 0 ? '+' : '') + state.latG.toFixed(2);
+  els.lonVal.textContent = (state.lonG >= 0 ? '+' : '') + state.lonG.toFixed(2);
+  els.vertVal.textContent = (state.vertG >= 0 ? '+' : '') + state.vertG.toFixed(2);
+  setBar(els.latBar, state.latG, latAbs, 1.2);
+  setBar(els.lonBar, state.lonG, lonAbs, 1.2);
+  setBar(els.vertBar, state.vertG, vertAbs, 1.2);
+
+  // session
+  if (state.session.start) {
+    state.session.maxSpeed = Math.max(state.session.maxSpeed, state.speedKph);
+    state.session.maxLeanR = Math.max(state.session.maxLeanR, state.lean);
+    state.session.maxLeanL = Math.min(state.session.maxLeanL, state.lean);
+  }
+  els.statMaxSpeed.textContent = Math.round(state.session.maxSpeed);
+  els.statDist.textContent = state.session.distKm.toFixed(2);
+  els.maxLeanR.textContent = Math.abs(state.session.maxLeanR).toFixed(0) + '°';
+  els.maxLeanL.textContent = Math.abs(state.session.maxLeanL).toFixed(0) + '°';
+  const dur = state.session.start ? (performance.now() - state.session.start) / 1000 : 0;
+  const mm = String(Math.floor(dur / 60)).padStart(2, '0');
+  const ss = String(Math.floor(dur % 60)).padStart(2, '0');
+  els.statTime.textContent = mm + ':' + ss;
+
+  updateGpsStatus();
+}
+
+function setBar(el, val, absVal, maxG) {
+  const pct = Math.min(100, (absVal / maxG) * 50);
+  el.style.width = pct + '%';
+  el.style.left = (val >= 0 ? '50%' : (50 - pct) + '%');
+  el.className = 'fill' + (val < 0 ? ' neg' : '');
+}
+
+function mainLoop(now) {
+  tickDemo(now);
+  updateDisplay();
+  if (state.logging) {
+    const nowP = performance.now();
+    if (nowP - lastSample >= 1000 / LOG_HZ) {
+      lastSample = nowP;
+      state.rows.push(snapshot());
+      if (state.rows.length > MAX_ROWS) state.rows.shift();
+    }
+    if (nowP - lastFlush >= FLUSH_MS) {
+      lastFlush = nowP;
+      flushLog();
+    }
+  }
+  requestAnimationFrame(mainLoop);
+}
+
+/* ============================== Init ============================== */
+function init() {
+  loadSettings();
+  buildGauge();
+  updateCalibStatus();
+
+  els.btnCalib.addEventListener('click', () => {
+    // usa ultimo up-vettore noto; se non disponibile mostra avviso
+    if (state._lastUp) {
+      state.calib = state._lastUp;
+      state.leanFused = 0;
+      store.set('cruscotto.calib', state.calib);
+      updateCalibStatus();
+    } else {
+      alert('Nessun dato sensore. Avvia la Demo o muovi il telefono, poi ricalibra.');
+    }
+  });
+
+  els.btnLog.addEventListener('click', () => state.logging ? stopLog() : startLog());
+  els.btnExport.addEventListener('click', exportCsv);
+  els.btnFullscreen.addEventListener('click', toggleFullscreen);
+
+  els.btnDemo.addEventListener('click', () => {
+    state.demo = !state.demo;
+    demoStart = null;
+    els.btnDemo.classList.toggle('on', state.demo);
+    els.btnDemo.textContent = state.demo ? 'Demo ON' : 'Demo';
+    if (!state.demo) {
+      // reset stato demo → torna ai sensori reali
+      state.leanFused = null;
+      state.gpsStatus = 'waiting';
+      state.session.lastPos = null;
+    } else {
+      state.calib = { x: 1, y: 0, z: 0 };
+      updateCalibStatus();
+    }
+  });
+
+  els.mountSel.addEventListener('change', () => { state.mount = els.mountSel.value; saveSettings(); });
+  els.invertLean.addEventListener('change', () => { state.invertLean = els.invertLean.checked; saveSettings(); });
+  els.wakeLockChk.addEventListener('change', () => { state.wakeLockOn = els.wakeLockChk.checked; saveSettings(); if (state.wakeLockOn) requestWakeLock(); });
+
+  // sessione attiva fin da subito (statistiche live); Start Log la azzera
+  state.session.start = performance.now();
+
+  setupSensors();
+  requestWakeLock();
+  requestAnimationFrame(mainLoop);
+}
+
+init();
+</script>
+</body>
+</html>
