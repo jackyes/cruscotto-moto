@@ -29,6 +29,27 @@ Alternative (entrambe HTTPS automatico):
 5. **⛶ Fullscreen** per la vista immersiva; lo schermo resta acceso (wake lock) se spuntato nelle impostazioni.
 6. **Demo**: simula i dati (senza moto né sensori) per provare l'interfaccia e l'export — utile anche su desktop.
 
+## Schede
+
+L'app è organizzata in 4 schede (barra in basso): **Dashboard · Mappa · Grafici · Storico**.
+
+- **Cambiare scheda NON interrompe il log**: la registrazione gira in un loop indipendente dalla vista. Il pulsante **Start/Stop** resta sempre nella barra in alto, insieme allo stato GPS, al badge ●REC e alla durata.
+
+### Mappa
+- Carica **Leaflet + OpenStreetMap** a runtime (da CDN). Mostra posizione corrente (punto + freccia heading) e traccia del percorso.
+- **Fallback offline**: se il CDN non è raggiungibile, ripiega su un canvas che disegna la traccia senza basemappa (zero dipendenze).
+
+### Grafici
+- Andamento **ultimi 60 s** di velocità, piega e accelerazione laterale (canvas nativo, nessuna libreria).
+
+### Storico sessioni
+- A ogni **Stop Log** la sessione viene salvata in **IndexedDB** (dati 20 Hz + traccia GPS).
+- Elenco giri passati; tap → dettaglio (statistiche + replay traccia su mappa) + **Export CSV / GPX / Elimina**.
+- `localStorage` resta per impostazioni/calibrazione + ultimo log attivo.
+
+### Export GPX
+- Il percorso GPS si esporta in `.gpx` (compatibile Strava / Google Maps / Relive).
+
 ## Angolo di piega — come funziona
 
 - L'accelerometro "sente" gravità + forza centrifuga. In curva, a regime, la risultante è perpendicolare al telaio → l'inclinazione misurata coincide con la piega reale.
@@ -61,13 +82,15 @@ Il file usa la virgola come separatore. Su Excel italiano potresti vedere tutto 
 - **Excel**: Dati → Da testo/CSV → delimitatore **virgola** → carica.
 - **Google Sheets**: File → Importa → delimitatore "Virgola".
 
-## Sensori usati (API web standard, nessuna libreria)
+## Sensori usati (API web standard)
 
 - `navigator.geolocation.watchPosition` — velocità/posizione
 - `DeviceMotionEvent` — accelerazione + giroscopio
 - `DeviceOrientationEvent` — (permesso iOS)
 - `navigator.wakeLock` — schermo acceso
 - Fullscreen API
+- `IndexedDB` — storico sessioni
+- Leaflet + OpenStreetMap — mappa (caricata a runtime; fallback canvas offline)
 
 ## Limiti noti
 

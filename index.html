@@ -33,48 +33,43 @@
   .wrap {
     max-width: 1080px;
     margin: 0 auto;
-    padding: calc(8px + env(safe-area-inset-top)) 12px calc(12px + env(safe-area-inset-bottom));
+    min-height: 100%;
     display: flex;
     flex-direction: column;
-    gap: 12px;
-    min-height: 100%;
+    padding: calc(6px + env(safe-area-inset-top)) 12px calc(6px + env(safe-area-inset-bottom));
+    gap: 10px;
   }
 
-  /* Header */
+  /* ===== Top bar ===== */
   header {
     display: flex;
     align-items: center;
-    justify-content: space-between;
     gap: 10px;
     flex-wrap: wrap;
   }
-  header h1 {
-    font-size: 20px;
-    font-weight: 700;
-    letter-spacing: .5px;
-  }
+  header h1 { font-size: 18px; font-weight: 700; letter-spacing: .5px; }
   header h1 .dot { color: var(--accent); }
-  .status-row {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    font-size: 13px;
-    color: var(--dim);
-  }
-  .status-dot {
-    width: 10px; height: 10px; border-radius: 50%;
-    background: var(--dim);
-  }
+  .top-spacer { flex: 1; }
+  .status-row { display: flex; align-items: center; gap: 7px; font-size: 12px; color: var(--dim); }
+  .status-dot { width: 9px; height: 9px; border-radius: 50%; background: var(--dim); }
   .status-dot.ok { background: var(--good); box-shadow: 0 0 8px var(--good); }
   .status-dot.err { background: var(--bad); }
   .status-dot.wait { background: var(--warn); }
-
-  /* Cards */
-  .grid {
-    display: grid;
-    grid-template-columns: 1fr;
-    gap: 12px;
+  .rec-badge { display: none; color: var(--bad); font-weight: 700; font-size: 13px; }
+  .rec-badge.on { display: inline; }
+  #topTime { font-variant-numeric: tabular-nums; color: var(--txt); font-weight: 700; }
+  #btnLogTop {
+    background: var(--accent); color: #06222f; border: 1px solid var(--accent);
+    border-radius: 10px; padding: 10px 14px; font-size: 14px; font-weight: 700; cursor: pointer;
+    min-height: 44px; touch-action: manipulation;
   }
+  #btnLogTop.rec { background: var(--bad); color: #2a0808; border-color: var(--bad); }
+
+  /* ===== Panels ===== */
+  main { flex: 1; }
+  .panel { display: none; }
+  .panel.active { display: block; }
+  .grid { display: grid; grid-template-columns: 1fr; gap: 12px; }
   .card {
     background: var(--card);
     border: 1px solid var(--line);
@@ -82,12 +77,8 @@
     padding: 16px;
   }
   .card h2 {
-    font-size: 12px;
-    text-transform: uppercase;
-    letter-spacing: 1.2px;
-    color: var(--dim);
-    font-weight: 600;
-    margin-bottom: 8px;
+    font-size: 12px; text-transform: uppercase; letter-spacing: 1.2px;
+    color: var(--dim); font-weight: 600; margin-bottom: 8px;
   }
 
   /* Speed */
@@ -99,35 +90,22 @@
   .lean-wrap { display: flex; flex-direction: column; align-items: center; }
   .lean-num { font-size: 44px; font-weight: 800; line-height: 1; margin-top: -4px; }
   .lean-num .deg { font-size: 22px; color: var(--dim); }
-  .lean-dir {
-    font-size: 15px; color: var(--dim); font-weight: 600; letter-spacing: 2px;
-    min-height: 1.2em;
-  }
+  .lean-dir { font-size: 15px; color: var(--dim); font-weight: 600; letter-spacing: 2px; min-height: 1.2em; }
   .lean-dir.right { color: var(--accent); }
   .lean-dir.left { color: var(--good); }
-  .lean-max {
-    display: flex; justify-content: space-between; width: 100%;
-    font-size: 14px; color: var(--dim); margin-top: 6px;
-  }
+  .lean-max { display: flex; justify-content: space-between; width: 100%; font-size: 14px; color: var(--dim); margin-top: 6px; }
   .lean-max b { font-size: 18px; }
   .lean-max .mx-r { color: var(--accent); }
   .lean-max .mx-l { color: var(--good); }
 
   /* Accel */
   .accel-row { display: flex; flex-direction: column; gap: 10px; }
-  .accel-item { }
   .accel-top { display: flex; justify-content: space-between; font-size: 14px; margin-bottom: 4px; }
   .accel-top .lbl { color: var(--dim); font-weight: 600; }
   .accel-top .val { font-weight: 700; font-variant-numeric: tabular-nums; }
-  .bar {
-    position: relative; height: 12px; background: var(--card-2);
-    border-radius: 6px; overflow: hidden;
-  }
+  .bar { position: relative; height: 12px; background: var(--card-2); border-radius: 6px; overflow: hidden; }
   .bar .mid { position: absolute; left: 50%; top: 0; bottom: 0; width: 2px; background: var(--line); }
-  .bar .fill {
-    position: absolute; top: 0; bottom: 0; left: 50%; width: 0;
-    background: var(--accent); border-radius: 6px; transition: width .08s linear;
-  }
+  .bar .fill { position: absolute; top: 0; bottom: 0; left: 50%; width: 0; background: var(--accent); border-radius: 6px; transition: width .08s linear; }
   .bar .fill.neg { background: var(--warn); }
 
   /* Stats */
@@ -137,51 +115,72 @@
   .stat .k { font-size: 11px; color: var(--dim); text-transform: uppercase; letter-spacing: .8px; }
 
   /* Controls */
-  .controls { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; }
-  .controls.full { grid-template-columns: repeat(5, 1fr); }
+  .controls { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
   button {
-    background: var(--card-2);
-    color: var(--txt);
-    border: 1px solid var(--line);
-    border-radius: 12px;
-    padding: 14px 10px;
-    font-size: 15px;
-    font-weight: 600;
-    cursor: pointer;
-    min-height: 48px;
-    touch-action: manipulation;
+    background: var(--card-2); color: var(--txt);
+    border: 1px solid var(--line); border-radius: 12px;
+    padding: 14px 10px; font-size: 15px; font-weight: 600;
+    cursor: pointer; min-height: 48px; touch-action: manipulation;
   }
   button:active { background: #243040; }
   button.primary { background: var(--accent); color: #06222f; border-color: var(--accent); }
-  button.rec { background: var(--bad); color: #2a0808; border-color: var(--bad); }
   button.on { background: var(--good); color: #062b1d; border-color: var(--good); }
 
-  /* Settings */
-  details {
-    background: var(--card);
-    border: 1px solid var(--line);
-    border-radius: 12px;
-    padding: 10px 14px;
+  /* ===== Map ===== */
+  .map-box { position: relative; height: 62vh; border-radius: 16px; overflow: hidden; border: 1px solid var(--line); background: var(--card); }
+  #map { height: 100%; width: 100%; }
+  #mapCanvas { display: none; width: 100%; height: 100%; }
+
+  /* ===== Charts ===== */
+  .chart-item { margin-bottom: 14px; }
+  .chart-item .clbl { display: flex; justify-content: space-between; font-size: 12px; color: var(--dim); margin-bottom: 4px; font-weight: 600; }
+  .chart-item canvas { width: 100%; height: 120px; border-radius: 8px; display: block; }
+
+  /* ===== History ===== */
+  .hist-list { display: flex; flex-direction: column; gap: 10px; }
+  .sess-card {
+    background: var(--card); border: 1px solid var(--line); border-radius: 14px;
+    padding: 14px; cursor: pointer;
   }
+  .sess-card:active { background: var(--card-2); }
+  .sess-card .sdate { font-size: 14px; font-weight: 700; margin-bottom: 4px; }
+  .sess-card .srow { display: flex; gap: 14px; font-size: 13px; color: var(--dim); flex-wrap: wrap; }
+  .sess-card .srow b { color: var(--txt); }
+  .sess-detail { margin-top: 12px; }
+  .sess-detail .dstats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 10px; }
+  .sess-detail .dstat { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 10px; text-align: center; }
+  .sess-detail .dstat .v { font-size: 20px; font-weight: 800; }
+  .sess-detail .dstat .k { font-size: 10px; color: var(--dim); text-transform: uppercase; letter-spacing: .6px; }
+  .sess-detail canvas { width: 100%; height: 200px; border-radius: 12px; background: var(--card); }
+  .dbtns { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-top: 10px; }
+  .empty { color: var(--dim); font-size: 14px; text-align: center; padding: 24px 0; }
+
+  /* ===== Tab bar ===== */
+  nav.tabbar {
+    display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px;
+    padding-top: 6px;
+    position: sticky; bottom: 0; z-index: 10; background: var(--bg);
+  }
+  nav.tabbar button {
+    min-height: 52px; padding: 8px 4px; font-size: 12px; border-radius: 12px;
+    display: flex; flex-direction: column; align-items: center; gap: 3px;
+    background: var(--card); color: var(--dim);
+  }
+  nav.tabbar button .ico { font-size: 20px; line-height: 1; }
+  nav.tabbar button.active { background: var(--card-2); color: var(--accent); border-color: var(--accent); }
+
+  /* Settings */
+  details { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 10px 14px; margin-top: 12px; }
   summary { cursor: pointer; font-size: 14px; color: var(--dim); font-weight: 600; }
   details[open] summary { margin-bottom: 10px; }
-  .set-row {
-    display: flex; align-items: center; justify-content: space-between;
-    gap: 10px; padding: 8px 0; border-top: 1px solid var(--line); font-size: 14px;
-  }
+  .set-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 8px 0; border-top: 1px solid var(--line); font-size: 14px; }
   .set-row:first-of-type { border-top: 0; }
-  select {
-    background: var(--card-2); color: var(--txt);
-    border: 1px solid var(--line); border-radius: 8px;
-    padding: 8px; font-size: 14px;
-  }
+  select { background: var(--card-2); color: var(--txt); border: 1px solid var(--line); border-radius: 8px; padding: 8px; font-size: 14px; }
   input[type=checkbox] { width: 20px; height: 20px; accent-color: var(--accent); }
   .hint { font-size: 12px; color: var(--dim); line-height: 1.4; }
 
-  /* Landscape layout (phone mounted sideways) */
   @media (min-width: 720px) {
     .grid { grid-template-columns: 1fr 1fr; }
-    .controls.full { grid-template-columns: repeat(5, 1fr); }
   }
 </style>
 </head>
@@ -191,100 +190,154 @@
     <h1>CRUSCOTTO<span class="dot">·</span>MOTO</h1>
     <div class="status-row">
       <span class="status-dot wait" id="gpsDot"></span>
-      <span id="gpsTxt">GPS in attesa</span>
-      <span id="recBadge" style="display:none; color:var(--bad); font-weight:700;">● REC</span>
+      <span id="gpsTxt">GPS attesa</span>
     </div>
+    <div class="top-spacer"></div>
+    <span class="rec-badge" id="recBadge">● REC</span>
+    <span id="topTime">00:00</span>
+    <button id="btnLogTop">▶ Start</button>
   </header>
 
   <button id="permBtn" style="display:none; width:100%; background:var(--warn); color:#2a1a04; border-color:var(--warn);">
     Consenti sensori (motion/orientation)
   </button>
 
-  <div class="grid">
-    <div class="card" id="speedCard">
-      <h2>Velocità</h2>
-      <div class="speed-row">
-        <span class="speed-val" id="speedVal">0</span>
-        <span class="speed-unit">km/h</span>
-      </div>
-    </div>
-
-    <div class="card" id="leanCard">
-      <h2>Angolo di piega</h2>
-      <div class="lean-wrap">
-        <svg id="gauge" viewBox="0 0 260 150" width="100%" style="max-width:320px;"></svg>
-        <div class="lean-num"><span id="leanVal">--</span><span class="deg">°</span></div>
-        <div class="lean-dir" id="leanDir">&nbsp;</div>
-        <div class="lean-max">
-          <span>Max S <b class="mx-l" id="maxLeanL">0°</b></span>
-          <span>Max D <b class="mx-r" id="maxLeanR">0°</b></span>
+  <main>
+    <!-- ===== Dashboard ===== -->
+    <section id="tab-dashboard" class="panel active">
+      <div class="grid">
+        <div class="card">
+          <h2>Velocità</h2>
+          <div class="speed-row">
+            <span class="speed-val" id="speedVal">0</span>
+            <span class="speed-unit">km/h</span>
+          </div>
+        </div>
+        <div class="card">
+          <h2>Angolo di piega</h2>
+          <div class="lean-wrap">
+            <svg id="gauge" viewBox="0 0 260 150" width="100%" style="max-width:320px;"></svg>
+            <div class="lean-num"><span id="leanVal">--</span><span class="deg">°</span></div>
+            <div class="lean-dir" id="leanDir">&nbsp;</div>
+            <div class="lean-max">
+              <span>Max S <b class="mx-l" id="maxLeanL">0°</b></span>
+              <span>Max D <b class="mx-r" id="maxLeanR">0°</b></span>
+            </div>
+          </div>
+        </div>
+        <div class="card">
+          <h2>Accelerazioni (G)</h2>
+          <div class="accel-row">
+            <div class="accel-item">
+              <div class="accel-top"><span class="lbl">Laterale</span><span class="val" id="latVal">0.00</span></div>
+              <div class="bar"><div class="mid"></div><div class="fill" id="latBar"></div></div>
+            </div>
+            <div class="accel-item">
+              <div class="accel-top"><span class="lbl">Longitudinale</span><span class="val" id="lonVal">0.00</span></div>
+              <div class="bar"><div class="mid"></div><div class="fill" id="lonBar"></div></div>
+            </div>
+            <div class="accel-item">
+              <div class="accel-top"><span class="lbl">Verticale</span><span class="val" id="vertVal">0.00</span></div>
+              <div class="bar"><div class="mid"></div><div class="fill" id="vertBar"></div></div>
+            </div>
+          </div>
+        </div>
+        <div class="card">
+          <h2>Sessione</h2>
+          <div class="stats">
+            <div class="stat"><div class="v" id="statMaxSpeed">0</div><div class="k">km/h max</div></div>
+            <div class="stat"><div class="v" id="statDist">0.00</div><div class="k">km</div></div>
+            <div class="stat"><div class="v" id="statTime">00:00</div><div class="k">durata</div></div>
+          </div>
         </div>
       </div>
-    </div>
+      <div class="controls" style="margin-top:12px;">
+        <button id="btnCalib">Calibra</button>
+        <button id="btnFullscreen">⛶ Fullscreen</button>
+        <button id="btnDemo">Demo</button>
+      </div>
+    </section>
 
-    <div class="card">
-      <h2>Accelerazioni (G)</h2>
-      <div class="accel-row">
-        <div class="accel-item">
-          <div class="accel-top"><span class="lbl">Laterale</span><span class="val" id="latVal">0.00</span></div>
-          <div class="bar"><div class="mid"></div><div class="fill" id="latBar"></div></div>
-        </div>
-        <div class="accel-item">
-          <div class="accel-top"><span class="lbl">Longitudinale (+ accel / − freno)</span><span class="val" id="lonVal">0.00</span></div>
-          <div class="bar"><div class="mid"></div><div class="fill" id="lonBar"></div></div>
-        </div>
-        <div class="accel-item">
-          <div class="accel-top"><span class="lbl">Verticale</span><span class="val" id="vertVal">0.00</span></div>
-          <div class="bar"><div class="mid"></div><div class="fill" id="vertBar"></div></div>
+    <!-- ===== Mappa ===== -->
+    <section id="tab-map" class="panel">
+      <div class="card">
+        <h2>Percorso</h2>
+        <div class="map-box">
+          <div id="map"></div>
+          <canvas id="mapCanvas"></canvas>
         </div>
       </div>
-    </div>
+    </section>
 
-    <div class="card">
-      <h2>Sessione</h2>
-      <div class="stats">
-        <div class="stat"><div class="v" id="statMaxSpeed">0</div><div class="k">km/h max</div></div>
-        <div class="stat"><div class="v" id="statDist">0.00</div><div class="k">km</div></div>
-        <div class="stat"><div class="v" id="statTime">00:00</div><div class="k">durata</div></div>
+    <!-- ===== Grafici ===== -->
+    <section id="tab-charts" class="panel">
+      <div class="card">
+        <h2>Andamento (ultimi 60s)</h2>
+        <div class="chart-item">
+          <div class="clbl"><span>Velocità</span><span id="chSpeedMax">0 km/h</span></div>
+          <canvas id="chSpeed"></canvas>
+        </div>
+        <div class="chart-item">
+          <div class="clbl"><span>Piega</span><span>±60°</span></div>
+          <canvas id="chLean"></canvas>
+        </div>
+        <div class="chart-item">
+          <div class="clbl"><span>Accel laterale</span><span>±1.2 G</span></div>
+          <canvas id="chLat"></canvas>
+        </div>
       </div>
-    </div>
-  </div>
+    </section>
 
-  <div class="controls" id="controls">
-    <button id="btnCalib">Calibra</button>
-    <button id="btnLog" class="primary">▶ Start Log</button>
-    <button id="btnExport">Export CSV</button>
-    <button id="btnFullscreen">⛶ Fullscreen</button>
-    <button id="btnDemo">Demo</button>
-  </div>
+    <!-- ===== Storico ===== -->
+    <section id="tab-history" class="panel">
+      <div class="card">
+        <h2>Giri registrati</h2>
+        <div class="controls" style="margin-bottom:12px;">
+          <button id="btnExportCsv">CSV (sessione)</button>
+          <button id="btnExportGpx">GPX (sessione)</button>
+          <button id="btnExportCsvHist">CSV storico</button>
+        </div>
+        <div class="hist-list" id="sessionList">
+          <div class="empty">Nessun giro salvato. Avvia un log e fermalo per salvarlo qui.</div>
+        </div>
+        <div class="sess-detail" id="sessionDetail" style="display:none;"></div>
+      </div>
+      <details>
+        <summary>Impostazioni</summary>
+        <div class="set-row">
+          <span>Orientamento montaggio</span>
+          <select id="mountSel">
+            <option value="landscape-left">Landscape — top a sinistra</option>
+            <option value="landscape-right">Landscape — top a destra</option>
+            <option value="portrait">Portrait — verticale</option>
+          </select>
+        </div>
+        <div class="set-row">
+          <span>Inverti segno piega</span>
+          <input type="checkbox" id="invertLean">
+        </div>
+        <div class="set-row">
+          <span>Schermo sempre acceso (wake lock)</span>
+          <input type="checkbox" id="wakeLockChk" checked>
+        </div>
+        <div class="set-row">
+          <span>Stato calibrazione</span>
+          <span id="calibStatus" class="hint">non calibrato</span>
+        </div>
+        <p class="hint" style="margin-top:8px;">
+          Calibrazione: moto <b>dritta e ferma su piano</b>, premi "Calibra" (tab Dashboard).
+          Rifai la calibrazione se cambi supporto o orientamento.
+        </p>
+      </details>
+    </section>
+  </main>
 
-  <details>
-    <summary>Impostazioni</summary>
-    <div class="set-row">
-      <span>Orientamento montaggio</span>
-      <select id="mountSel">
-        <option value="landscape-left">Landscape — top a sinistra</option>
-        <option value="landscape-right">Landscape — top a destra</option>
-        <option value="portrait">Portrait — verticale</option>
-      </select>
-    </div>
-    <div class="set-row">
-      <span>Inverti segno piega</span>
-      <input type="checkbox" id="invertLean">
-    </div>
-    <div class="set-row">
-      <span>Schermo sempre acceso (wake lock)</span>
-      <input type="checkbox" id="wakeLockChk" checked>
-    </div>
-    <div class="set-row">
-      <span>Stato calibrazione</span>
-      <span id="calibStatus" class="hint">non calibrato</span>
-    </div>
-    <p class="hint" style="margin-top:8px;">
-      Calibrazione: monta il telefono rigidamente, tieni la moto <b>dritta e ferma su piano</b>, premi "Calibra".
-      Rifai la calibrazione se cambi supporto o orientamento.
-    </p>
-  </details>
+  <nav class="tabbar">
+    <button class="active" data-tab="dashboard"><span class="ico">📊</span>Dashboard</button>
+    <button data-tab="map"><span class="ico">🗺️</span>Mappa</button>
+    <button data-tab="charts"><span class="ico">📈</span>Grafici</button>
+    <button data-tab="history"><span class="ico">🗂️</span>Storico</button>
+  </nav>
 </div>
 
 <script>
@@ -292,59 +345,61 @@
 
 /* ============================== Stato ============================== */
 const G = 9.80665;
-const LOG_HZ = 20;              // frequenza campionamento log (Hz)
-const FLUSH_MS = 10000;         // flush su localStorage ogni 10s
-const MAX_ROWS = 180000;        // ~2.5h @ 20Hz
+const LOG_HZ = 20;
+const FLUSH_MS = 10000;
+const MAX_ROWS = 180000;
+const TRACK_MAX = 10000;
+const CHART_WINDOW = 60000;
 
 const state = {
   mount: 'landscape-left',
   invertLean: false,
   wakeLockOn: true,
-  calib: null,                  // { x, y, z } up-vettore calibrato (device frame)
-  lean: 0,                      // gradi, + = destra
-  leanFused: null,              // stato filtro complementare
-  gyroRoll: 0,                  // deg/s su asse longitudinale
-  latG: 0, lonG: 0, vertG: 0,   // accelerazioni lineari in g (frame moto)
+  calib: null,
+  lean: 0,
+  leanFused: null,
+  gyroRoll: 0,
+  latG: 0, lonG: 0, vertG: 0,
   speedKph: 0, speedMs: 0,
   gps: { lat: null, lon: null, alt: null, heading: null, acc: null },
-  gpsStatus: 'waiting',         // waiting | ok | err
+  gpsStatus: 'waiting',
   logging: false,
-  rows: [],                     // buffer in memoria
-  session: { maxSpeed: 0, maxLeanR: 0, maxLeanL: 0, distKm: 0, start: 0, lastPos: null },
+  rows: [],
+  track: [],                 // {lat, lon, alt, t, ts}
+  chartBuf: [],              // {t, speedKph, lean, latG, lonG}
+  session: { maxSpeed: 0, maxLeanR: 0, maxLeanL: 0, distKm: 0, start: 0, startWall: 0, lastPos: null },
   demo: false,
+  currentTab: 'dashboard',
+  mapReady: false,
+  mapType: null,             // 'leaflet' | 'canvas'
 };
 
 let lastT = performance.now();
 let lastSample = performance.now();
 let lastFlush = performance.now();
+let lastChartT = performance.now();
+let lastTrackT = 0;
 let wakeLock = null;
 
 /* ============================== Mapping assi ==============================
    Frame moto: forward = +X, up = +Z, left = +Y.
    Telefono (schermo rivolto al pilota): forward moto = -dZ (normale schermo).
-   L'asse longitudinale è quindi SEMPRE -dZ: la piega NON dipende dall'orientamento.
    Il montaggio definisce solo quale asse dispositivo è "laterale"/"verticale" per le accelerazioni.
 */
 const MOUNT = {
-  'landscape-left':  { vert: 'x', lat:  'y',  lon: '-z' }, // up=+dX, left=+dY
-  'landscape-right': { vert: '-x', lat: '-y', lon: '-z' }, // up=-dX, left=-dY
-  'portrait':        { vert: 'y', lat: '-x', lon: '-z' }, // up=+dY, left=-dX
+  'landscape-left':  { vert: 'x',  lat: 'y',  lon: '-z' },
+  'landscape-right': { vert: '-x', lat: '-y', lon: '-z' },
+  'portrait':        { vert: 'y',  lat: '-x', lon: '-z' },
 };
 
 function axis(v, key) {
-  // key come 'x','-y' etc → componente (con segno) del vettore device-frame
   const neg = key[0] === '-';
   const c = key[neg ? 1 : 0];
   const val = v[c] || 0;
   return neg ? -val : val;
 }
 
-/* ============================== Lean (piega) ==============================
-   Piega = angolo di rotazione dell'up-vettore attorno all'asse longitudinale (-dZ),
-   rispetto all'up-vettore calibrato U0. Proiezione sul piano dX-dY (la componente Z
-   è invariante sotto roll). Fisicamente: l'accelerometro "sente" gravità + centrifuga;
-   a regime la risultante è normale al telaio → coincide con la piega reale.
-*/
+/* ============================== Lean (piega) ============================== */
 function upVector(accIncG) {
   const x = accIncG.x || 0, y = accIncG.y || 0, z = accIncG.z || 0;
   const m = Math.hypot(x, y, z) || 1;
@@ -352,25 +407,29 @@ function upVector(accIncG) {
 }
 
 function leanFromUp(U, U0) {
-  const cross = U0.x * U.y - U0.y * U.x;   // sin dell'angolo (segnato)
-  const dot   = U0.x * U.x + U0.y * U.y;   // cos
-  let raw = Math.atan2(cross, dot) * 180 / Math.PI; // piega a destra → negativo
-  return -raw;                              // piega a destra → positivo
+  const cross = U0.x * U.y - U0.y * U.x;
+  const dot   = U0.x * U.x + U0.y * U.y;
+  // angolo segnato da U0 a U attorno a +dZ; schermo verso pilota: positivo = destra
+  return Math.atan2(cross, dot) * 180 / Math.PI;
 }
 
 /* ============================== DOM ============================== */
 const $ = id => document.getElementById(id);
 const els = {
-  gpsDot: $('gpsDot'), gpsTxt: $('gpsTxt'), recBadge: $('recBadge'),
+  gpsDot: $('gpsDot'), gpsTxt: $('gpsTxt'), recBadge: $('recBadge'), topTime: $('topTime'),
+  btnLogTop: $('btnLogTop'),
   speedVal: $('speedVal'), leanVal: $('leanVal'), leanDir: $('leanDir'),
   maxLeanL: $('maxLeanL'), maxLeanR: $('maxLeanR'),
   latVal: $('latVal'), lonVal: $('lonVal'), vertVal: $('vertVal'),
   latBar: $('latBar'), lonBar: $('lonBar'), vertBar: $('vertBar'),
   statMaxSpeed: $('statMaxSpeed'), statDist: $('statDist'), statTime: $('statTime'),
-  btnCalib: $('btnCalib'), btnLog: $('btnLog'), btnExport: $('btnExport'),
-  btnFullscreen: $('btnFullscreen'), btnDemo: $('btnDemo'),
+  btnCalib: $('btnCalib'), btnFullscreen: $('btnFullscreen'), btnDemo: $('btnDemo'),
   mountSel: $('mountSel'), invertLean: $('invertLean'), wakeLockChk: $('wakeLockChk'),
   calibStatus: $('calibStatus'), permBtn: $('permBtn'), gauge: $('gauge'),
+  map: $('map'), mapCanvas: $('mapCanvas'),
+  chSpeed: $('chSpeed'), chLean: $('chLean'), chLat: $('chLat'), chSpeedMax: $('chSpeedMax'),
+  sessionList: $('sessionList'), sessionDetail: $('sessionDetail'),
+  btnExportCsv: $('btnExportCsv'), btnExportGpx: $('btnExportGpx'), btnExportCsvHist: $('btnExportCsvHist'),
 };
 
 /* ============================== Gauge SVG ============================== */
@@ -379,12 +438,8 @@ function buildGauge() {
   const svg = els.gauge;
   svg.innerHTML = '';
   const NS = 'http://www.w3.org/2000/svg';
-  const pt = (ang) => { // ang in gradi, 0=destra, CCW+; return {x,y}
-    const a = ang * Math.PI / 180;
-    return { x: cx + r * Math.cos(a), y: cy - r * Math.sin(a) };
-  };
-  // arco banda -60..+60 (da 150° a 30°)
-  const p0 = pt(150), p1 = pt(90), p2 = pt(30);
+  const pt = (ang) => { const a = ang * Math.PI / 180; return { x: cx + r * Math.cos(a), y: cy - r * Math.sin(a) }; };
+  const p0 = pt(150), p2 = pt(30);
   const path = document.createElementNS(NS, 'path');
   path.setAttribute('d', `M ${p0.x} ${p0.y} A ${r} ${r} 0 0 1 ${p2.x} ${p2.y}`);
   path.setAttribute('fill', 'none');
@@ -392,26 +447,22 @@ function buildGauge() {
   path.setAttribute('stroke-width', '14');
   path.setAttribute('stroke-linecap', 'round');
   svg.appendChild(path);
-  // tacche ogni 10°, etichette ogni 30°
   for (let a = -60; a <= 60; a += 10) {
-    const ang = 90 - a; // a di piega → angolo standard
+    const ang = 90 - a;
     const major = a % 30 === 0;
     const r1 = major ? r - 22 : r - 16, r2 = r - 6;
-    const t1 = pt(ang), t2 = pt(ang);
     const line = document.createElementNS(NS, 'line');
-    line.setAttribute('x1', cx + (r1) * Math.cos(ang * Math.PI / 180));
-    line.setAttribute('y1', cy - (r1) * Math.sin(ang * Math.PI / 180));
-    line.setAttribute('x2', cx + (r2) * Math.cos(ang * Math.PI / 180));
-    line.setAttribute('y2', cy - (r2) * Math.sin(ang * Math.PI / 180));
+    line.setAttribute('x1', cx + r1 * Math.cos(ang * Math.PI / 180));
+    line.setAttribute('y1', cy - r1 * Math.sin(ang * Math.PI / 180));
+    line.setAttribute('x2', cx + r2 * Math.cos(ang * Math.PI / 180));
+    line.setAttribute('y2', cy - r2 * Math.sin(ang * Math.PI / 180));
     line.setAttribute('stroke', major ? '#8b98a8' : '#3a4552');
     line.setAttribute('stroke-width', major ? 2 : 1);
     svg.appendChild(line);
     if (major) {
-      const lp = pt(ang);
-      const tx = cx + (r - 34) * Math.cos(ang * Math.PI / 180);
-      const ty = cy - (r - 34) * Math.sin(ang * Math.PI / 180) + 4;
       const txt = document.createElementNS(NS, 'text');
-      txt.setAttribute('x', tx); txt.setAttribute('y', ty);
+      txt.setAttribute('x', cx + (r - 34) * Math.cos(ang * Math.PI / 180));
+      txt.setAttribute('y', cy - (r - 34) * Math.sin(ang * Math.PI / 180) + 4);
       txt.setAttribute('text-anchor', 'middle');
       txt.setAttribute('font-size', '11');
       txt.setAttribute('fill', '#8b98a8');
@@ -419,7 +470,6 @@ function buildGauge() {
       svg.appendChild(txt);
     }
   }
-  // ago
   const needle = document.createElementNS(NS, 'g');
   const nline = document.createElementNS(NS, 'line');
   nline.setAttribute('x1', cx); nline.setAttribute('y1', cy);
@@ -440,11 +490,10 @@ function buildGauge() {
 function setNeedle(lean) {
   if (!state._needle) return;
   const a = Math.max(-60, Math.min(60, lean));
-  // SVG: rotazione positiva = oraria; piega destra (a>0) → ago a destra
   state._needle.setAttribute('transform', `rotate(${a} ${state._cx} ${state._cy})`);
 }
 
-/* ============================== Persistenza ============================== */
+/* ============================== Persistenza (localStorage) ============================== */
 const store = {
   get(k, d) { try { const v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
   set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} },
@@ -461,13 +510,9 @@ function loadSettings() {
   const c = store.get('cruscotto.calib', null);
   if (c) { state.calib = c; updateCalibStatus(); }
 }
-
 function saveSettings() {
-  store.set('cruscotto.settings', {
-    mount: state.mount, invertLean: state.invertLean, wakeLockOn: state.wakeLockOn
-  });
+  store.set('cruscotto.settings', { mount: state.mount, invertLean: state.invertLean, wakeLockOn: state.wakeLockOn });
 }
-
 function updateCalibStatus() {
   els.calibStatus.textContent = state.calib ? 'calibrato' : 'non calibrato';
   els.calibStatus.style.color = state.calib ? 'var(--good)' : 'var(--dim)';
@@ -490,40 +535,33 @@ function onDeviceMotion(e) {
   const now = performance.now();
   let dt = (now - lastT) / 1000;
   lastT = now;
-  if (!(dt > 0) || dt > 0.05) dt = 0.02; // clamp
+  if (!(dt > 0) || dt > 0.05) dt = 0.02;
 
   const ig = accIncG(e);
   const la = linearAccel(e);
   const m = MOUNT[state.mount];
 
-  // Accelerazioni lineari in frame moto (g)
   if (la) {
     state.latG = axis(la, m.lat) / G;
     state.lonG = axis(la, m.lon) / G;
     state.vertG = axis(la, m.vert) / G;
   } else if (ig) {
-    // fallback: non disponibile gravità-rimossa → mostra 0
     state.latG = 0; state.lonG = 0; state.vertG = 0;
   }
 
-  // Gyro: velocità angolare su asse longitudinale (-dZ) → deg/s
   const rr = e.rotationRate;
-  state.gyroRoll = rr ? -(rr.gamma || 0) : 0;
+  state.gyroRoll = rr ? (rr.alpha || 0) : 0;
 
-  // Piega da up-vettore
   if (ig && state.calib) {
     const U = upVector(ig);
     state._lastUp = U;
     let lean = leanFromUp(U, state.calib);
     if (state.invertLean) lean = -lean;
     const roll = state.invertLean ? -state.gyroRoll : state.gyroRoll;
-
-    // Filtro complementare: gyro per transitori, accel per drift-free
     if (state.leanFused == null) {
       state.leanFused = lean;
     } else {
-      const a = 0.98; // peso integrazione gyro
-      state.leanFused = a * (state.leanFused + roll * dt) + (1 - a) * lean;
+      state.leanFused = 0.98 * (state.leanFused + roll * dt) + 0.02 * lean;
     }
     state.lean = state.leanFused;
   } else if (ig && !state.calib) {
@@ -536,17 +574,10 @@ function onDeviceMotion(e) {
 function onDeviceOrientation(e) {
   if (state.demo) return;
   if (e.beta == null || e.gamma == null) return;
-  // up-vettore (reazione gravità) in frame device, da orientamento assoluto.
-  // W3C: R = Rz(alpha)·Rx(beta)·Ry(gamma); up_device = R^T·(0,0,1).
   const b = e.beta * Math.PI / 180, g = e.gamma * Math.PI / 180;
-  const up = {
-    x: -Math.cos(b) * Math.sin(g),
-    y: Math.sin(b),
-    z: Math.cos(b) * Math.cos(g)
-  };
+  const up = { x: -Math.cos(b) * Math.sin(g), y: Math.sin(b), z: Math.cos(b) * Math.cos(g) };
   const m = Math.hypot(up.x, up.y, up.z) || 1;
   state._lastUpOrient = { x: up.x / m, y: up.y / m, z: up.z / m };
-  // fallback: se l'accelerometro non ha fornito up-vettore, usa l'orientamento
   if (!state._lastUp) state._lastUp = state._lastUpOrient;
 }
 
@@ -557,21 +588,17 @@ function onGeolocation(pos) {
     state.speedMs = c.speed;
     state.speedKph = c.speed * 3.6;
   }
-  state.gps = {
-    lat: c.latitude, lon: c.longitude,
-    alt: c.altitude, heading: c.heading, acc: c.accuracy
-  };
+  state.gps = { lat: c.latitude, lon: c.longitude, alt: c.altitude, heading: c.heading, acc: c.accuracy };
   state.gpsStatus = 'ok';
   updateGpsStatus();
-
-  // distanza (haversine tra fix successivi)
   if (state.session.lastPos) {
     state.session.distKm += haversine(state.session.lastPos, { lat: c.latitude, lon: c.longitude });
   }
   state.session.lastPos = { lat: c.latitude, lon: c.longitude };
+  appendTrackPoint(c.latitude, c.longitude, c.altitude);
 }
 
-function onGeolocationErr(err) {
+function onGeolocationErr() {
   if (state.demo) return;
   state.gpsStatus = 'err';
   updateGpsStatus();
@@ -591,7 +618,7 @@ function updateGpsStatus() {
     els.gpsTxt.textContent = 'GPS errore';
   } else {
     els.gpsDot.className = 'status-dot wait';
-    els.gpsTxt.textContent = 'GPS in attesa';
+    els.gpsTxt.textContent = 'GPS attesa';
   }
 }
 
@@ -601,21 +628,18 @@ function haversine(a, b) {
   const dLon = (b.lon - a.lon) * Math.PI / 180;
   const la1 = a.lat * Math.PI / 180, la2 = b.lat * Math.PI / 180;
   const h = Math.sin(dLat/2)**2 + Math.cos(la1)*Math.cos(la2)*Math.sin(dLon/2)**2;
-  return 2 * R * Math.asin(Math.sqrt(h)) / 1000; // km
+  return 2 * R * Math.asin(Math.sqrt(h)) / 1000;
 }
 
 function setupSensors() {
-  // Permessi iOS (feature-detected): mostrano il pulsante, l'utente tocca
   const needPerm = (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function')
     || (typeof DeviceMotionEvent !== 'undefined' && typeof DeviceMotionEvent.requestPermission === 'function');
   if (needPerm) {
     els.permBtn.style.display = 'block';
     els.permBtn.addEventListener('click', async () => {
       try {
-        if (typeof DeviceOrientationEvent.requestPermission === 'function')
-          await DeviceOrientationEvent.requestPermission();
-        if (typeof DeviceMotionEvent.requestPermission === 'function')
-          await DeviceMotionEvent.requestPermission();
+        if (typeof DeviceOrientationEvent.requestPermission === 'function') await DeviceOrientationEvent.requestPermission();
+        if (typeof DeviceMotionEvent.requestPermission === 'function') await DeviceMotionEvent.requestPermission();
       } catch (e) {}
       els.permBtn.style.display = 'none';
       addListeners();
@@ -637,16 +661,24 @@ function addListeners() {
   }
 }
 
+/* ============================== Traccia GPS ============================== */
+function appendTrackPoint(lat, lon, alt) {
+  const now = performance.now();
+  if (now - lastTrackT < 1000) return;
+  lastTrackT = now;
+  state.track.push({ lat, lon, alt: alt || 0, t: now, ts: Date.now() });
+  if (state.track.length > TRACK_MAX) state.track.shift();
+  updateMap();
+}
+
 /* ============================== Wake lock / Fullscreen ============================== */
 async function requestWakeLock() {
   if (!state.wakeLockOn || !('wakeLock' in navigator)) return;
-  try { wakeLock = await navigator.wakeLock.request('screen'); }
-  catch (e) { /* non supportato o non consentito */ }
+  try { wakeLock = await navigator.wakeLock.request('screen'); } catch (e) {}
 }
 document.addEventListener('visibilitychange', () => {
   if (document.visibilityState === 'visible') requestWakeLock();
 });
-
 function toggleFullscreen() {
   if (!document.fullscreenElement) {
     document.documentElement.requestFullscreen && document.documentElement.requestFullscreen().catch(() => {});
@@ -659,7 +691,7 @@ function toggleFullscreen() {
 function snapshot() {
   const t = state.session.start ? (performance.now() - state.session.start) / 1000 : 0;
   return {
-    t: t, speedKmh: state.speedKph, speedMs: state.speedMs,
+    t, speedKmh: state.speedKph, speedMs: state.speedMs,
     lean: state.lean, latG: state.latG, lonG: state.lonG, vertG: state.vertG,
     gyro: state.gyroRoll,
     lat: state.gps.lat, lon: state.gps.lon, alt: state.gps.alt,
@@ -670,39 +702,60 @@ function snapshot() {
 function startLog() {
   state.logging = true;
   state.rows = [];
-  state.session = { maxSpeed: 0, maxLeanR: 0, maxLeanL: 0, distKm: 0, start: performance.now(), lastPos: state.gps.lat != null ? { lat: state.gps.lat, lon: state.gps.lon } : null };
+  state.track = [];
+  state.session = {
+    maxSpeed: 0, maxLeanR: 0, maxLeanL: 0, distKm: 0,
+    start: performance.now(), startWall: Date.now(),
+    lastPos: state.gps.lat != null ? { lat: state.gps.lat, lon: state.gps.lon } : null
+  };
   lastSample = lastFlush = performance.now();
-  els.btnLog.textContent = '■ Stop Log';
-  els.btnLog.classList.remove('primary');
-  els.btnLog.classList.add('rec');
-  els.recBadge.style.display = 'inline';
+  setLogButton(true);
 }
 
 function stopLog() {
   state.logging = false;
-  els.btnLog.textContent = '▶ Start Log';
-  els.btnLog.classList.add('primary');
-  els.btnLog.classList.remove('rec');
-  els.recBadge.style.display = 'none';
+  setLogButton(false);
   flushLog();
+  saveSession();
+}
+
+function setLogButton(rec) {
+  els.btnLogTop.textContent = rec ? '■ Stop' : '▶ Start';
+  els.btnLogTop.classList.toggle('rec', rec);
+  els.recBadge.classList.toggle('on', rec);
 }
 
 function flushLog() {
   if (!state.rows.length) return;
-  try { localStorage.setItem('cruscotto.log', JSON.stringify(state.rows)); }
-  catch (e) { /* quota superata: il buffer in memoria resta */ }
+  try { localStorage.setItem('cruscotto.log', JSON.stringify(state.rows)); } catch (e) {}
 }
 
-function exportCsv() {
-  const rows = state.rows.length ? state.rows : store.get('cruscotto.log', []);
-  if (!rows.length) { alert('Nessun dato da esportare. Avvia il log.'); return; }
+/* ============================== Export CSV / GPX ============================== */
+function downloadBlob(name, text, type) {
+  const blob = new Blob([text], { type });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = name;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(a.href);
+}
+
+function stamp() {
+  const d = new Date();
+  const pad = n => String(n).padStart(2, '0');
+  return d.getFullYear() + pad(d.getMonth()+1) + pad(d.getDate()) + '_' + pad(d.getHours()) + pad(d.getMinutes()) + pad(d.getSeconds());
+}
+
+function buildCsv(rows, meta) {
   const header = 't,speed_kmh,speed_ms,lean_deg,lat_accel_g,lon_accel_g,vert_accel_g,gyro_roll_dps,lat,lon,alt_m,heading_deg,gps_acc_m';
-  const meta = [
+  const m = [
     '# cruscotto-moto export',
-    '# sessione: ' + new Date().toISOString(),
-    '# max_lean_D: ' + state.session.maxLeanR.toFixed(1) + ', max_lean_S: ' + state.session.maxLeanL.toFixed(1),
-    '# max_speed_kmh: ' + state.session.maxSpeed.toFixed(1),
-    '# distanza_km: ' + state.session.distKm.toFixed(3),
+    '# sessione: ' + (meta.startISO || new Date().toISOString()),
+    '# max_lean_D: ' + (meta.maxLeanR||0).toFixed(1) + ', max_lean_S: ' + (meta.maxLeanL||0).toFixed(1),
+    '# max_speed_kmh: ' + (meta.maxSpeed||0).toFixed(1),
+    '# distanza_km: ' + (meta.distKm||0).toFixed(3),
   ].join('\n');
   const lines = rows.map(r => [
     r.t.toFixed(3), r.speedKmh.toFixed(1), r.speedMs.toFixed(2), r.lean.toFixed(2),
@@ -712,17 +765,332 @@ function exportCsv() {
     r.alt == null ? '' : r.alt.toFixed(1), r.heading == null ? '' : r.heading.toFixed(1),
     r.gpsAcc == null ? '' : r.gpsAcc.toFixed(1)
   ].join(','));
-  const csv = meta + '\n' + header + '\n' + lines.join('\n');
-  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
-  const a = document.createElement('a');
-  const d = new Date();
+  return m + '\n' + header + '\n' + lines.join('\n');
+}
+
+function exportCsv(rows, meta, nameSuffix) {
+  if (!rows || !rows.length) { alert('Nessun dato da esportare.'); return; }
+  downloadBlob('cruscotto' + (nameSuffix ? '_' + nameSuffix : '') + '_' + stamp() + '.csv', buildCsv(rows, meta), 'text/csv;charset=utf-8');
+}
+
+function buildGpx(track) {
+  let out = '<?xml version="1.0" encoding="UTF-8"?>\n';
+  out += '<gpx version="1.1" creator="cruscotto-moto" xmlns="http://www.topografix.com/GPX/1/1">\n';
+  out += '  <trk>\n    <name>Cruscotto Moto</name>\n    <trkseg>\n';
+  for (const p of track) {
+    out += `      <trkpt lat="${p.lat.toFixed(7)}" lon="${p.lon.toFixed(7)}">`;
+    if (p.alt != null) out += `<ele>${p.alt.toFixed(1)}</ele>`;
+    if (p.ts) out += `<time>${new Date(p.ts).toISOString()}</time>`;
+    out += '</trkpt>\n';
+  }
+  out += '    </trkseg>\n  </trk>\n</gpx>\n';
+  return out;
+}
+
+function exportGpx(track, nameSuffix) {
+  if (!track || !track.length) { alert('Nessun percorso da esportare.'); return; }
+  downloadBlob('cruscotto' + (nameSuffix ? '_' + nameSuffix : '') + '_' + stamp() + '.gpx', buildGpx(track), 'application/gpx+xml');
+}
+
+/* ============================== IndexedDB (storico) ============================== */
+const idb = {
+  db: null,
+  open() {
+    return new Promise((res, rej) => {
+      const r = indexedDB.open('cruscotto', 1);
+      r.onupgradeneeded = e => {
+        const db = e.target.result;
+        if (!db.objectStoreNames.contains('sessions')) db.createObjectStore('sessions', { keyPath: 'id' });
+      };
+      r.onsuccess = e => { idb.db = e.target.result; res(); };
+      r.onerror = () => rej(r.error);
+    });
+  },
+  put(obj) {
+    return new Promise((res, rej) => {
+      const tx = idb.db.transaction('sessions', 'readwrite');
+      tx.objectStore('sessions').put(obj);
+      tx.oncomplete = res; tx.onerror = rej;
+    });
+  },
+  getAll() {
+    return new Promise((res, rej) => {
+      const tx = idb.db.transaction('sessions', 'readonly');
+      const rq = tx.objectStore('sessions').getAll();
+      rq.onsuccess = () => res(rq.result || []); rq.onerror = rej;
+    });
+  },
+  del(id) {
+    return new Promise((res, rej) => {
+      const tx = idb.db.transaction('sessions', 'readwrite');
+      tx.objectStore('sessions').delete(id);
+      tx.oncomplete = res; tx.onerror = rej;
+    });
+  },
+};
+
+async function saveSession() {
+  if (!state.session.start) return;
+  const meta = {
+    startISO: new Date(state.session.startWall).toISOString(),
+    duration: (performance.now() - state.session.start) / 1000,
+    maxSpeed: state.session.maxSpeed,
+    maxLeanR: state.session.maxLeanR,
+    maxLeanL: state.session.maxLeanL,
+    distKm: state.session.distKm,
+  };
+  const sess = {
+    id: 's_' + state.session.startWall,
+    meta,
+    track: state.track.slice(),
+    rows: state.rows.slice(),
+  };
+  try { await idb.put(sess); } catch (e) { /* quota o errore: log esportabile comunque via CSV */ }
+  renderHistory();
+}
+
+function fmtDur(sec) {
+  const mm = String(Math.floor(sec / 60)).padStart(2, '0');
+  const ss = String(Math.floor(sec % 60)).padStart(2, '0');
+  return mm + ':' + ss;
+}
+
+async function renderHistory() {
+  let sessions = [];
+  try { sessions = await idb.getAll(); } catch (e) {}
+  sessions.sort((a, b) => (a.meta.startISO < b.meta.startISO ? 1 : -1));
+  const list = els.sessionList;
+  if (!sessions.length) {
+    list.innerHTML = '<div class="empty">Nessun giro salvato. Avvia un log e fermalo per salvarlo qui.</div>';
+    return;
+  }
+  list.innerHTML = '';
+  for (const s of sessions) {
+    const card = document.createElement('div');
+    card.className = 'sess-card';
+    const d = new Date(s.meta.startISO);
+    const pad = n => String(n).padStart(2, '0');
+    card.innerHTML =
+      '<div class="sdate">' + d.getDate() + '/' + (d.getMonth()+1) + '/' + d.getFullYear() +
+      ' ' + pad(d.getHours()) + ':' + pad(d.getMinutes()) + '</div>' +
+      '<div class="srow">' +
+        '<span>Durata <b>' + fmtDur(s.meta.duration) + '</b></span>' +
+        '<span>V max <b>' + Math.round(s.meta.maxSpeed) + ' km/h</b></span>' +
+        '<span>Piega <b>' + Math.abs(s.meta.maxLeanR).toFixed(0) + '°D / ' + Math.abs(s.meta.maxLeanL).toFixed(0) + '°S</b></span>' +
+        '<span>Distanza <b>' + (s.meta.distKm||0).toFixed(2) + ' km</b></span>' +
+      '</div>';
+    card.addEventListener('click', () => showSessionDetail(s));
+    list.appendChild(card);
+  }
+}
+
+function showSessionDetail(s) {
+  const el = els.sessionDetail;
+  el.style.display = 'block';
+  const d = new Date(s.meta.startISO);
   const pad = n => String(n).padStart(2, '0');
-  a.href = URL.createObjectURL(blob);
-  a.download = 'cruscotto_' + d.getFullYear() + pad(d.getMonth()+1) + pad(d.getDate()) + '_' + pad(d.getHours()) + pad(d.getMinutes()) + pad(d.getSeconds()) + '.csv';
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-  URL.revokeObjectURL(a.href);
+  el.innerHTML =
+    '<h2 style="margin-bottom:8px;">' + d.getDate() + '/' + (d.getMonth()+1) + '/' + d.getFullYear() +
+    ' ' + pad(d.getHours()) + ':' + pad(d.getMinutes()) + '</h2>' +
+    '<div class="dstats">' +
+      '<div class="dstat"><div class="v">' + Math.round(s.meta.maxSpeed) + '</div><div class="k">km/h max</div></div>' +
+      '<div class="dstat"><div class="v">' + Math.abs(s.meta.maxLeanR).toFixed(0) + '°</div><div class="k">piega D</div></div>' +
+      '<div class="dstat"><div class="v">' + Math.abs(s.meta.maxLeanL).toFixed(0) + '°</div><div class="k">piega S</div></div>' +
+      '<div class="dstat"><div class="v">' + (s.meta.distKm||0).toFixed(2) + '</div><div class="k">km</div></div>' +
+      '<div class="dstat"><div class="v">' + fmtDur(s.meta.duration) + '</div><div class="k">durata</div></div>' +
+      '<div class="dstat"><div class="v">' + (s.rows ? s.rows.length : 0) + '</div><div class="k">campioni</div></div>' +
+    '</div>' +
+    '<canvas id="replayCanvas" style="height:200px;"></canvas>' +
+    '<div class="dbtns">' +
+      '<button id="dCsv">Export CSV</button>' +
+      '<button id="dGpx">Export GPX</button>' +
+      '<button id="dDel" style="color:var(--bad); border-color:var(--bad);">Elimina</button>' +
+    '</div>';
+  requestAnimationFrame(() => drawTrackOnCanvas($('replayCanvas'), s.track || [], { startEnd: true }));
+  $('dCsv').addEventListener('click', () => exportCsv(s.rows, s.meta, 'storico'));
+  $('dGpx').addEventListener('click', () => exportGpx(s.track, 'storico'));
+  $('dDel').addEventListener('click', async () => {
+    if (!confirm('Eliminare questo giro?')) return;
+    try { await idb.del(s.id); } catch (e) {}
+    el.style.display = 'none';
+    renderHistory();
+  });
+}
+
+/* ============================== Mappa ============================== */
+function initMap() {
+  const script = document.createElement('script');
+  script.src = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js';
+  script.onload = () => {
+    const link = document.createElement('link');
+    link.rel = 'stylesheet';
+    link.href = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css';
+    document.head.appendChild(link);
+    initLeaflet();
+  };
+  script.onerror = initCanvasMap;
+  document.head.appendChild(script);
+  setTimeout(() => { if (!state.mapReady) initCanvasMap(); }, 5000);
+}
+
+function initLeaflet() {
+  if (state.mapReady) return;
+  state.mapReady = true;
+  state.mapType = 'leaflet';
+  const map = L.map('map', { zoomControl: true });
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    attribution: '© OpenStreetMap', maxZoom: 19
+  }).addTo(map);
+  state.map = map;
+  state.mapLayer = L.layerGroup().addTo(map);
+  state.mapPos = L.circleMarker([0, 0], { radius: 8, color: '#29b6f6', fillColor: '#29b6f6', fillOpacity: 0.9 }).addTo(state.mapLayer);
+  state.mapPoly = L.polyline([], { color: '#29b6f6', weight: 4 }).addTo(state.mapLayer);
+  updateLeaflet();
+}
+
+function updateLeaflet() {
+  if (!state.map) return;
+  const pts = state.track.map(p => [p.lat, p.lon]);
+  if (pts.length) {
+    state.mapPoly.setLatLngs(pts);
+    if (state.gps.lat != null) state.mapPos.setLatLng([state.gps.lat, state.gps.lon]);
+    if (!state.mapFit) { state.map.fitBounds(pts, { padding: [30, 30] }); state.mapFit = true; }
+  }
+}
+
+function initCanvasMap() {
+  if (state.mapReady) return;
+  state.mapReady = true;
+  state.mapType = 'canvas';
+  els.map.style.display = 'none';
+  els.mapCanvas.style.display = 'block';
+  state.mapCanvas = els.mapCanvas;
+  drawCanvasMap();
+}
+
+function drawCanvasMap() {
+  if (state.mapType !== 'canvas' || !state.mapCanvas) return;
+  drawTrackOnCanvas(state.mapCanvas, state.track, { current: true, heading: state.gps.heading });
+}
+
+function updateMap() {
+  if (!state.mapReady) return;
+  if (state.mapType === 'leaflet') updateLeaflet();
+  else drawCanvasMap();
+}
+
+/* Disegna traccia su un canvas 2D (usato da fallback mappa + replay storico) */
+function drawTrackOnCanvas(canvas, track, opts) {
+  const ctx = canvas.getContext('2d');
+  const dpr = window.devicePixelRatio || 1;
+  const w = canvas.clientWidth || canvas.parentElement.clientWidth || 300;
+  const h = canvas.clientHeight || 200;
+  canvas.width = w * dpr; canvas.height = h * dpr;
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.fillStyle = '#0b0f14';
+  ctx.fillRect(0, 0, w, h);
+  if (!track || !track.length) {
+    ctx.fillStyle = '#8b98a8'; ctx.font = '13px system-ui'; ctx.textAlign = 'center';
+    ctx.fillText('Nessun fix GPS', w / 2, h / 2);
+    return;
+  }
+  let minLat = Infinity, maxLat = -Infinity, minLon = Infinity, maxLon = -Infinity;
+  for (const p of track) {
+    if (p.lat < minLat) minLat = p.lat; if (p.lat > maxLat) maxLat = p.lat;
+    if (p.lon < minLon) minLon = p.lon; if (p.lon > maxLon) maxLon = p.lon;
+  }
+  const spanLat = (maxLat - minLat) || 0.0001, spanLon = (maxLon - minLon) || 0.0001;
+  const pad = 28;
+  const scale = Math.min((w - 2 * pad) / spanLon, (h - 2 * pad) / spanLat);
+  const offX = (w - spanLon * scale) / 2;
+  const offY = (h - spanLat * scale) / 2;
+  const X = lon => offX + (lon - minLon) * scale;
+  const Y = lat => offY + (maxLat - lat) * scale;
+
+  ctx.strokeStyle = '#29b6f6'; ctx.lineWidth = 2; ctx.lineJoin = 'round';
+  ctx.beginPath();
+  track.forEach((p, i) => { const x = X(p.lon), y = Y(p.lat); i ? ctx.lineTo(x, y) : ctx.moveTo(x, y); });
+  ctx.stroke();
+
+  // inizio (verde) / fine (rossa)
+  const s = track[0], e = track[track.length - 1];
+  if (opts && opts.startEnd) {
+    ctx.fillStyle = '#34d399'; ctx.beginPath(); ctx.arc(X(s.lon), Y(s.lat), 5, 0, 6.283); ctx.fill();
+    ctx.fillStyle = '#f87171'; ctx.beginPath(); ctx.arc(X(e.lon), Y(e.lat), 5, 0, 6.283); ctx.fill();
+  }
+  // posizione corrente + heading
+  if (opts && opts.current) {
+    const cx = X(e.lon), cy = Y(e.lat);
+    ctx.fillStyle = '#e7edf3';
+    ctx.beginPath(); ctx.arc(cx, cy, 6, 0, 6.283); ctx.fill();
+    if (opts.heading != null) {
+      const a = opts.heading * Math.PI / 180;
+      const dx = Math.sin(a), dy = -Math.cos(a);
+      ctx.strokeStyle = '#e7edf3'; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(cx + dx * 18, cy + dy * 18); ctx.stroke();
+    }
+  }
+}
+
+/* ============================== Grafici ============================== */
+function sampleCharts(now) {
+  state.chartBuf.push({ t: now, speedKph: state.speedKph, lean: state.lean, latG: state.latG, lonG: state.lonG });
+  const cutoff = now - CHART_WINDOW;
+  while (state.chartBuf.length && state.chartBuf[0].t < cutoff) state.chartBuf.shift();
+}
+
+function drawChart(canvas, data, field, color, min, max, zeroLine) {
+  const ctx = canvas.getContext('2d');
+  const dpr = window.devicePixelRatio || 1;
+  const w = canvas.clientWidth || canvas.parentElement.clientWidth || 300;
+  const h = canvas.clientHeight || 120;
+  canvas.width = w * dpr; canvas.height = h * dpr;
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.fillStyle = '#151b23'; ctx.fillRect(0, 0, w, h);
+  if (!data.length) return;
+  const t0 = data[0].t, t1 = data[data.length - 1].t;
+  const span = Math.max(1, t1 - t0);
+  const X = t => ((t - t0) / span) * w;
+  const pad = 8;
+  const Y = v => h - pad - ((v - min) / (max - min)) * (h - 2 * pad);
+
+  // linea zero (solo se nel range)
+  ctx.strokeStyle = '#27303c'; ctx.lineWidth = 1;
+  if (zeroLine && min < 0 && max > 0) {
+    const y0 = Y(0);
+    ctx.beginPath(); ctx.moveTo(0, y0); ctx.lineTo(w, y0); ctx.stroke();
+  }
+
+  ctx.strokeStyle = color; ctx.lineWidth = 2; ctx.lineJoin = 'round';
+  ctx.beginPath();
+  data.forEach((d, i) => { const x = X(d.t), y = Y(d[field]); i ? ctx.lineTo(x, y) : ctx.moveTo(x, y); });
+  ctx.stroke();
+}
+
+function drawCharts() {
+  const buf = state.chartBuf;
+  let maxSp = 80;
+  for (const d of buf) if (d.speedKph > maxSp) maxSp = d.speedKph;
+  maxSp = Math.ceil(maxSp / 20) * 20 + 20;
+  drawChart(els.chSpeed, buf, 'speedKph', '#29b6f6', 0, maxSp, false);
+  drawChart(els.chLean, buf, 'lean', '#34d399', -60, 60, true);
+  drawChart(els.chLat, buf, 'latG', '#fbbf24', -1.2, 1.2, true);
+  els.chSpeedMax.textContent = maxSp + ' km/h';
+}
+
+/* ============================== Tabs ============================== */
+function switchTab(name) {
+  state.currentTab = name;
+  document.querySelectorAll('.panel').forEach(p => p.classList.toggle('active', p.id === 'tab-' + name));
+  document.querySelectorAll('nav.tabbar button').forEach(b => b.classList.toggle('active', b.dataset.tab === name));
+  if (name === 'map') {
+    if (state.mapType === 'leaflet' && state.map) setTimeout(() => state.map.invalidateSize(), 50);
+    else if (state.mapType === 'canvas') drawCanvasMap();
+  } else if (name === 'charts') {
+    drawCharts();
+  } else if (name === 'history') {
+    renderHistory();
+  }
 }
 
 /* ============================== Demo ============================== */
@@ -731,21 +1099,23 @@ function tickDemo(now) {
   if (!state.demo) return;
   if (demoStart == null) demoStart = now;
   const t = (now - demoStart) / 1000;
-  // piega: S-curve sinusoidali + velocità correlata
   const lean = 38 * Math.sin(t * 0.45) * Math.sin(t * 0.13 + 0.6);
   state.lean = lean;
   const speed = 70 + 45 * Math.sin(t * 0.31 + 1.0) * Math.sin(t * 0.11);
   state.speedKph = Math.max(0, speed);
   state.speedMs = state.speedKph / 3.6;
-  state.latG = Math.tan(lean * Math.PI / 180); // fisicamente coerente: tan(piega)=a_lat/g
+  state.latG = Math.tan(lean * Math.PI / 180);
   state.lonG = 0.18 * Math.sin(t * 0.7);
   state.vertG = 0.05 * Math.sin(t * 2.2);
   state.gyroRoll = 0;
-  state.gps = { lat: 45.0, lon: 9.0, alt: 120, heading: 90, acc: 5 };
+  // traccia in movimento (spirale attorno a 45.0,9.0)
+  const lat = 45.0 + 0.025 * Math.sin(t * 0.05) * (1 + t * 0.002);
+  const lon = 9.0 + 0.035 * Math.cos(t * 0.05) * (1 + t * 0.002);
+  state.gps = { lat, lon, alt: 120, heading: (t * 18) % 360, acc: 5 };
   state.gpsStatus = 'ok';
-  // distanza demo
-  state.session.lastPos = state.session.lastPos || { lat: 45.0, lon: 9.0 };
+  state.session.lastPos = state.session.lastPos || { lat, lon };
   state.session.distKm += (state.speedMs * 0.05) / 1000;
+  appendTrackPoint(lat, lon, 120);
 }
 
 /* ============================== Loop display ============================== */
@@ -764,7 +1134,6 @@ function updateDisplay() {
   }
   setNeedle(state.lean);
 
-  // accelerazioni
   const latAbs = Math.abs(state.latG), lonAbs = Math.abs(state.lonG), vertAbs = Math.abs(state.vertG);
   els.latVal.textContent = (state.latG >= 0 ? '+' : '') + state.latG.toFixed(2);
   els.lonVal.textContent = (state.lonG >= 0 ? '+' : '') + state.lonG.toFixed(2);
@@ -773,7 +1142,6 @@ function updateDisplay() {
   setBar(els.lonBar, state.lonG, lonAbs, 1.2);
   setBar(els.vertBar, state.vertG, vertAbs, 1.2);
 
-  // session
   if (state.session.start) {
     state.session.maxSpeed = Math.max(state.session.maxSpeed, state.speedKph);
     state.session.maxLeanR = Math.max(state.session.maxLeanR, state.lean);
@@ -787,6 +1155,7 @@ function updateDisplay() {
   const mm = String(Math.floor(dur / 60)).padStart(2, '0');
   const ss = String(Math.floor(dur % 60)).padStart(2, '0');
   els.statTime.textContent = mm + ':' + ss;
+  els.topTime.textContent = mm + ':' + ss;
 
   updateGpsStatus();
 }
@@ -801,8 +1170,8 @@ function setBar(el, val, absVal, maxG) {
 function mainLoop(now) {
   tickDemo(now);
   updateDisplay();
+  const nowP = performance.now();
   if (state.logging) {
-    const nowP = performance.now();
     if (nowP - lastSample >= 1000 / LOG_HZ) {
       lastSample = nowP;
       state.rows.push(snapshot());
@@ -812,6 +1181,11 @@ function mainLoop(now) {
       lastFlush = nowP;
       flushLog();
     }
+  }
+  if (nowP - lastChartT >= 100) {
+    lastChartT = nowP;
+    sampleCharts(nowP);
+    if (state.currentTab === 'charts') drawCharts();
   }
   requestAnimationFrame(mainLoop);
 }
@@ -823,7 +1197,6 @@ function init() {
   updateCalibStatus();
 
   els.btnCalib.addEventListener('click', () => {
-    // usa ultimo up-vettore noto; se non disponibile mostra avviso
     if (state._lastUp) {
       state.calib = state._lastUp;
       state.leanFused = 0;
@@ -834,17 +1207,31 @@ function init() {
     }
   });
 
-  els.btnLog.addEventListener('click', () => state.logging ? stopLog() : startLog());
-  els.btnExport.addEventListener('click', exportCsv);
-  els.btnFullscreen.addEventListener('click', toggleFullscreen);
+  els.btnLogTop.addEventListener('click', () => state.logging ? stopLog() : startLog());
+  els.btnExportCsv.addEventListener('click', () => {
+    const rows = state.rows.length ? state.rows : store.get('cruscotto.log', []);
+    if (!rows.length) { alert('Nessun dato. Avvia un log.'); return; }
+    const meta = { startISO: new Date(state.session.startWall || Date.now()).toISOString(), maxSpeed: state.session.maxSpeed, maxLeanR: state.session.maxLeanR, maxLeanL: state.session.maxLeanL, distKm: state.session.distKm };
+    exportCsv(rows, meta, 'sessione');
+  });
+  els.btnExportGpx.addEventListener('click', () => exportGpx(state.track, 'sessione'));
+  els.btnExportCsvHist.addEventListener('click', async () => {
+    // esporta tutte le sessioni storiche in un unico CSV
+    let sessions = [];
+    try { sessions = await idb.getAll(); } catch (e) {}
+    if (!sessions.length) { alert('Nessuna sessione storica.'); return; }
+    const rows = sessions.flatMap(s => s.rows || []);
+    if (!rows.length) { alert('Nessun dato nelle sessioni.'); return; }
+    exportCsv(rows, { startISO: sessions[0].meta.startISO, maxSpeed: 0, maxLeanR: 0, maxLeanL: 0, distKm: 0 }, 'storico_tutti');
+  });
 
+  els.btnFullscreen.addEventListener('click', toggleFullscreen);
   els.btnDemo.addEventListener('click', () => {
     state.demo = !state.demo;
     demoStart = null;
     els.btnDemo.classList.toggle('on', state.demo);
     els.btnDemo.textContent = state.demo ? 'Demo ON' : 'Demo';
     if (!state.demo) {
-      // reset stato demo → torna ai sensori reali
       state.leanFused = null;
       state.gpsStatus = 'waiting';
       state.session.lastPos = null;
@@ -858,9 +1245,13 @@ function init() {
   els.invertLean.addEventListener('change', () => { state.invertLean = els.invertLean.checked; saveSettings(); });
   els.wakeLockChk.addEventListener('change', () => { state.wakeLockOn = els.wakeLockChk.checked; saveSettings(); if (state.wakeLockOn) requestWakeLock(); });
 
-  // sessione attiva fin da subito (statistiche live); Start Log la azzera
-  state.session.start = performance.now();
+  document.querySelectorAll('nav.tabbar button').forEach(b => b.addEventListener('click', () => switchTab(b.dataset.tab)));
 
+  state.session.start = performance.now();
+  state.session.startWall = Date.now();
+  idb.open().then(() => renderHistory());
+
+  initMap();
   setupSensors();
   requestWakeLock();
   requestAnimationFrame(mainLoop);
