@@ -533,6 +533,23 @@ function onDeviceMotion(e) {
   }
 }
 
+function onDeviceOrientation(e) {
+  if (state.demo) return;
+  if (e.beta == null || e.gamma == null) return;
+  // up-vettore (reazione gravità) in frame device, da orientamento assoluto.
+  // W3C: R = Rz(alpha)·Rx(beta)·Ry(gamma); up_device = R^T·(0,0,1).
+  const b = e.beta * Math.PI / 180, g = e.gamma * Math.PI / 180;
+  const up = {
+    x: -Math.cos(b) * Math.sin(g),
+    y: Math.sin(b),
+    z: Math.cos(b) * Math.cos(g)
+  };
+  const m = Math.hypot(up.x, up.y, up.z) || 1;
+  state._lastUpOrient = { x: up.x / m, y: up.y / m, z: up.z / m };
+  // fallback: se l'accelerometro non ha fornito up-vettore, usa l'orientamento
+  if (!state._lastUp) state._lastUp = state._lastUpOrient;
+}
+
 function onGeolocation(pos) {
   if (state.demo) return;
   const c = pos.coords;
@@ -610,7 +627,7 @@ function setupSensors() {
 
 function addListeners() {
   if (window.DeviceMotionEvent) window.addEventListener('devicemotion', onDeviceMotion, true);
-  if (window.DeviceOrientationEvent) window.addEventListener('deviceorientation', () => {}, true);
+  if (window.DeviceOrientationEvent) window.addEventListener('deviceorientation', onDeviceOrientation, true);
   if (navigator.geolocation) {
     navigator.geolocation.watchPosition(onGeolocation, onGeolocationErr, {
       enableHighAccuracy: true, maximumAge: 0, timeout: 10000
