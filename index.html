@@ -184,6 +184,17 @@
     min-height: 40px; padding: 6px 12px; font-size: 18px; border-radius: 10px;
     background: rgba(21,27,35,.92); color: var(--txt); border: 1px solid var(--line);
   }
+  .map-ctrl {
+  position: absolute; top: 10px; left: 10px; z-index: 500;
+  display: flex; flex-direction: column; gap: 6px;
+}
+.map-ctrl button {
+  min-height: 40px; min-width: 40px; padding: 6px 8px; font-size: 18px;
+  border-radius: 10px; background: rgba(21,27,35,.92); color: var(--txt);
+  border: 1px solid var(--line); cursor: pointer; touch-action: manipulation;
+  display: flex; align-items: center; justify-content: center;
+}
+.map-ctrl button.on { color: var(--accent); border-color: var(--accent); }
   body.map-fullscreen header,
   body.map-fullscreen nav.tabbar,
   body.map-fullscreen #permBtn { display: none !important; }
@@ -292,6 +303,17 @@
         <div class="map-box">
           <div id="map"></div>
           <canvas id="mapCanvas"></canvas>
+          <div class="map-ctrl">
+            <button id="btnCenter" title="Centra sulla posizione" aria-label="Centra">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="6.5"/><circle cx="12" cy="12" r="1.6" fill="currentColor" stroke="none"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></svg>
+            </button>
+            <button id="btnFollow" title="Segui la posizione" aria-label="Segui">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" stroke="none"><path d="M12 2l7 20-7-4-7 4z"/></svg>
+            </button>
+            <button id="btnTrackUp" title="Bussola (track-up)" aria-label="Bussola">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20V5M12 5l-5 5M12 5l5 5"/></svg>
+            </button>
+          </div>
           <button id="btnMapFull" class="map-full-btn" title="Fullscreen mappa">⛶</button>
         </div>
       </div>
@@ -426,6 +448,8 @@ const state = {
   camCenter: null,
   camTs: 0,
   camCooldown: {},
+  follow: false,
+  trackUp: false,
 };
 
 let lastT = performance.now();
@@ -485,6 +509,7 @@ const els = {
   sessionList: $('sessionList'), sessionDetail: $('sessionDetail'),
   btnExportCsv: $('btnExportCsv'), btnExportGpx: $('btnExportGpx'), btnExportCsvHist: $('btnExportCsvHist'),
   camAlert: $('camAlert'), camAlertsChk: $('camAlerts'), camDistSel: $('camDist'), btnMapFull: $('btnMapFull'),
+  btnCenter: $('btnCenter'), btnFollow: $('btnFollow'), btnTrackUp: $('btnTrackUp'),
 };
 
 /* ============================== Gauge SVG ============================== */
@@ -806,6 +831,30 @@ function renderCameras() {
     }
   }
   if (state.mapType === 'canvas') drawCanvasMap();
+}
+
+function setFollow(on) {
+  state.follow = on;
+  els.btnFollow.classList.toggle('on', on);
+  if (on) centerMap(); // recentra subito all'attivazione
+}
+function setTrackUp(on) {
+  state.trackUp = on;
+  els.btnTrackUp.classList.toggle('on', on);
+  if (state.mapType === 'leaflet' && state.map) {
+    if (on && state.gps.heading != null) state.map.setBearing(-state.gps.heading);
+    else if (!on) state.map.resetNorth();
+  }
+}
+function centerMap() {
+  if (state.gps.lat == null) return;
+  if (state.mapType === 'leaflet' && state.map) {
+    state.map.panTo([state.gps.lat, state.gps.lon]);
+  } else if (state.mapType === 'canvas') {
+    state.centerPending = true; // centra una tantum, indipendente dal follow
+    drawCanvasMap();
+    state.centerPending = false;
+  }
 }
 
 function checkCameras() {
@@ -1130,6 +1179,7 @@ function initLeaflet() {
   }).addTo(map);
   map.setView([42.5, 12.5], 5); // vista iniziale (Italia) prima del primo fix
   state.map = map;
+  map.on('dragstart', () => setFollow(false));
   state.mapLayer = L.layerGroup().addTo(map);
   state.mapPos = L.circleMarker([0, 0], { radius: 8, color: '#29b6f6', fillColor: '#29b6f6', fillOpacity: 0.9 }).addTo(state.mapLayer);
   state.mapPoly = L.polyline([], { color: '#29b6f6', weight: 4 }).addTo(state.mapLayer);
@@ -1145,6 +1195,8 @@ function updateLeaflet() {
     if (state.gps.lat != null) state.mapPos.setLatLng([state.gps.lat, state.gps.lon]);
     if (!state.mapFit) { state.map.fitBounds(pts, { padding: [30, 30] }); state.mapFit = true; }
   }
+  if (state.follow && state.gps.lat != null) state.map.panTo([state.gps.lat, state.gps.lon]);
+  if (state.trackUp && state.gps.heading != null) state.map.setBearing(-state.gps.heading);
 }
 
 function initCanvasMap() {
@@ -1159,7 +1211,7 @@ function initCanvasMap() {
 
 function drawCanvasMap() {
   if (state.mapType !== 'canvas' || !state.mapCanvas) return;
-  drawTrackOnCanvas(state.mapCanvas, state.track, { current: true, heading: state.gps.heading, cameras: state.cameras });
+  drawTrackOnCanvas(state.mapCanvas, state.track, { current: true, heading: state.gps.heading, cameras: state.cameras, center: ((state.follow || state.centerPending) && state.gps.lat != null) ? { lat: state.gps.lat, lon: state.gps.lon } : null });
 }
 
 function updateMap() {
@@ -1197,8 +1249,9 @@ function drawTrackOnCanvas(canvas, track, opts) {
   const spanLat = (maxLat - minLat) || 0.0001, spanLon = (maxLon - minLon) || 0.0001;
   const pad = 28;
   const scale = Math.min((w - 2 * pad) / spanLon, (h - 2 * pad) / spanLat);
-  const offX = (w - spanLon * scale) / 2;
-  const offY = (h - spanLat * scale) / 2;
+  const ctr = (opts && opts.center) ? opts.center : null;
+  const offX = ctr ? (w / 2 - (ctr.lon - minLon) * scale) : ((w - spanLon * scale) / 2);
+  const offY = ctr ? (h / 2 - (maxLat - ctr.lat) * scale) : ((h - spanLat * scale) / 2);
   const X = lon => offX + (lon - minLon) * scale;
   const Y = lat => offY + (maxLat - lat) * scale;
 
@@ -1466,6 +1519,10 @@ function init() {
     if (state.mapType === 'leaflet' && state.map) setTimeout(() => state.map.invalidateSize(), 60);
     else if (state.mapType === 'canvas') drawCanvasMap();
   });
+
+  els.btnCenter.addEventListener('click', centerMap);
+  els.btnFollow.addEventListener('click', () => setFollow(!state.follow));
+  els.btnTrackUp.addEventListener('click', () => setTrackUp(!state.trackUp));
 
   document.querySelectorAll('nav.tabbar button').forEach(b => b.addEventListener('click', () => switchTab(b.dataset.tab)));
 

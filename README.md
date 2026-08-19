@@ -39,6 +39,7 @@ L'app è organizzata in 4 schede (barra in basso): **Dashboard · Mappa · Grafi
 - Carica **Leaflet + OpenStreetMap** a runtime (da CDN). Mostra posizione corrente (punto + freccia heading) e traccia del percorso.
 - **Fallback offline**: se il CDN non è raggiungibile, ripiega su un canvas che disegna la traccia senza basemappa (zero dipendenze).
 - **Fullscreen mappa**: pulsante ⛶ in alto a destra sulla mappa → la mappa occupa tutto lo schermo (nasconde barra/tab). Ripremi ✕ per uscire.
+- **Controlli mappa** (in alto a sinistra): 🎯 **Centra** (riporta sulla tua posizione), 🧭 **Segui** (mantiene la posizione centrata, si disattiva se trascini la mappa), ⬆️ **Bussola** (ruota la mappa nel verso di marcia usando l'heading GPS).
 
 ### Avvisi autovelox
 - Autovelox **fissi** da **OpenStreetMap** (query Overpass API attorno alla posizione, raggio 10 km), cache locale.
