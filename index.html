@@ -173,6 +173,27 @@
   nav.tabbar button .ico { font-size: 20px; line-height: 1; }
   nav.tabbar button.active { background: var(--card-2); color: var(--accent); border-color: var(--accent); }
 
+  .cam-alert {
+    position: fixed; top: 10px; left: 50%; transform: translateX(-50%);
+    z-index: 200; background: var(--bad); color: #fff; font-weight: 800;
+    padding: 12px 20px; border-radius: 12px; font-size: 18px; text-align: center;
+    max-width: 92%; box-shadow: 0 6px 24px rgba(0,0,0,.5);
+  }
+  .map-full-btn {
+    position: absolute; top: 10px; right: 10px; z-index: 500;
+    min-height: 40px; padding: 6px 12px; font-size: 18px; border-radius: 10px;
+    background: rgba(21,27,35,.92); color: var(--txt); border: 1px solid var(--line);
+  }
+  body.map-fullscreen header,
+  body.map-fullscreen nav.tabbar,
+  body.map-fullscreen #permBtn { display: none !important; }
+  body.map-fullscreen main .panel:not(#tab-map) { display: none !important; }
+  body.map-fullscreen .map-box {
+    position: fixed; inset: 0; height: 100vh; height: 100dvh;
+    border-radius: 0; border: 0; z-index: 60;
+  }
+  body.map-fullscreen .wrap { padding: 0; max-width: none; }
+
   /* Settings */
   details { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 10px 14px; margin-top: 12px; }
   summary { cursor: pointer; font-size: 14px; color: var(--dim); font-weight: 600; }
@@ -201,6 +222,8 @@
     <span id="topTime">00:00</span>
     <button id="btnLogTop">▶ Start</button>
   </header>
+
+  <div id="camAlert" class="cam-alert" style="display:none;"></div>
 
   <button id="permBtn" style="display:none; width:100%; background:var(--warn); color:#2a1a04; border-color:var(--warn);">
     Consenti sensori (motion/orientation)
@@ -269,6 +292,7 @@
         <div class="map-box">
           <div id="map"></div>
           <canvas id="mapCanvas"></canvas>
+          <button id="btnMapFull" class="map-full-btn" title="Fullscreen mappa">⛶</button>
         </div>
       </div>
     </section>
@@ -325,6 +349,18 @@
           <input type="checkbox" id="wakeLockChk" checked>
         </div>
         <div class="set-row">
+          <span>Avvisi autovelox</span>
+          <input type="checkbox" id="camAlerts" checked>
+        </div>
+        <div class="set-row">
+          <span>Distanza avviso autovelox</span>
+          <select id="camDist">
+            <option value="300">300 m</option>
+            <option value="400" selected>400 m</option>
+            <option value="600">600 m</option>
+          </select>
+        </div>
+        <div class="set-row">
           <span>Stato calibrazione</span>
           <span id="calibStatus" class="hint">non calibrato</span>
         </div>
@@ -358,6 +394,10 @@ const SPEED_EMA = 0.3;         // peso valore precedente (smoothing velocità)
 const SPEED_DEADBAND_MS = 0.55; // sotto ~2 km/h → 0 (fermo)
 const TRACK_MIN_M = 5;         // distanza minima tra punti traccia (m)
 const GPS_ACC_MAX = 30;        // scarta fix con accuratezza peggiore (m)
+const CAM_QUERY_RADIUS_M = 10000; // raggio query Overpass (m)
+const CAM_STALE_MS = 15 * 60 * 1000; // refresh cache dopo 15 min
+const CAM_MIN_MOVE_M = 5000;   // nuova query se spostati > 5 km dal centro cache
+const CAM_COOLDOWN_MS = 60000; // non ri-avvisa stessa camera entro 60 s
 
 const state = {
   mount: 'landscape-left',
@@ -380,6 +420,12 @@ const state = {
   currentTab: 'dashboard',
   mapReady: false,
   mapType: null,             // 'leaflet' | 'canvas'
+  cameras: [],
+  camAlerts: true,
+  camDist: 400,
+  camCenter: null,
+  camTs: 0,
+  camCooldown: {},
 };
 
 let lastT = performance.now();
@@ -438,6 +484,7 @@ const els = {
   chSpeed: $('chSpeed'), chLean: $('chLean'), chLat: $('chLat'), chSpeedMax: $('chSpeedMax'),
   sessionList: $('sessionList'), sessionDetail: $('sessionDetail'),
   btnExportCsv: $('btnExportCsv'), btnExportGpx: $('btnExportGpx'), btnExportCsvHist: $('btnExportCsvHist'),
+  camAlert: $('camAlert'), camAlertsChk: $('camAlerts'), camDistSel: $('camDist'), btnMapFull: $('btnMapFull'),
 };
 
 /* ============================== Gauge SVG ============================== */
@@ -512,14 +559,21 @@ function loadSettings() {
   state.mount = s.mount || 'landscape-left';
   state.invertLean = !!s.invertLean;
   state.wakeLockOn = s.wakeLockOn !== false;
+  state.camAlerts = s.camAlerts !== false;
+  state.camDist = s.camDist || 400;
   els.mountSel.value = state.mount;
   els.invertLean.checked = state.invertLean;
   els.wakeLockChk.checked = state.wakeLockOn;
+  els.camAlertsChk.checked = state.camAlerts;
+  els.camDistSel.value = String(state.camDist);
   const c = store.get('cruscotto.calib', null);
   if (c) { state.calib = c; updateCalibStatus(); }
 }
 function saveSettings() {
-  store.set('cruscotto.settings', { mount: state.mount, invertLean: state.invertLean, wakeLockOn: state.wakeLockOn });
+  store.set('cruscotto.settings', {
+    mount: state.mount, invertLean: state.invertLean, wakeLockOn: state.wakeLockOn,
+    camAlerts: state.camAlerts, camDist: state.camDist
+  });
 }
 function updateCalibStatus() {
   els.calibStatus.textContent = state.calib ? 'calibrato' : 'non calibrato';
@@ -610,6 +664,9 @@ function onGeolocation(pos) {
   state.gpsStatus = 'ok';
   updateGpsStatus();
 
+  maybeLoadCameras(c.latitude, c.longitude);
+  checkCameras();
+
   // Traccia + distanza: gate su distanza minima + accuratezza (no jitter da fermo)
   const okAcc = c.accuracy == null || c.accuracy <= GPS_ACC_MAX;
   if (!okAcc) return;
@@ -699,6 +756,107 @@ function appendTrackPoint(lat, lon, alt) {
   if (state.track.length > TRACK_MAX) state.track.shift();
   updateMap();
 }
+
+/* ============================== Avvisi autovelox (OSM/Overpass) ============================== */
+function camKey(c) { return c.lat.toFixed(4) + ',' + c.lon.toFixed(4); }
+
+function loadCachedCameras() {
+  const c = store.get('cruscotto.cameras', null);
+  if (c && c.cameras && c.cameras.length) {
+    state.cameras = c.cameras;
+    state.camCenter = c.center;
+    state.camTs = c.ts || 0;
+    renderCameras();
+  }
+}
+
+async function fetchCameras(lat, lon) {
+  const q = `[out:json][timeout:25];(node["highway"="speed_camera"](around:${CAM_QUERY_RADIUS_M},${lat},${lon});node["enforcement"="speed_camera"](around:${CAM_QUERY_RADIUS_M},${lat},${lon}););out body;`;
+  try {
+    const res = await fetch('https://overpass-api.de/api/interpreter?data=' + encodeURIComponent(q));
+    if (!res.ok) return;
+    const data = await res.json();
+    const cams = (data.elements || []).map(el => ({
+      lat: el.lat, lon: el.lon,
+      maxspeed: (el.tags && el.tags.maxspeed) || '',
+      name: (el.tags && el.tags.name) || ''
+    }));
+    state.cameras = cams;
+    state.camCenter = { lat, lon };
+    state.camTs = Date.now();
+    store.set('cruscotto.cameras', { center: { lat, lon }, ts: state.camTs, cameras: cams });
+    renderCameras();
+  } catch (e) { /* mantiene cache precedente */ }
+}
+
+function maybeLoadCameras(lat, lon) {
+  const stale = !state.camTs || (Date.now() - state.camTs > CAM_STALE_MS);
+  const moved = !state.camCenter || haversine(state.camCenter, { lat, lon }) * 1000 > CAM_MIN_MOVE_M;
+  if (stale || moved) fetchCameras(lat, lon);
+}
+
+function renderCameras() {
+  if (state.mapType === 'leaflet' && state.map) {
+    if (!state.camLayer) state.camLayer = L.layerGroup().addTo(state.map);
+    state.camLayer.clearLayers();
+    for (const c of state.cameras) {
+      const m = L.circleMarker([c.lat, c.lon], { radius: 7, color: '#f87171', fillColor: '#f87171', fillOpacity: 0.9, weight: 2 });
+      if (c.maxspeed) m.bindTooltip((c.name ? c.name + ' · ' : '') + c.maxspeed);
+      m.addTo(state.camLayer);
+    }
+  }
+  if (state.mapType === 'canvas') drawCanvasMap();
+}
+
+function checkCameras() {
+  if (!state.camAlerts || !state.cameras.length) return;
+  if (state.gps.lat == null) return;
+  let nearest = null, nearestD = Infinity;
+  for (const c of state.cameras) {
+    const d = haversine({ lat: state.gps.lat, lon: state.gps.lon }, { lat: c.lat, lon: c.lon }) * 1000;
+    if (d < nearestD) { nearestD = d; nearest = c; }
+  }
+  if (!nearest || nearestD > state.camDist) return;
+  const now = Date.now();
+  const k = camKey(nearest);
+  if (state.camCooldown[k] && now - state.camCooldown[k] < CAM_COOLDOWN_MS) return;
+  state.camCooldown[k] = now;
+  alertCamera(nearestD, nearest);
+}
+
+let camAlertTimer = null;
+function alertCamera(dist, cam) {
+  let label = 'AUTOVELOX';
+  if (cam.maxspeed) label += ' · ' + cam.maxspeed;
+  els.camAlert.innerHTML = '⚠ ' + label + ' <span style="opacity:.85">~' + Math.round(dist) + ' m</span>';
+  els.camAlert.style.display = 'block';
+  clearTimeout(camAlertTimer);
+  camAlertTimer = setTimeout(() => { els.camAlert.style.display = 'none'; }, 4000);
+  beep();
+}
+
+let audioCtx = null;
+function ensureAudio() {
+  if (!audioCtx) { try { audioCtx = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) {} }
+  if (audioCtx && audioCtx.state === 'suspended') audioCtx.resume();
+}
+function beep() {
+  if (!state.camAlerts) return;
+  ensureAudio();
+  if (!audioCtx) return;
+  const t0 = audioCtx.currentTime;
+  [0, 0.18].forEach(off => {
+    const o = audioCtx.createOscillator();
+    const g = audioCtx.createGain();
+    o.type = 'square'; o.frequency.value = 880;
+    g.gain.setValueAtTime(0.0001, t0 + off);
+    g.gain.exponentialRampToValueAtTime(0.3, t0 + off + 0.01);
+    g.gain.exponentialRampToValueAtTime(0.0001, t0 + off + 0.12);
+    o.connect(g); g.connect(audioCtx.destination);
+    o.start(t0 + off); o.stop(t0 + off + 0.13);
+  });
+}
+document.addEventListener('pointerdown', ensureAudio, { once: true });
 
 /* ============================== Wake lock / Fullscreen ============================== */
 async function requestWakeLock() {
@@ -976,6 +1134,7 @@ function initLeaflet() {
   state.mapPos = L.circleMarker([0, 0], { radius: 8, color: '#29b6f6', fillColor: '#29b6f6', fillOpacity: 0.9 }).addTo(state.mapLayer);
   state.mapPoly = L.polyline([], { color: '#29b6f6', weight: 4 }).addTo(state.mapLayer);
   updateLeaflet();
+  renderCameras();
 }
 
 function updateLeaflet() {
@@ -1000,7 +1159,7 @@ function initCanvasMap() {
 
 function drawCanvasMap() {
   if (state.mapType !== 'canvas' || !state.mapCanvas) return;
-  drawTrackOnCanvas(state.mapCanvas, state.track, { current: true, heading: state.gps.heading });
+  drawTrackOnCanvas(state.mapCanvas, state.track, { current: true, heading: state.gps.heading, cameras: state.cameras });
 }
 
 function updateMap() {
@@ -1019,15 +1178,21 @@ function drawTrackOnCanvas(canvas, track, opts) {
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   ctx.fillStyle = '#0b0f14';
   ctx.fillRect(0, 0, w, h);
-  if (!track || !track.length) {
+  const cams = (opts && opts.cameras) || [];
+  const hasTrack = !!(track && track.length);
+  if (!hasTrack && !cams.length) {
     ctx.fillStyle = '#8b98a8'; ctx.font = '13px system-ui'; ctx.textAlign = 'center';
     ctx.fillText('Nessun fix GPS', w / 2, h / 2);
     return;
   }
   let minLat = Infinity, maxLat = -Infinity, minLon = Infinity, maxLon = -Infinity;
-  for (const p of track) {
+  if (hasTrack) for (const p of track) {
     if (p.lat < minLat) minLat = p.lat; if (p.lat > maxLat) maxLat = p.lat;
     if (p.lon < minLon) minLon = p.lon; if (p.lon > maxLon) maxLon = p.lon;
+  }
+  for (const c of cams) {
+    if (c.lat < minLat) minLat = c.lat; if (c.lat > maxLat) maxLat = c.lat;
+    if (c.lon < minLon) minLon = c.lon; if (c.lon > maxLon) maxLon = c.lon;
   }
   const spanLat = (maxLat - minLat) || 0.0001, spanLon = (maxLon - minLon) || 0.0001;
   const pad = 28;
@@ -1037,19 +1202,28 @@ function drawTrackOnCanvas(canvas, track, opts) {
   const X = lon => offX + (lon - minLon) * scale;
   const Y = lat => offY + (maxLat - lat) * scale;
 
-  ctx.strokeStyle = '#29b6f6'; ctx.lineWidth = 2; ctx.lineJoin = 'round';
-  ctx.beginPath();
-  track.forEach((p, i) => { const x = X(p.lon), y = Y(p.lat); i ? ctx.lineTo(x, y) : ctx.moveTo(x, y); });
-  ctx.stroke();
+  if (hasTrack) {
+    ctx.strokeStyle = '#29b6f6'; ctx.lineWidth = 2; ctx.lineJoin = 'round';
+    ctx.beginPath();
+    track.forEach((p, i) => { const x = X(p.lon), y = Y(p.lat); i ? ctx.lineTo(x, y) : ctx.moveTo(x, y); });
+    ctx.stroke();
+  }
+
+  // camere (punti rossi)
+  for (const c of cams) {
+    ctx.fillStyle = '#f87171';
+    ctx.beginPath(); ctx.arc(X(c.lon), Y(c.lat), 5, 0, 6.283); ctx.fill();
+  }
 
   // inizio (verde) / fine (rossa)
-  const s = track[0], e = track[track.length - 1];
-  if (opts && opts.startEnd) {
+  if (opts && opts.startEnd && hasTrack) {
+    const s = track[0], e = track[track.length - 1];
     ctx.fillStyle = '#34d399'; ctx.beginPath(); ctx.arc(X(s.lon), Y(s.lat), 5, 0, 6.283); ctx.fill();
     ctx.fillStyle = '#f87171'; ctx.beginPath(); ctx.arc(X(e.lon), Y(e.lat), 5, 0, 6.283); ctx.fill();
   }
   // posizione corrente + heading
-  if (opts && opts.current) {
+  if (opts && opts.current && hasTrack) {
+    const e = track[track.length - 1];
     const cx = X(e.lon), cy = Y(e.lat);
     ctx.fillStyle = '#e7edf3';
     ctx.beginPath(); ctx.arc(cx, cy, 6, 0, 6.283); ctx.fill();
@@ -1138,6 +1312,14 @@ function tickDemo(now) {
   state.lonG = 0.18 * Math.sin(t * 0.7);
   state.vertG = 0.05 * Math.sin(t * 2.2);
   state.gyroRoll = 0;
+  // camere sintetiche demo (test banner/beep)
+  if (!state.cameras.length) {
+    state.cameras = [
+      { lat: 45.0005, lon: 9.0005, maxspeed: '50', name: 'Demo cam 1' },
+      { lat: 45.0015, lon: 8.9995, maxspeed: '70', name: 'Demo cam 2' },
+    ];
+    renderCameras();
+  }
   // traccia in movimento (spirale attorno a 45.0,9.0)
   const lat = 45.0 + 0.025 * Math.sin(t * 0.05) * (1 + t * 0.002);
   const lon = 9.0 + 0.035 * Math.cos(t * 0.05) * (1 + t * 0.002);
@@ -1146,6 +1328,7 @@ function tickDemo(now) {
   state.session.lastPos = state.session.lastPos || { lat, lon };
   state.session.distKm += (state.speedMs * 0.05) / 1000;
   appendTrackPoint(lat, lon, 120);
+  checkCameras();
 }
 
 /* ============================== Loop display ============================== */
@@ -1274,11 +1457,21 @@ function init() {
   els.mountSel.addEventListener('change', () => { state.mount = els.mountSel.value; saveSettings(); });
   els.invertLean.addEventListener('change', () => { state.invertLean = els.invertLean.checked; saveSettings(); });
   els.wakeLockChk.addEventListener('change', () => { state.wakeLockOn = els.wakeLockChk.checked; saveSettings(); if (state.wakeLockOn) requestWakeLock(); });
+  els.camAlertsChk.addEventListener('change', () => { state.camAlerts = els.camAlertsChk.checked; saveSettings(); });
+  els.camDistSel.addEventListener('change', () => { state.camDist = parseInt(els.camDistSel.value, 10); saveSettings(); });
+
+  els.btnMapFull.addEventListener('click', () => {
+    const full = document.body.classList.toggle('map-fullscreen');
+    els.btnMapFull.textContent = full ? '✕' : '⛶';
+    if (state.mapType === 'leaflet' && state.map) setTimeout(() => state.map.invalidateSize(), 60);
+    else if (state.mapType === 'canvas') drawCanvasMap();
+  });
 
   document.querySelectorAll('nav.tabbar button').forEach(b => b.addEventListener('click', () => switchTab(b.dataset.tab)));
 
   state.session.start = performance.now();
   state.session.startWall = Date.now();
+  loadCachedCameras();
   idb.open().then(() => renderHistory());
 
   initMap();

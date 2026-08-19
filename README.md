@@ -38,6 +38,14 @@ L'app è organizzata in 4 schede (barra in basso): **Dashboard · Mappa · Grafi
 ### Mappa
 - Carica **Leaflet + OpenStreetMap** a runtime (da CDN). Mostra posizione corrente (punto + freccia heading) e traccia del percorso.
 - **Fallback offline**: se il CDN non è raggiungibile, ripiega su un canvas che disegna la traccia senza basemappa (zero dipendenze).
+- **Fullscreen mappa**: pulsante ⛶ in alto a destra sulla mappa → la mappa occupa tutto lo schermo (nasconde barra/tab). Ripremi ✕ per uscire.
+
+### Avvisi autovelox
+- Autovelox **fissi** da **OpenStreetMap** (query Overpass API attorno alla posizione, raggio 10 km), cache locale.
+- Marker rossi sulla mappa (tooltip con limite velocità); avviso **beep + banner** quando ti avvicini entro la distanza impostata.
+- Impostazioni: toggle **Avvisi autovelox** e **distanza** (300/400/600 m).
+- Copertura OSM non uniforme; solo autovelox fissi (no tutor/mobili/posti di blocco).
+- **Nota legale**: uso a tua discrezione e responsabilità.
 
 ### Grafici
 - Andamento **ultimi 60 s** di velocità, piega e accelerazione laterale (canvas nativo, nessuna libreria).
