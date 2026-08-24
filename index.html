@@ -492,6 +492,10 @@
           <div><span class="k">Peso correzione</span><b id="dgK">—</b></div>
           <div><span class="k">Bias giroscopio</span><b id="dgBias">—</b></div>
           <div><span class="k">Piega letta</span><b id="dgLean">—</b></div>
+          <div><span class="k">Accel lat / lon / vert</span><b id="dgAcc">—</b></div>
+          <div><span class="k">Riferimento GPS lat / lon</span><b id="dgAccGps">—</b></div>
+          <div><span class="k">Offset accelerometro</span><b id="dgAccBias">—</b></div>
+          <div><span class="k">Stima gravità</span><b id="dgGrav">—</b></div>
         </div>
         <p class="hint">
           <b>Test a banco.</b> Moto sul cavalletto, <b>dritta e ferma</b>: la piega vera è 0°
@@ -549,6 +553,18 @@ const LEAN_GYRO_LP = 0.3;      // passa-basso sul rollio prima dell'integrazione
 const LEAN_ACC_FLOOR = 0.0004; // correzione minima sempre attiva
 const LEAN_KI = 0.06;          // termine integrale: stima il bias residuo del giroscopio
 const LEAN_BIAS_MAX = 5;       // saturazione del bias stimato (°/s)
+/* --- accelerazioni: laterale / longitudinale / verticale --- */
+const DESPIKE_G = 1.5;         // salto minimo (g) per sospettare un glitch di sensore
+const DESPIKE_RATIO = 0.35;    // quanto i due vicini devono somigliarsi per dirlo isolato
+const GRAV_TAU_S = 5;          // costante di tempo della stima di gravità (percorso derivato)
+const GRAV_TAU_FAST_S = 0.3;   // convergenza rapida all'avvio
+const GRAV_FAST_N = 90;        // campioni in modalità rapida (~1,5 s)
+const GRAV_FREEZE_G = 0.12;    // |accel| oltre cui la gravità smette di inseguire
+const GRAV_FREEZE_ROLL_DPS = 15; // ...ma solo se non si sta rollando (vedi commento)
+const ACCEL_LIMIT_G = 4;       // saturazione simmetrica: una buca vera può fare 3 g
+const ACC_BIAS_MAX_G = 0.5;    // offset accelerometro massimo accettato in calibrazione
+const ACC_BIAS_N = 60;         // campioni mediati per stimare l'offset (~1 s)
+const FUS_TAU_S = 1.5;         // crossover della fusione inerziale/GPS (~0,1 Hz)
 const GYRO_BIAS_MIN_N = 120;   // campioni da fermo prima di aggiornare il bias (~2 s)
 const GYRO_BIAS_SPEED_MS = 0.5;// sotto questa velocità si considera "fermo"
 const GYRO_BIAS_EMA = 0.2;     // quanto pesa una nuova stima di bias
@@ -611,13 +627,25 @@ const state = {
   leanConf: 1,        // affidabilità della piega 0..1 (guidata dalla vibrazione)
   gyroBias: null,     // bias di rollio stimato da fermo (°/s)
   leanBias: 0,        // bias residuo appreso dal termine integrale (°/s)
+  accBias: null,      // offset accelerometro (g, frame moto) rilevato in calibrazione
+  latGps: null,       // accelerazione laterale da GPS: v·dψ/dt (g)
+  lonGps: null,       // accelerazione longitudinale da GPS: dv/dt (g)
+  latFus: 0,          // laterale fusa inerziale+GPS (g)
+  lonFus: 0,          // longitudinale fusa inerziale+GPS (g)
+  gravFrozen: false,  // stima di gravità congelata (manovra rettilinea in corso)
   sensorHz: 0,        // frequenza reale degli eventi devicemotion
 };
 
 /* Accumulatore per la decimazione del log: il campionamento a 20 Hz prende la media
    dei campioni arrivati nell'intervallo invece dell'istantanea. Senza questa media
    la decimazione 60→20 Hz è essa stessa una sorgente di aliasing. */
-const logAcc = { n: 0, lean: 0, latG: 0, lonG: 0, vertG: 0, gyro: 0, vib: 0 };
+const logAcc = {
+  n: 0, lean: 0, latG: 0, lonG: 0, vertG: 0, gyro: 0, vib: 0, latFus: 0, lonFus: 0,
+  // La media protegge dall'aliasing ma cancella i picchi, che sul verticale sono
+  // proprio l'informazione utile: si tiene anche il massimo in modulo, con segno.
+  latPk: 0, lonPk: 0, vertPk: 0,
+};
+function keepPeak(cur, v) { return Math.abs(v) > Math.abs(cur) ? v : cur; }
 
 let lastFlush = performance.now();
 let lastChartT = performance.now();
@@ -737,6 +765,7 @@ const els = {
   leanConf: $('leanConf'), leanConfFill: $('leanConfFill'), leanConfTxt: $('leanConfTxt'),
   diagPanel: $('diagPanel'), dgHz: $('dgHz'), dgVib: $('dgVib'), dgNorm: $('dgNorm'),
   dgK: $('dgK'), dgBias: $('dgBias'), dgLean: $('dgLean'),
+  dgAcc: $('dgAcc'), dgAccGps: $('dgAccGps'), dgAccBias: $('dgAccBias'), dgGrav: $('dgGrav'),
   btnBench: $('btnBench'), benchOut: $('benchOut'),
 };
 
@@ -890,13 +919,136 @@ function linearAccel(e) {
    senza sensore lineare HW) la si ricava da accelerationIncludingGravity togliendo
    la gravità stimata con un passa-basso. Prima queste tre grandezze restavano
    inchiodate a zero, senza alcun avviso, anche nel CSV. */
-function estimateLinear(ig) {
-  if (!state._gravLP) { state._gravLP = { x: ig.x, y: ig.y, z: ig.z }; return { x: 0, y: 0, z: 0 }; }
-  const a = 0.02; // tau ≈ 0.8 s a 60 Hz
-  state._gravLP.x += a * (ig.x - state._gravLP.x);
-  state._gravLP.y += a * (ig.y - state._gravLP.y);
-  state._gravLP.z += a * (ig.z - state._gravLP.z);
-  return { x: ig.x - state._gravLP.x, y: ig.y - state._gravLP.y, z: ig.z - state._gravLP.z };
+function estimateLinear(ig, dt, rollRate) {
+  if (!state._gravLP) {
+    state._gravLP = { x: ig.x, y: ig.y, z: ig.z };
+    state._gravN = 0;
+    return { x: 0, y: 0, z: 0 };
+  }
+  const lin = { x: ig.x - state._gravLP.x, y: ig.y - state._gravLP.y, z: ig.z - state._gravLP.z };
+
+  /* Il passa-basso inseguiva la gravità con tau ≈ 0,83 s, quindi assorbiva anche le
+     accelerazioni sostenute: per un gradino l'uscita decade come e^(−t/tau), cioè una
+     frenata da 1 g tenuta 2 s finiva nel log come 0,09 g.
+     Ora tau è 5 s e l'inseguimento si CONGELA durante una manovra rettilinea.
+     Il congelamento è condizionato anche al rollio: se la moto sta piegando, la
+     gravità ruota davvero nel frame telefono e la stima deve poterla seguire,
+     altrimenti a 30° di piega si accumulerebbe un errore di mezzo g.
+     Resta il limite di fondo: senza un riferimento esterno il percorso derivato è un
+     passa-alto. Per laterale e longitudinale lo colma la fusione GPS; sul verticale
+     non serve, perché un'accelerazione verticale sostenuta non esiste. */
+  const mag = Math.hypot(lin.x, lin.y, lin.z) / G;
+  const rolling = Math.abs(rollRate || 0) > GRAV_FREEZE_ROLL_DPS;
+  const freeze = state._gravN >= GRAV_FAST_N && mag > GRAV_FREEZE_G && !rolling;
+  state.gravFrozen = freeze;
+
+  if (!freeze) {
+    const tau = state._gravN < GRAV_FAST_N ? GRAV_TAU_FAST_S : GRAV_TAU_S;
+    const step = (dt > 0 ? dt : 1 / 60);
+    const a = step / (tau + step);
+    state._gravLP.x += a * (ig.x - state._gravLP.x);
+    state._gravLP.y += a * (ig.y - state._gravLP.y);
+    state._gravLP.z += a * (ig.z - state._gravLP.z);
+    state._gravN++;
+  }
+  return lin;
+}
+
+/* Reiezione dell'impulso ISOLATO.
+
+   Qui non va bene né una mediana mobile né un filtro di Hampel: su queste tre
+   grandezze un colpo secco è segnale, non rumore. Hampel in particolare fallisce
+   perché la soglia è k·MAD e su una baseline quieta il MAD collassa — misurato: un
+   colpo vero da [0,9 / 1,4 / 1,2] g veniva riscritto in [0,11 / 0,11 / 0,12] g.
+
+   Il discriminante giusto è la DURATA, non l'ampiezza. Un evento fisico (buca,
+   giunto) dura 20–50 ms, cioè 2–3 campioni a 60 Hz; un glitch di sensore dura un
+   campione solo e i suoi vicini restano simili tra loro. Si valuta quindi il
+   campione centrale di una finestra di 3: costa un campione di ritardo (~17 ms). */
+function despike(st, x) {
+  if (!st.b) st.b = [];
+  st.b.push(x);
+  if (st.b.length < 3) return x;      // riscaldamento
+  if (st.b.length > 3) st.b.shift();
+  const a = st.b[0], b = st.b[1], c = st.b[2];
+  const dA = b - a, dC = b - c;
+  const isolato =
+    Math.abs(dA) > DESPIKE_G && Math.abs(dC) > DESPIKE_G &&  // salta via da entrambi i vicini
+    (dA > 0) === (dC > 0) &&                                  // e torna indietro: non è un fronte
+    Math.abs(c - a) < DESPIKE_RATIO * Math.min(Math.abs(dA), Math.abs(dC));
+  return isolato ? (a + c) / 2 : b;
+}
+const clampG = v => v > ACCEL_LIMIT_G ? ACCEL_LIMIT_G : (v < -ACCEL_LIMIT_G ? -ACCEL_LIMIT_G : v);
+
+/* Offset dell'accelerometro: a moto ferma e dritta le tre componenti devono valere
+   esattamente 0. È l'analogo della stima del bias giroscopio, e serve soprattutto
+   quando il device espone e.acceleration (nel percorso derivato l'offset se ne va
+   già con la stima di gravità). */
+function startAccBiasCapture() {
+  state.accBias = null;
+  state._abSum = { lat: 0, lon: 0, vert: 0 };
+  state._abN = 0;
+  state._abPending = true;
+}
+function collectAccBias() {
+  if (!state._abPending) return;
+  state._abSum.lat += state.latG;
+  state._abSum.lon += state.lonG;
+  state._abSum.vert += state.vertG;
+  if (++state._abN < ACC_BIAS_N) return;
+  const n = state._abN;
+  const b = { lat: state._abSum.lat / n, lon: state._abSum.lon / n, vert: state._abSum.vert / n };
+  state._abPending = false;
+  const ok = Math.abs(b.lat) <= ACC_BIAS_MAX_G && Math.abs(b.lon) <= ACC_BIAS_MAX_G && Math.abs(b.vert) <= ACC_BIAS_MAX_G;
+  if (ok) {
+    state.accBias = b;
+  } else {
+    // Offset enorme: quasi sempre significa che la moto non era ferma durante la
+    // calibrazione. Meglio non applicarlo che congelare un errore.
+    state.accBias = null;
+    toast('Offset accelerometro fuori scala: la moto era in movimento? Ricalibra da ferma.', 'err', 6000);
+  }
+}
+
+/* Fusione complementare inerziale + GPS su longitudinale e laterale.
+   È l'analogo di quello che il giroscopio fa per la piega: qui il riferimento lento
+   e senza deriva è il GPS (dv/dt e v·dψ/dt), mentre l'accelerometro porta la banda
+   alta. Sotto ~0,1 Hz comanda il GPS, sopra l'accelerometro.
+   Il verticale non compare: nessun riferimento esterno esiste, ma non serve, perché
+   un'accelerazione verticale sostenuta non è fisicamente possibile. */
+function updateAccelFusion(dt) {
+  const step = dt > 0 ? dt : 1 / 60;
+  const a = step / (FUS_TAU_S + step);
+  state._lpLat = (state._lpLat == null) ? state.latG : state._lpLat + a * (state.latG - state._lpLat);
+  state._lpLon = (state._lpLon == null) ? state.lonG : state._lpLon + a * (state.lonG - state._lpLon);
+  state.latFus = (state._lpLatGps == null) ? state.latG : clampG((state.latG - state._lpLat) + state._lpLatGps);
+  state.lonFus = (state._lpLonGps == null) ? state.lonG : clampG((state.lonG - state._lpLon) + state._lpLonGps);
+}
+
+/* Riferimenti derivati dal GPS, aggiornati a ogni fix (~1 Hz). */
+function updateGpsAccel(c, tsMs) {
+  const v = (c.speed != null && c.speed >= 0) ? c.speed : null;
+  const t = tsMs / 1000;
+  if (v != null && state._pvT != null) {
+    const dtg = t - state._pvT;
+    if (dtg >= 0.2 && dtg <= 5) {
+      const lon = ((v - state._pv) / dtg) / G;
+      state.lonGps = Math.abs(lon) <= 2 ? lon : null; // scarta glitch di velocità
+      if (c.heading != null && !isNaN(c.heading) && state._phdg != null && v >= HEADING_MIN_MS) {
+        let dpsi = c.heading - state._phdg;
+        while (dpsi > 180) dpsi -= 360;
+        while (dpsi < -180) dpsi += 360;
+        const lat = (v * (dpsi * Math.PI / 180) / dtg) / G; // a_lat = v·ω, + = destra
+        state.latGps = Math.abs(lat) <= 2 ? lat : null;
+      } else {
+        state.latGps = null;
+      }
+      const a = dtg / (FUS_TAU_S + dtg);
+      if (state.lonGps != null) state._lpLonGps = (state._lpLonGps == null) ? state.lonGps : state._lpLonGps + a * (state.lonGps - state._lpLonGps);
+      if (state.latGps != null) state._lpLatGps = (state._lpLatGps == null) ? state.latGps : state._lpLatGps + a * (state.latGps - state._lpLatGps);
+    }
+  }
+  if (v != null) { state._pv = v; state._pvT = t; state._phdg = (c.heading != null && !isNaN(c.heading)) ? c.heading : null; }
 }
 
 /* ---- Robustezza alle vibrazioni ----
@@ -959,6 +1111,23 @@ function resetSensorFilters() {
   state.vibG = 0;
   state.gRatio = 1;
   state.leanConf = 1;
+  // accelerazioni: buffer Hampel, offset, riferimenti GPS e fusione
+  state._hbuf = null;
+  state._gravN = 0;
+  state.gravFrozen = false;
+  state.accBias = null;
+  state._abPending = false;
+  state._lpLat = null;
+  state._lpLon = null;
+  state._lpLatGps = null;
+  state._lpLonGps = null;
+  state._pv = null;
+  state._pvT = null;
+  state._phdg = null;
+  state.latGps = null;
+  state.lonGps = null;
+  state.latFus = 0;
+  state.lonFus = 0;
 }
 
 function onDeviceMotion(e) {
@@ -978,25 +1147,11 @@ function onDeviceMotion(e) {
   }
 
   const ig = accIncG(e);
-  const la = linearAccel(e) || (ig ? estimateLinear(ig) : null);
   const m = MOUNT[state.mount];
   const B = state.calib; // base ortonormale già costruita
 
-  if (la) {
-    if (B) {
-      // Proiezione nel frame moto reale: elimina l'errore dovuto al supporto inclinato
-      state.latG  = vdot(la, B.right) / G;
-      state.lonG  = vdot(la, B.fwd)   / G;
-      state.vertG = vdot(la, B.up)    / G;
-    } else {
-      state.latG  = axis(la, m.lat)  / G;
-      state.lonG  = axis(la, m.lon)  / G;
-      state.vertG = axis(la, m.vert) / G;
-    }
-    state.accelDerived = !linearAccel(e);
-  }
-
-  // Velocità di rollio attorno all'asse longitudinale moto (non attorno a z del telefono)
+  /* Il giroscopio si calcola PRIMA delle accelerazioni: il rateo di rollio decide
+     se la stima di gravità può essere congelata (vedi estimateLinear). */
   const rr = e.rotationRate;
   let rollRate = 0;
   state.hasGyro = !!(rr && (rr.alpha != null || rr.beta != null || rr.gamma != null));
@@ -1015,8 +1170,8 @@ function onDeviceMotion(e) {
       state._biasSum = (state._biasSum || 0) + raw;
       state._biasN = (state._biasN || 0) + 1;
       if (state._biasN >= GYRO_BIAS_MIN_N) {
-        const m = state._biasSum / state._biasN;
-        state.gyroBias = (state.gyroBias == null) ? m : state.gyroBias + GYRO_BIAS_EMA * (m - state.gyroBias);
+        const bm = state._biasSum / state._biasN;
+        state.gyroBias = (state.gyroBias == null) ? bm : state.gyroBias + GYRO_BIAS_EMA * (bm - state.gyroBias);
         state._biasSum = 0; state._biasN = 0;
       }
     } else { state._biasSum = 0; state._biasN = 0; }
@@ -1030,6 +1185,39 @@ function onDeviceMotion(e) {
     if (state.invertLean) rollRate = -rollRate;
   }
   state.gyroRoll = rollRate;
+
+  const hasNative = !!linearAccel(e);
+  const la = linearAccel(e) || (ig ? estimateLinear(ig, dt, rollRate) : null);
+
+  if (la) {
+    let lat, lon, vert;
+    if (B) {
+      // Proiezione nel frame moto reale: elimina l'errore dovuto al supporto inclinato
+      lat  = vdot(la, B.right) / G;
+      lon  = vdot(la, B.fwd)   / G;
+      vert = vdot(la, B.up)    / G;
+    } else {
+      lat  = axis(la, m.lat)  / G;
+      lon  = axis(la, m.lon)  / G;
+      vert = axis(la, m.vert) / G;
+    }
+
+    // Reiezione impulsi isolati, per canale: i colpi veri restano intatti
+    if (!state._hbuf) state._hbuf = { lat: {}, lon: {}, vert: {} };
+    lat  = despike(state._hbuf.lat,  lat);
+    lon  = despike(state._hbuf.lon,  lon);
+    vert = despike(state._hbuf.vert, vert);
+
+    // Offset dell'accelerometro rilevato in calibrazione (moto ferma e dritta)
+    if (state.accBias) { lat -= state.accBias.lat; lon -= state.accBias.lon; vert -= state.accBias.vert; }
+
+    state.latG = clampG(lat);
+    state.lonG = clampG(lon);
+    state.vertG = clampG(vert);
+    state.accelDerived = !hasNative;
+    collectAccBias();
+    updateAccelFusion(dt);
+  }
 
   if (ig && B) {
     updateVibration(ig);
@@ -1118,6 +1306,11 @@ function onDeviceMotion(e) {
   logAcc.vertG += state.vertG;
   logAcc.gyro += state.gyroRoll;
   logAcc.vib += state.vibG;
+  logAcc.latFus += state.latFus;
+  logAcc.lonFus += state.lonFus;
+  logAcc.latPk = keepPeak(logAcc.latPk, state.latG);
+  logAcc.lonPk = keepPeak(logAcc.lonPk, state.lonG);
+  logAcc.vertPk = keepPeak(logAcc.vertPk, state.vertG);
 }
 
 function onDeviceOrientation(e) {
@@ -1162,6 +1355,7 @@ function onGeolocation(pos) {
   }
   state.gps.alt = c.altitude; state.gps.heading = c.heading; state.gps.acc = c.accuracy;
   state.gpsStatus = 'ok';
+  updateGpsAccel(c, pos.timestamp || Date.now());
   updateGpsStatus();
 
   maybeLoadCameras(c.latitude, c.longitude);
@@ -1662,9 +1856,13 @@ function takeLogAvg() {
   const out = {
     lean: logAcc.lean / n, latG: logAcc.latG / n, lonG: logAcc.lonG / n,
     vertG: logAcc.vertG / n, gyro: logAcc.gyro / n, vib: logAcc.vib / n,
+    latFus: logAcc.latFus / n, lonFus: logAcc.lonFus / n,
+    latPk: logAcc.latPk, lonPk: logAcc.lonPk, vertPk: logAcc.vertPk,
   };
   logAcc.n = 0;
   logAcc.lean = logAcc.latG = logAcc.lonG = logAcc.vertG = logAcc.gyro = logAcc.vib = 0;
+  logAcc.latFus = logAcc.lonFus = 0;
+  logAcc.latPk = logAcc.lonPk = logAcc.vertPk = 0;
   return out;
 }
 
@@ -1684,6 +1882,11 @@ function snapshot() {
     vertG: m ? m.vertG : state.vertG,
     gyro: m ? m.gyro : state.gyroRoll,
     vib: m ? m.vib : state.vibG,
+    latFus: m ? m.latFus : state.latFus,
+    lonFus: m ? m.lonFus : state.lonFus,
+    latPk: m ? m.latPk : state.latG,
+    lonPk: m ? m.lonPk : state.lonG,
+    vertPk: m ? m.vertPk : state.vertG,
     gap,
     lat: state.pos.lat, lon: state.pos.lon, alt: state.gps.alt,
     heading: state.gps.heading, gpsAcc: state.gps.acc
@@ -1794,7 +1997,9 @@ function stamp() {
   return d.getFullYear() + pad(d.getMonth()+1) + pad(d.getDate()) + '_' + pad(d.getHours()) + pad(d.getMinutes()) + pad(d.getSeconds());
 }
 
-const CSV_HEADER = 't,speed_kmh,speed_ms,lean_deg,lat_accel_g,lon_accel_g,vert_accel_g,gyro_roll_dps,gap,vib_g,lat,lon,alt_m,heading_deg,gps_acc_m';
+const CSV_HEADER = 't,speed_kmh,speed_ms,lean_deg,lat_accel_g,lon_accel_g,vert_accel_g,' +
+  'lat_peak_g,lon_peak_g,vert_peak_g,lat_accel_fus_g,lon_accel_fus_g,' +
+  'gyro_roll_dps,gap,vib_g,lat,lon,alt_m,heading_deg,gps_acc_m';
 
 function csvMeta(meta) {
   return [
@@ -1812,6 +2017,8 @@ function csvRows(rows) {
   return rows.map(r => [
     num(r.t, 3), num(r.speedKmh, 1), num(r.speedMs, 2), num(r.lean, 2),
     num(r.latG || 0, 3), num(r.lonG || 0, 3), num(r.vertG || 0, 3),
+    num(r.latPk || 0, 3), num(r.lonPk || 0, 3), num(r.vertPk || 0, 3),
+    num(r.latFus || 0, 3), num(r.lonFus || 0, 3),
     num(r.gyro || 0, 2), r.gap ? '1' : '0', num(r.vib || 0, 3),
     num(r.lat, 6), num(r.lon, 6), num(r.alt, 1), num(r.heading, 1), num(r.gpsAcc, 1)
   ].join(',')).join('\n');
@@ -2360,6 +2567,17 @@ function updateDiag() {
   els.dgBias.textContent = (state.gyroBias == null && !state.leanBias)
     ? 'non stimato' : netBias.toFixed(2) + ' °/s';
   els.dgLean.textContent = (state.calib || state.demo) ? state.lean.toFixed(1) + '°' : 'non calibrato';
+
+  const g2 = v => (v >= 0 ? '+' : '') + v.toFixed(2);
+  els.dgAcc.textContent = g2(state.latG) + ' / ' + g2(state.lonG) + ' / ' + g2(state.vertG);
+  els.dgAccGps.textContent = (state.latGps == null ? '—' : g2(state.latGps)) + ' / ' +
+                             (state.lonGps == null ? '—' : g2(state.lonGps));
+  els.dgAccBias.textContent = state._abPending ? 'misura in corso…'
+    : (state.accBias ? g2(state.accBias.lat) + ' / ' + g2(state.accBias.lon) + ' / ' + g2(state.accBias.vert)
+                     : 'non stimato');
+  els.dgGrav.textContent = state.accelDerived
+    ? (state.gravFrozen ? 'congelata (manovra)' : 'in inseguimento')
+    : 'nativa (device)';
 }
 
 let benchTimer = null, bench = null;
@@ -2367,12 +2585,16 @@ let benchTimer = null, bench = null;
 function startBench() {
   if (benchTimer) return;
   if (!state.calib && !state.demo) { toast('Calibra prima di eseguire il test.', 'err'); return; }
-  bench = { t0: Date.now(), lean: [], vib: [], hz: [] };
+  bench = { t0: Date.now(), lean: [], vib: [], hz: [], lat: [], lon: [], vert: [] };
   els.btnBench.disabled = true;
   els.benchOut.textContent = 'Test in corso… tieni la moto ferma e dritta.';
   benchTimer = setInterval(() => {
     bench.lean.push(state.lean);
     bench.vib.push(state.vibG);
+    // A moto ferma anche queste tre valgono 0 per costruzione: tre riferimenti in più
+    bench.lat.push(state.latG);
+    bench.lon.push(state.lonG);
+    bench.vert.push(state.vertG);
     if (state.sensorHz) bench.hz.push(state.sensorHz);
     const el = (Date.now() - bench.t0) / 1000;
     if (el >= BENCH_SEC) finishBench();
@@ -2396,10 +2618,20 @@ function finishBench() {
   let vMax = 0; for (const v of V) if (v > vMax) vMax = v;
   const hz = bench.hz.length ? avg(bench.hz) : 0;
 
+  // Residui delle tre accelerazioni: a moto ferma il valore vero è 0 su tutte
+  const resid = ch => {
+    const a = bench[ch].map(Math.abs);
+    if (!a.length) return { m: 0, x: 0 };
+    let x = 0; for (const v of a) if (v > x) x = v;
+    return { m: avg(a), x };
+  };
+  const rLat = resid('lat'), rLon = resid('lon'), rVert = resid('vert');
+  const accWorst = Math.max(rLat.m, rLon.m, rVert.m);
+
   let verdict, cls;
-  if (maxAbs < 1.5 && Math.abs(drift) < 1) { verdict = 'Ottimo — lettura stabile'; cls = 'ok'; }
-  else if (maxAbs < 3 && Math.abs(drift) < 2.5) { verdict = 'Accettabile — errore contenuto'; cls = 'warn'; }
-  else { verdict = 'Problema — errore oltre i 3°'; cls = 'bad'; }
+  if (maxAbs < 1.5 && Math.abs(drift) < 1 && accWorst < 0.05) { verdict = 'Ottimo — lettura stabile'; cls = 'ok'; }
+  else if (maxAbs < 3 && Math.abs(drift) < 2.5 && accWorst < 0.12) { verdict = 'Accettabile — errore contenuto'; cls = 'warn'; }
+  else { verdict = 'Problema — errore oltre soglia'; cls = 'bad'; }
 
   const vLbl = vMean < 0.15 ? 'bassa' : (vMean < 0.35 ? 'media' : 'alta');
 
@@ -2416,6 +2648,9 @@ function finishBench() {
     ['Deriva sui ' + BENCH_SEC + ' s', (drift >= 0 ? '+' : '') + drift.toFixed(2) + '°'],
     ['Vibrazione media', vMean.toFixed(3) + ' g (' + vLbl + ')'],
     ['Vibrazione max', vMax.toFixed(3) + ' g'],
+    ['Residuo laterale', rLat.m.toFixed(3) + ' g medio, ' + rLat.x.toFixed(3) + ' max'],
+    ['Residuo longitudinale', rLon.m.toFixed(3) + ' g medio, ' + rLon.x.toFixed(3) + ' max'],
+    ['Residuo verticale', rVert.m.toFixed(3) + ' g medio, ' + rVert.x.toFixed(3) + ' max'],
     ['Frequenza sensore', hz ? hz.toFixed(0) + ' Hz' : 'n/d'],
   ];
   for (const [k, val] of rows) {
@@ -2434,6 +2669,15 @@ function finishBench() {
     d.textContent = 'Regimi critici a ' + hz.toFixed(0) + ' Hz (la vibrazione si ripiega su 0 Hz): ' +
       '≈' + rpm4 + ' rpm su 4 cilindri, ≈' + rpm2 + ' su bicilindrico, ≈' + rpm1 + ' su monocilindrico. ' +
       'Ripeti il test vicino a questi regimi: se l\'errore peggiora lì, è aliasing e si risolve solo smorzando il supporto.';
+    out.appendChild(d);
+  }
+
+  if (accWorst >= 0.05) {
+    const d = document.createElement('div');
+    d.style.marginTop = '8px';
+    d.textContent = 'Le tre accelerazioni dovrebbero leggere 0,00 g a moto ferma. ' +
+      'Un residuo costante è offset del sensore — premi Calibra da fermo per azzerarlo. ' +
+      'Un residuo che oscilla è vibrazione che arriva dal supporto.';
     out.appendChild(d);
   }
 
@@ -2483,6 +2727,8 @@ function tickDemo(now) {
   // valori di qualità sintetici, così il pannello diagnostica è leggibile anche in demo
   state.vibG = 0.05 + 0.04 * Math.abs(Math.sin(t * 3));
   state.gRatio = 1; state.leanConf = 1; state.leanK = LEAN_ACC_TRUST; state.sensorHz = 60;
+  state.latGps = state.latG * 0.95; state.lonGps = state.lonG * 0.95;
+  state.latFus = state.latG; state.lonFus = state.lonG;
   // camere sintetiche demo (test banner/beep)
   if (!state.cameras.length) {
     state.cameras = [
@@ -2614,6 +2860,9 @@ function init() {
       state.calib = buildBasis(state._lastUp);
       state.leanFused = 0;
       resetSensorFilters();
+      // Moto ferma e dritta: è il momento buono per azzerare anche l'offset
+      // dell'accelerometro, non solo per fissare la base.
+      startAccBiasCapture();
       store.set('cruscotto.calib', state.calib);
       updateCalibStatus();
       toast('Calibrato.', 'ok');

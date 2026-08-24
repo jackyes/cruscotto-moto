@@ -121,11 +121,37 @@ Cosa fa l'app, in concreto:
 
 Serve **rigido in rotazione, smorzato in alta frequenza**. Morsetto a serraggio con inserto in gomma o silicone, oppure isolatore a fune. Da evitare snodi a sfera e frizioni: cedono lentamente e introducono oscillazioni a 1–5 Hz, che cadono *dentro* la banda della piega — peggiorano la misura invece di migliorarla.
 
+### Le tre accelerazioni
+
+Ricevono lo stesso trattamento della piega dove ha senso, ma non ovunque — e per due canali su tre c'è un rimedio migliore.
+
+**Reiezione impulsi.** Non con una mediana né con Hampel: su queste grandezze un colpo secco **è segnale**. Hampel in particolare fallisce, perché la soglia è `k·MAD` e su una baseline quieta il MAD collassa — misurato, un colpo vero da 0,9 / 1,4 / 1,2 g veniva riscritto in 0,11 / 0,11 / 0,12 g. Il discriminante corretto è la **durata**: un evento fisico dura 2–3 campioni a 60 Hz, un glitch di sensore uno solo con i vicini che restano simili. Si valuta il campione centrale di una finestra di 3, al costo di ~17 ms di ritardo.
+
+**Frenate sostenute.** Nel percorso derivato la gravità era un passa-basso con τ ≈ 0,83 s, che assorbiva anche le accelerazioni vere. Ora τ è 5 s e l'inseguimento si **congela** durante una manovra rettilinea — ma non durante un rollio, perché lì la gravità ruota davvero nel frame telefono e la stima deve seguirla. Residuo letto su una frenata da 1 g:
+
+| durata | prima | ora |
+|---|---|---|
+| 1 s | 0,298 g | **1,000 g** |
+| 2 s | 0,089 g | **1,000 g** |
+| 4 s | 0,008 g | **1,000 g** |
+
+**Fusione GPS.** È l'analogo di ciò che il giroscopio fa per la piega: un riferimento lento ma senza deriva.
+
+- longitudinale: `dv/dt` dalla velocità GPS;
+- laterale: `v·dψ/dt` da velocità e rotta;
+- verticale: **niente**, non esiste un riferimento esterno — ma non serve, perché un'accelerazione verticale sostenuta non è fisicamente possibile.
+
+Sotto ~0,1 Hz comanda il GPS, sopra l'accelerometro. In curva a regime l'accelerometro legge 0,000 g di laterale (la risultante è ⟂ al telaio): il canale fuso legge 0,500 g su una curva da 0,5 g. Le colonne originali restano invariate, quelle fuse si aggiungono.
+
+**Media e picco insieme.** La media sull'intervallo serve contro l'aliasing, ma cancella i transitori: una buca vera da 2,0 g finisce a 1,43 g nella colonna media. Le colonne `*_peak_g` conservano il valore esatto.
+
+**Offset.** La calibrazione azzera anche l'offset dell'accelerometro — a moto ferma e dritta le tre componenti devono valere 0. Serve soprattutto quando il device espone `e.acceleration`; nel percorso derivato l'offset se ne va già con la stima di gravità.
+
 ### Diagnostica e test a banco
 
-**Storico → Diagnostica vibrazioni** mostra in tempo reale frequenza del sensore, vibrazione RMS, norma filtrata, peso della correzione, bias stimato e piega letta.
+**Storico → Diagnostica vibrazioni** mostra in tempo reale frequenza del sensore, vibrazione RMS, norma filtrata, peso della correzione, bias stimato, piega letta, le tre accelerazioni con il rispettivo riferimento GPS, l'offset rilevato e lo stato della stima di gravità (in inseguimento / congelata / nativa).
 
-Il **Test banco 20 s** sfrutta un fatto comodo: a moto ferma e dritta sul cavalletto la piega vera è 0° per costruzione, quindi ogni scostamento è errore misurabile.
+Il **Test banco 20 s** sfrutta un fatto comodo: a moto ferma e dritta sul cavalletto la piega vera è 0° per costruzione — e con lei anche le tre accelerazioni. Quattro riferimenti gratis, quindi ogni scostamento è errore misurabile.
 
 1. Moto sul cavalletto, dritta, telefono montato come in marcia. Calibra.
 2. Lancia il test a **motore spento**: è il tuo riferimento.
@@ -133,11 +159,13 @@ Il **Test banco 20 s** sfrutta un fatto comodo: a moto ferma e dritta sul cavall
 
 Lettura del risultato:
 
-| errore max | verdetto |
-|---|---|
-| < 1,5° | ottimo |
-| < 3° | accettabile |
-| ≥ 3° | supporto da rivedere |
+| errore piega max | residuo accel medio | verdetto |
+|---|---|---|
+| < 1,5° | < 0,05 g | ottimo |
+| < 3° | < 0,12 g | accettabile |
+| oltre | oltre | supporto da rivedere |
+
+Un residuo accelerometrico **costante** è offset del sensore: premi Calibra da fermo. Un residuo che **oscilla** è vibrazione che arriva dal supporto.
 
 Se l'errore è basso a motore spento e cresce col regime, è vibrazione che entra dal supporto — nessuna impostazione software lo sistema.
 
@@ -154,7 +182,9 @@ Colonne del CSV:
 | `t` | tempo (s) dall'inizio sessione |
 | `speed_kmh` / `speed_ms` | velocità GPS |
 | `lean_deg` | angolo di piega (+, destra) |
-| `lat_accel_g` / `lon_accel_g` / `vert_accel_g` | accelerazioni in g (frame moto) |
+| `lat_accel_g` / `lon_accel_g` / `vert_accel_g` | accelerazioni in g (frame moto), **medie** sull'intervallo |
+| `lat_peak_g` / `lon_peak_g` / `vert_peak_g` | picco in modulo nell'intervallo, con segno |
+| `lat_accel_fus_g` / `lon_accel_fus_g` | laterale e longitudinale **fuse con il GPS** |
 | `gyro_roll_dps` | velocità angolare di rollio attorno all'asse moto (deg/s) |
 | `gap` | `1` = discontinuità temporale prima di questa riga |
 | `vib_g` | vibrazione RMS (g) nell'intervallo: sopra ~0,35 g tratta la piega con cautela |
