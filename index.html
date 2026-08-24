@@ -111,6 +111,23 @@
   .lean-max b { font-size: 18px; }
   .lean-max .mx-r { color: var(--accent); }
   .lean-max .mx-l { color: var(--good); }
+  .lean-conf { display: flex; align-items: center; gap: 8px; width: 100%; margin-top: 8px; font-size: 11px; color: var(--dim); }
+  .lean-conf .cbar { flex: 1; height: 5px; border-radius: 3px; background: var(--card-2); overflow: hidden; }
+  .lean-conf .cbar i { display: block; height: 100%; width: 100%; background: var(--good); transition: width .2s linear, background .2s linear; }
+  .lean-conf.warn .cbar i { background: var(--warn); }
+  .lean-conf.bad .cbar i { background: var(--bad); }
+  .lean-conf.warn, .lean-conf.bad { color: var(--txt); }
+
+  /* Diagnostica vibrazioni */
+  .diag-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; margin: 10px 0; }
+  .diag-grid div { background: var(--card-2); border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; }
+  .diag-grid .k { display: block; font-size: 10px; color: var(--dim); text-transform: uppercase; letter-spacing: .6px; }
+  .diag-grid b { font-size: 16px; font-variant-numeric: tabular-nums; }
+  .bench-out { margin-top: 10px; font-size: 13px; line-height: 1.5; }
+  .bench-out .verdict { font-weight: 700; font-size: 14px; display: block; margin-bottom: 4px; }
+  .bench-out .verdict.ok { color: var(--good); }
+  .bench-out .verdict.warn { color: var(--warn); }
+  .bench-out .verdict.bad { color: var(--bad); }
 
   /* Accel */
   .accel-row { display: flex; flex-direction: column; gap: 10px; }
@@ -310,6 +327,10 @@
               <span>Max S <b class="mx-l" id="maxLeanL">0°</b></span>
               <span>Max D <b class="mx-r" id="maxLeanR">0°</b></span>
             </div>
+            <div class="lean-conf" id="leanConf" title="Affidabilità della lettura, guidata dalla vibrazione">
+              <span class="cbar"><i id="leanConfFill"></i></span>
+              <span id="leanConfTxt">affidabilità —</span>
+            </div>
           </div>
         </div>
         <div class="card">
@@ -461,6 +482,26 @@
           Rifai la calibrazione se cambi supporto o orientamento.
         </p>
       </details>
+
+      <details id="diagPanel">
+        <summary>Diagnostica vibrazioni</summary>
+        <div class="diag-grid">
+          <div><span class="k">Sensore</span><b id="dgHz">—</b></div>
+          <div><span class="k">Vibrazione RMS</span><b id="dgVib">—</b></div>
+          <div><span class="k">Norma filtrata</span><b id="dgNorm">—</b></div>
+          <div><span class="k">Peso correzione</span><b id="dgK">—</b></div>
+          <div><span class="k">Bias giroscopio</span><b id="dgBias">—</b></div>
+          <div><span class="k">Piega letta</span><b id="dgLean">—</b></div>
+        </div>
+        <p class="hint">
+          <b>Test a banco.</b> Moto sul cavalletto, <b>dritta e ferma</b>: la piega vera è 0°
+          per costruzione, quindi ogni scostamento è errore misurabile. Fai un test a motore
+          spento e ripetilo al minimo e a salire di giri: se l'errore cresce col regime, il
+          problema è vibrazione che entra dal supporto.
+        </p>
+        <button id="btnBench">Test banco 20 s</button>
+        <div id="benchOut" class="bench-out"></div>
+      </details>
     </section>
   </main>
 
@@ -498,7 +539,20 @@ const LEAN_SMOOTH = 0.5;       // filtro passa-basso piega accel-only (0..1, pi�
 const LEAN_ACC_TRUST = 0.02;   // peso della correzione accelerometrica nel filtro complementare
 const LEAN_ACC_TOL_G = 0.06;   // |‖a‖/g − 1| massimo per fidarsi dell'accelerometro
 const LEAN_ACC_LAT_MAX = 0.15; // |lat G| massimo per fidarsi dell'accelerometro
-const LEAN_GYRO_MAX_DPS = 400; // scarta letture giroscopio oltre questo (spike da vibrazione)
+const LEAN_GYRO_MAX_DPS = 400; // saturazione simmetrica del giroscopio (spike da vibrazione)
+const ACC_MEDIAN_N = 7;        // finestra mediana sul vettore accelerazione (~117 ms a 60 Hz)
+const ACC_LP_ALPHA = 0.15;     // passa-basso vettoriale per la norma (tau ≈ 0,1 s a 60 Hz)
+const VIB_EMA = 0.05;          // EMA della potenza di vibrazione (finestra ≈ 0,3 s)
+const LEAN_VIB_MAX = 0.6;      // g RMS considerato "vibrazione piena" per gli indicatori
+const LEAN_VIB_BOOST = 3;      // quanto si alza il peso accelerometrico a vibrazione piena
+const LEAN_GYRO_LP = 0.3;      // passa-basso sul rollio prima dell'integrazione
+const LEAN_ACC_FLOOR = 0.0004; // correzione minima sempre attiva
+const LEAN_KI = 0.06;          // termine integrale: stima il bias residuo del giroscopio
+const LEAN_BIAS_MAX = 5;       // saturazione del bias stimato (°/s)
+const GYRO_BIAS_MIN_N = 120;   // campioni da fermo prima di aggiornare il bias (~2 s)
+const GYRO_BIAS_SPEED_MS = 0.5;// sotto questa velocità si considera "fermo"
+const GYRO_BIAS_EMA = 0.2;     // quanto pesa una nuova stima di bias
+const BENCH_SEC = 20;          // durata del test a banco
 /* Segno del giroscopio allineato alla convenzione di leanFromUp (positivo = destra).
    Se sul tuo montaggio la fusione muove la piega nel verso sbagliato, disattiva
    "Fusione giroscopio" nelle impostazioni oppure usa "Inverti segno piega". */
@@ -550,7 +604,20 @@ const state = {
   sessionId: null,
   flushSeq: 0,
   flushedRows: 0,
+  // qualità del segnale
+  vibG: 0,            // RMS della vibrazione (g), stimata sulle differenze campione-campione
+  gRatio: 1,          // ‖a‖ filtrata / g — 1 = coerente con la sola gravità
+  leanK: 0,           // peso effettivo della correzione accelerometrica
+  leanConf: 1,        // affidabilità della piega 0..1 (guidata dalla vibrazione)
+  gyroBias: null,     // bias di rollio stimato da fermo (°/s)
+  leanBias: 0,        // bias residuo appreso dal termine integrale (°/s)
+  sensorHz: 0,        // frequenza reale degli eventi devicemotion
 };
+
+/* Accumulatore per la decimazione del log: il campionamento a 20 Hz prende la media
+   dei campioni arrivati nell'intervallo invece dell'istantanea. Senza questa media
+   la decimazione 60→20 Hz è essa stessa una sorgente di aliasing. */
+const logAcc = { n: 0, lean: 0, latG: 0, lonG: 0, vertG: 0, gyro: 0, vib: 0 };
 
 let lastFlush = performance.now();
 let lastChartT = performance.now();
@@ -667,6 +734,10 @@ const els = {
   btnCenter: $('btnCenter'), btnFollow: $('btnFollow'), btnTrackUp: $('btnTrackUp'), compassOffsetSel: $('compassOffset'),
   gyroFusion: $('gyroFusion'), camAheadChk: $('camAhead'),
   toasts: $('toasts'), secWarn: $('secWarn'), mapBox: document.querySelector('.map-box'),
+  leanConf: $('leanConf'), leanConfFill: $('leanConfFill'), leanConfTxt: $('leanConfTxt'),
+  diagPanel: $('diagPanel'), dgHz: $('dgHz'), dgVib: $('dgVib'), dgNorm: $('dgNorm'),
+  dgK: $('dgK'), dgBias: $('dgBias'), dgLean: $('dgLean'),
+  btnBench: $('btnBench'), benchOut: $('benchOut'),
 };
 
 /* ============================== Toast (non bloccanti) ============================== */
@@ -828,6 +899,68 @@ function estimateLinear(ig) {
   return { x: ig.x - state._gravLP.x, y: ig.y - state._gravLP.y, z: ig.z - state._gravLP.z };
 }
 
+/* ---- Robustezza alle vibrazioni ----
+   Sotto vibrazione l'accelerometro non è semplicemente "rumoroso": produce errori
+   sistematici. Tre difese distinte, perché i meccanismi sono tre.
+
+   a) Mediana mobile sul vettore: toglie gli impulsi (buche, giunti) senza il
+      ritardo di fase di un passa-basso di pari efficacia.
+   b) Passa-basso VETTORIALE prima della norma. hypot() è non lineare, quindi su
+      rumore a media nulla la norma non si media a g ma a g·(1+σ²/g²): con 0,3 g
+      RMS di vibrazione la norma legge ~1,09 g e il gate di fiducia non si apre
+      mai. Filtrando il vettore (operazione lineare) il rumore si cancella davvero.
+   c) Metrica di vibrazione dalle differenze campione-campione (un derivatore, cioè
+      un passa-alto): pesa la correzione con continuità invece che a gradino.
+
+   Resta fuori portata l'aliasing: il browser cappa devicemotion a ~60 Hz, quindi
+   la vibrazione sopra 30 Hz si ripiega dentro la banda utile e nessun filtro
+   software la distingue dal segnale. Lì serve il supporto smorzato. */
+function pushAccHist(v) {
+  const h = state._accHist || (state._accHist = []);
+  h.push(v);
+  if (h.length > ACC_MEDIAN_N) h.shift();
+}
+function medianAcc() {
+  const h = state._accHist;
+  if (!h || !h.length) return null;
+  const n = h.length;
+  const xs = new Array(n), ys = new Array(n), zs = new Array(n);
+  for (let i = 0; i < n; i++) { xs[i] = h[i].x; ys[i] = h[i].y; zs[i] = h[i].z; }
+  const asc = (a, b) => a - b;
+  xs.sort(asc); ys.sort(asc); zs.sort(asc);
+  const mid = n >> 1;
+  return { x: xs[mid], y: ys[mid], z: zs[mid] };
+}
+function updateVibration(ig) {
+  if (state._accPrev) {
+    const dv = Math.hypot(ig.x - state._accPrev.x, ig.y - state._accPrev.y, ig.z - state._accPrev.z);
+    const p = dv * dv;
+    state._vibPow = (state._vibPow == null) ? p : state._vibPow + VIB_EMA * (p - state._vibPow);
+    state.vibG = Math.sqrt(state._vibPow) / G;
+  }
+  state._accPrev = { x: ig.x, y: ig.y, z: ig.z };
+}
+const clamp01 = v => v < 0 ? 0 : (v > 1 ? 1 : v);
+
+/* Azzera filtri e stime dipendenti dalla base calibrata: dopo un cambio di
+   calibrazione o di montaggio la proiezione del giroscopio cambia, quindi un bias
+   stimato prima non è più valido. */
+function resetSensorFilters() {
+  state._accHist = null;
+  state._accLP = null;
+  state._accPrev = null;
+  state._vibPow = null;
+  state._gravLP = null;
+  state._rollLP = null;
+  state.gyroBias = null;
+  state.leanBias = 0;
+  state._biasSum = 0;
+  state._biasN = 0;
+  state.vibG = 0;
+  state.gRatio = 1;
+  state.leanConf = 1;
+}
+
 function onDeviceMotion(e) {
   if (state.demo) return;
 
@@ -835,6 +968,14 @@ function onDeviceMotion(e) {
   let dt = (nowP - lastMotionT) / 1000;
   lastMotionT = nowP;
   if (!(dt > 0) || dt > 0.25) dt = 0; // primo evento o freeze: niente integrazione
+
+  // Frequenza reale del sensore: serve a capire quanta vibrazione può aliasare.
+  state._evtN = (state._evtN || 0) + 1;
+  if (!state._rateT0) state._rateT0 = nowP;
+  if (nowP - state._rateT0 >= 1000) {
+    state.sensorHz = state._evtN * 1000 / (nowP - state._rateT0);
+    state._evtN = 0; state._rateT0 = nowP;
+  }
 
   const ig = accIncG(e);
   const la = linearAccel(e) || (ig ? estimateLinear(ig) : null);
@@ -858,46 +999,125 @@ function onDeviceMotion(e) {
   // Velocità di rollio attorno all'asse longitudinale moto (non attorno a z del telefono)
   const rr = e.rotationRate;
   let rollRate = 0;
+  state.hasGyro = !!(rr && (rr.alpha != null || rr.beta != null || rr.gamma != null));
   if (rr) {
     const W = { x: rr.beta || 0, y: rr.gamma || 0, z: rr.alpha || 0 };
-    rollRate = B ? vdot(W, B.fwd) : (rr.alpha || 0);
-    rollRate *= LEAN_GYRO_SIGN;
-    if (Math.abs(rollRate) > LEAN_GYRO_MAX_DPS) rollRate = 0; // spike da vibrazione
+    let raw = (B ? vdot(W, B.fwd) : (rr.alpha || 0)) * LEAN_GYRO_SIGN;
+    /* Saturazione simmetrica, non azzeramento: mettere a 0 i picchi è un filtro
+       asimmetrico e in curva i picchi cadono più spesso da un lato, quindi
+       iniettava un errore direzionale invece di toglierlo. */
+    if (raw > LEAN_GYRO_MAX_DPS) raw = LEAN_GYRO_MAX_DPS;
+    else if (raw < -LEAN_GYRO_MAX_DPS) raw = -LEAN_GYRO_MAX_DPS;
+
+    /* Bias del giroscopio stimato da fermo: è la causa vera della deriva lenta.
+       Correggerlo alla sorgente costa meno che farlo inseguire all'accelerometro. */
+    if (state.speedMs < GYRO_BIAS_SPEED_MS) {
+      state._biasSum = (state._biasSum || 0) + raw;
+      state._biasN = (state._biasN || 0) + 1;
+      if (state._biasN >= GYRO_BIAS_MIN_N) {
+        const m = state._biasSum / state._biasN;
+        state.gyroBias = (state.gyroBias == null) ? m : state.gyroBias + GYRO_BIAS_EMA * (m - state.gyroBias);
+        state._biasSum = 0; state._biasN = 0;
+      }
+    } else { state._biasSum = 0; state._biasN = 0; }
+
+    rollRate = raw - (state.gyroBias || 0);
+    /* Passa-basso leggero prima dell'integrazione: riduce la varianza che alimenta
+       il random walk. tau ≈ 40 ms, quindi il ritardo in ingresso curva resta
+       trascurabile — che è il motivo per cui si usa il giroscopio. */
+    state._rollLP = (state._rollLP == null) ? rollRate : state._rollLP + LEAN_GYRO_LP * (rollRate - state._rollLP);
+    rollRate = state._rollLP;
     if (state.invertLean) rollRate = -rollRate;
   }
   state.gyroRoll = rollRate;
-  state.hasGyro = !!(rr && (rr.alpha != null || rr.beta != null || rr.gamma != null));
 
   if (ig && B) {
-    const U = upVector(ig);
+    updateVibration(ig);
+    pushAccHist(ig);
+    const Am = medianAcc() || ig;              // (a) impulsi rimossi
+    const U = upVector(Am);
     state._lastUp = U;
+
+    // (b) passa-basso sul VETTORE, poi la norma
+    if (!state._accLP) state._accLP = { x: Am.x, y: Am.y, z: Am.z };
+    else {
+      state._accLP.x += ACC_LP_ALPHA * (Am.x - state._accLP.x);
+      state._accLP.y += ACC_LP_ALPHA * (Am.y - state._accLP.y);
+      state._accLP.z += ACC_LP_ALPHA * (Am.z - state._accLP.z);
+    }
+    state.gRatio = Math.hypot(state._accLP.x, state._accLP.y, state._accLP.z) / G;
 
     // Stima accelerometrica: in curva a regime la risultante è ⟂ al telaio, quindi
     // questa stima tende a 0 e va usata solo come riferimento anti-deriva.
     let leanAcc = leanFromUp(U, B.up);
     if (state.invertLean) leanAcc = -leanAcc;
 
-    const gRatio = Math.hypot(ig.x, ig.y, ig.z) / G;
-    const trust = Math.abs(gRatio - 1) < LEAN_ACC_TOL_G && Math.abs(state.latG) < LEAN_ACC_LAT_MAX;
+    /* (c) fiducia continua.
+       ATTENZIONE al verso: la vibrazione NON deve ridurre il peso dell'accelerometro.
+       Colpisce entrambi i sensori, ma in modo asimmetrico: sul giroscopio il rumore
+       viene integrato e diventa random walk (cresce come √t, senza limite), mentre
+       sull'accelerometro resta limitato e a media nulla. Sotto vibrazione l'
+       accelerometro è quindi il riferimento PIÙ affidabile, non meno.
+       Quindi:
+       - i gate restano quelli fisici (manovra), non quelli di rumore;
+       - la tolleranza sulla norma si ALLARGA con la vibrazione, perché cresce
+         l'incertezza della stima, non l'errore vero;
+       - il peso base cresce con la vibrazione, per frenare la deriva del giroscopio. */
+    const tolN  = LEAN_ACC_TOL_G + 0.6 * state.vibG;
+    const wNorm = clamp01(1 - Math.abs(state.gRatio - 1) / tolN);
+    const wLat  = clamp01(1 - Math.abs(state.latG) / LEAN_ACC_LAT_MAX);
+    const vibPen = clamp01(state.vibG / LEAN_VIB_MAX);
+    state.leanConf = 1 - vibPen; // solo indicatore per l'utente, non entra nel filtro
 
     if (state.gyroFusion && state.hasGyro) {
-      // Filtro complementare: il giroscopio dà la dinamica, l'accelerometro toglie la deriva.
-      if (state.leanFused == null) state.leanFused = leanAcc;
-      if (dt) state.leanFused += rollRate * dt;
-      const k = trust ? LEAN_ACC_TRUST : LEAN_ACC_TRUST * 0.05;
-      state.leanFused += k * (leanAcc - state.leanFused);
+      /* Filtro complementare PI (Mahony).
+         Il solo termine proporzionale non basta: in curva lunga il gate
+         accelerometrico è chiuso per costruzione (la risultante è ⟂ al telaio) e
+         qualsiasi bias residuo del giroscopio si integra senza freno — il tracciato
+         di prova perdeva ~13° in 8 s di curva tenuta.
+         Il termine integrale impara il bias quando l'accelerometro È affidabile
+         (rettilineo) e continua ad applicarlo quando non lo è (curva). */
+      const w = wNorm * wLat;
+      // Non inizializzare sul primo campione grezzo: la mediana deve essere piena,
+      // altrimenti un singolo picco fissa un punto di partenza sbagliato.
+      if (state.leanFused == null) {
+        if (state._accHist.length < ACC_MEDIAN_N) { state.leanK = 0; return; }
+        state.leanFused = leanAcc;
+        state.leanBias = 0;
+      }
+      const err = leanAcc - state.leanFused;
+      if (dt) {
+        state.leanBias += LEAN_KI * w * err * dt;
+        state.leanBias = Math.max(-LEAN_BIAS_MAX, Math.min(LEAN_BIAS_MAX, state.leanBias));
+        state.leanFused += (rollRate + state.leanBias) * dt;
+      }
+      const k = LEAN_ACC_TRUST * (1 + LEAN_VIB_BOOST * vibPen) * w + LEAN_ACC_FLOOR;
+      state.leanK = k;
+      state.leanFused += k * err;
     } else {
       // Fallback: passa-basso sul solo accelerometro (comportamento storico)
+      state.leanK = LEAN_SMOOTH;
       if (state.leanFused == null) state.leanFused = leanAcc;
       else state.leanFused += LEAN_SMOOTH * (leanAcc - state.leanFused);
     }
     state.leanFused = Math.max(-80, Math.min(80, state.leanFused));
     state.lean = state.leanFused;
   } else if (ig && !B) {
-    state._lastUp = upVector(ig);
+    updateVibration(ig);
+    pushAccHist(ig);
+    state._lastUp = upVector(medianAcc() || ig);
     state.leanFused = null;
     state.lean = 0;
   }
+
+  // (1) accumulo per la decimazione anti-alias del log
+  logAcc.n++;
+  logAcc.lean += state.lean;
+  logAcc.latG += state.latG;
+  logAcc.lonG += state.lonG;
+  logAcc.vertG += state.vertG;
+  logAcc.gyro += state.gyroRoll;
+  logAcc.vib += state.vibG;
 }
 
 function onDeviceOrientation(e) {
@@ -1433,6 +1653,21 @@ function toggleFullscreen() {
 /* ============================== Logging ============================== */
 let lastSampleWall = 0;
 
+/* Media dei campioni sensore arrivati dall'ultimo tick, poi azzera l'accumulatore.
+   È il filtro anti-alias della decimazione 60→20 Hz: prendere l'istantanea a 20 Hz
+   ripiegava il contenuto sopra i 10 Hz dentro la banda del log. */
+function takeLogAvg() {
+  if (!logAcc.n) return null;
+  const n = logAcc.n;
+  const out = {
+    lean: logAcc.lean / n, latG: logAcc.latG / n, lonG: logAcc.lonG / n,
+    vertG: logAcc.vertG / n, gyro: logAcc.gyro / n, vib: logAcc.vib / n,
+  };
+  logAcc.n = 0;
+  logAcc.lean = logAcc.latG = logAcc.lonG = logAcc.vertG = logAcc.gyro = logAcc.vib = 0;
+  return out;
+}
+
 function snapshot() {
   const wall = Date.now();
   const t = state.session.startWall ? (wall - state.session.startWall) / 1000 : 0;
@@ -1440,10 +1675,16 @@ function snapshot() {
      porta gap=1: prima il timeline saltava senza lasciare traccia nel CSV. */
   const gap = (lastSampleWall && wall - lastSampleWall > GAP_MS) ? 1 : 0;
   lastSampleWall = wall;
+  const m = takeLogAvg();
   return {
     t, speedKmh: state.speedKph, speedMs: state.speedMs,
-    lean: state.lean, latG: state.latG, lonG: state.lonG, vertG: state.vertG,
-    gyro: state.gyroRoll, gap,
+    lean: m ? m.lean : state.lean,
+    latG: m ? m.latG : state.latG,
+    lonG: m ? m.lonG : state.lonG,
+    vertG: m ? m.vertG : state.vertG,
+    gyro: m ? m.gyro : state.gyroRoll,
+    vib: m ? m.vib : state.vibG,
+    gap,
     lat: state.pos.lat, lon: state.pos.lon, alt: state.gps.alt,
     heading: state.gps.heading, gpsAcc: state.gps.acc
   };
@@ -1553,7 +1794,7 @@ function stamp() {
   return d.getFullYear() + pad(d.getMonth()+1) + pad(d.getDate()) + '_' + pad(d.getHours()) + pad(d.getMinutes()) + pad(d.getSeconds());
 }
 
-const CSV_HEADER = 't,speed_kmh,speed_ms,lean_deg,lat_accel_g,lon_accel_g,vert_accel_g,gyro_roll_dps,gap,lat,lon,alt_m,heading_deg,gps_acc_m';
+const CSV_HEADER = 't,speed_kmh,speed_ms,lean_deg,lat_accel_g,lon_accel_g,vert_accel_g,gyro_roll_dps,gap,vib_g,lat,lon,alt_m,heading_deg,gps_acc_m';
 
 function csvMeta(meta) {
   return [
@@ -1571,7 +1812,7 @@ function csvRows(rows) {
   return rows.map(r => [
     num(r.t, 3), num(r.speedKmh, 1), num(r.speedMs, 2), num(r.lean, 2),
     num(r.latG || 0, 3), num(r.lonG || 0, 3), num(r.vertG || 0, 3),
-    num(r.gyro || 0, 2), r.gap ? '1' : '0',
+    num(r.gyro || 0, 2), r.gap ? '1' : '0', num(r.vib || 0, 3),
     num(r.lat, 6), num(r.lon, 6), num(r.alt, 1), num(r.heading, 1), num(r.gpsAcc, 1)
   ].join(',')).join('\n');
 }
@@ -2104,6 +2345,108 @@ function drawCharts() {
   els.chSpeedMax.textContent = maxSp + ' km/h';
 }
 
+/* ============================== Diagnostica vibrazioni ============================== */
+const avg = a => a.reduce((s, v) => s + v, 0) / (a.length || 1);
+
+function updateDiag() {
+  if (!els.diagPanel.open) return;
+  els.dgHz.textContent = state.sensorHz ? state.sensorHz.toFixed(0) + ' Hz' : '—';
+  els.dgVib.textContent = state.vibG.toFixed(3) + ' g';
+  els.dgNorm.textContent = state.gRatio.toFixed(3) + ' g';
+  const kPct = Math.min(100, (state.leanK / LEAN_ACC_TRUST) * 100);
+  els.dgK.textContent = (state.calib || state.demo) ? kPct.toFixed(0) + ' %' : '—';
+  // correzione netta applicata al rollio: statica (da fermo) + integrale (in marcia)
+  const netBias = (state.leanBias || 0) - (state.gyroBias || 0);
+  els.dgBias.textContent = (state.gyroBias == null && !state.leanBias)
+    ? 'non stimato' : netBias.toFixed(2) + ' °/s';
+  els.dgLean.textContent = (state.calib || state.demo) ? state.lean.toFixed(1) + '°' : 'non calibrato';
+}
+
+let benchTimer = null, bench = null;
+
+function startBench() {
+  if (benchTimer) return;
+  if (!state.calib && !state.demo) { toast('Calibra prima di eseguire il test.', 'err'); return; }
+  bench = { t0: Date.now(), lean: [], vib: [], hz: [] };
+  els.btnBench.disabled = true;
+  els.benchOut.textContent = 'Test in corso… tieni la moto ferma e dritta.';
+  benchTimer = setInterval(() => {
+    bench.lean.push(state.lean);
+    bench.vib.push(state.vibG);
+    if (state.sensorHz) bench.hz.push(state.sensorHz);
+    const el = (Date.now() - bench.t0) / 1000;
+    if (el >= BENCH_SEC) finishBench();
+    else els.benchOut.textContent = 'Test in corso… ' + Math.ceil(BENCH_SEC - el) + ' s';
+  }, 50);
+}
+
+/* La piega vera è 0° per costruzione (moto dritta sul cavalletto): ogni scostamento
+   è errore, quindi il test è ripetibile e confrontabile tra regimi motore diversi. */
+function finishBench() {
+  clearInterval(benchTimer); benchTimer = null;
+  els.btnBench.disabled = false;
+  const L = bench.lean, V = bench.vib;
+  if (L.length < 10) { els.benchOut.textContent = 'Dati insufficienti: riprova.'; return; }
+
+  const absL = L.map(Math.abs);
+  const meanAbs = avg(absL);
+  let maxAbs = 0; for (const v of absL) if (v > maxAbs) maxAbs = v;
+  const drift = L[L.length - 1] - L[0];
+  const vMean = avg(V);
+  let vMax = 0; for (const v of V) if (v > vMax) vMax = v;
+  const hz = bench.hz.length ? avg(bench.hz) : 0;
+
+  let verdict, cls;
+  if (maxAbs < 1.5 && Math.abs(drift) < 1) { verdict = 'Ottimo — lettura stabile'; cls = 'ok'; }
+  else if (maxAbs < 3 && Math.abs(drift) < 2.5) { verdict = 'Accettabile — errore contenuto'; cls = 'warn'; }
+  else { verdict = 'Problema — errore oltre i 3°'; cls = 'bad'; }
+
+  const vLbl = vMean < 0.15 ? 'bassa' : (vMean < 0.35 ? 'media' : 'alta');
+
+  const out = els.benchOut;
+  out.textContent = '';
+  const v = document.createElement('span');
+  v.className = 'verdict ' + cls;
+  v.textContent = verdict;
+  out.appendChild(v);
+
+  const rows = [
+    ['Errore piega medio', meanAbs.toFixed(2) + '°'],
+    ['Errore piega max', maxAbs.toFixed(2) + '°'],
+    ['Deriva sui ' + BENCH_SEC + ' s', (drift >= 0 ? '+' : '') + drift.toFixed(2) + '°'],
+    ['Vibrazione media', vMean.toFixed(3) + ' g (' + vLbl + ')'],
+    ['Vibrazione max', vMax.toFixed(3) + ' g'],
+    ['Frequenza sensore', hz ? hz.toFixed(0) + ' Hz' : 'n/d'],
+  ];
+  for (const [k, val] of rows) {
+    const d = document.createElement('div');
+    d.textContent = k + ': ' + val;
+    out.appendChild(d);
+  }
+
+  /* Con campionamento a f Hz, una vibrazione a f Hz esatti si ripiega su 0 Hz:
+     diventa un offset costante, indistinguibile da una piega vera. Sotto i regimi
+     a cui succede, calcolati sulla frequenza realmente misurata. */
+  if (hz) {
+    const rpm4 = Math.round(hz * 30), rpm2 = Math.round(hz * 60), rpm1 = Math.round(hz * 120);
+    const d = document.createElement('div');
+    d.style.marginTop = '8px';
+    d.textContent = 'Regimi critici a ' + hz.toFixed(0) + ' Hz (la vibrazione si ripiega su 0 Hz): ' +
+      '≈' + rpm4 + ' rpm su 4 cilindri, ≈' + rpm2 + ' su bicilindrico, ≈' + rpm1 + ' su monocilindrico. ' +
+      'Ripeti il test vicino a questi regimi: se l\'errore peggiora lì, è aliasing e si risolve solo smorzando il supporto.';
+    out.appendChild(d);
+  }
+
+  if (cls !== 'ok') {
+    const d = document.createElement('div');
+    d.style.marginTop = '8px';
+    d.textContent = vMean >= 0.35
+      ? 'Vibrazione alta: interponi uno smorzante fra morsetto e manubrio, mantenendo il supporto rigido in rotazione. Evita snodi a sfera e frizioni, che oscillano a bassa frequenza proprio nella banda della piega.'
+      : 'Vibrazione contenuta ma errore alto: verifica che il supporto non abbia gioco e rifai la calibrazione a moto dritta su piano.';
+    out.appendChild(d);
+  }
+}
+
 /* ============================== Tabs ============================== */
 function switchTab(name) {
   state.currentTab = name;
@@ -2137,6 +2480,9 @@ function tickDemo(now) {
   state.lonG = 0.18 * Math.sin(t * 0.7);
   state.vertG = 0.05 * Math.sin(t * 2.2);
   state.gyroRoll = 0;
+  // valori di qualità sintetici, così il pannello diagnostica è leggibile anche in demo
+  state.vibG = 0.05 + 0.04 * Math.abs(Math.sin(t * 3));
+  state.gRatio = 1; state.leanConf = 1; state.leanK = LEAN_ACC_TRUST; state.sensorHz = 60;
   // camere sintetiche demo (test banner/beep)
   if (!state.cameras.length) {
     state.cameras = [
@@ -2175,6 +2521,21 @@ function updateDisplay() {
     els.leanDir.className = 'lean-dir';
   }
   setNeedle(state.lean);
+
+  // Affidabilità della piega: non corregge nulla, ma rende visibile quando la
+  // vibrazione sta degradando la misura invece di lasciarlo indovinare.
+  if (state.calib || state.demo) {
+    const c = clamp01(state.leanConf);
+    els.leanConfFill.style.width = (c * 100).toFixed(0) + '%';
+    els.leanConf.classList.toggle('warn', c <= 0.66 && c > 0.33);
+    els.leanConf.classList.toggle('bad', c <= 0.33);
+    els.leanConfTxt.textContent = 'affidabilità ' + (c > 0.66 ? 'alta' : c > 0.33 ? 'media' : 'bassa');
+  } else {
+    els.leanConfFill.style.width = '0%';
+    els.leanConf.classList.remove('warn', 'bad');
+    els.leanConfTxt.textContent = 'affidabilità —';
+  }
+  updateDiag();
 
   if (state.accelDerived && !state._accelWarned) {
     state._accelWarned = true;
@@ -2252,7 +2613,7 @@ function init() {
       // supporto non falsa più né la piega né la scomposizione delle accelerazioni.
       state.calib = buildBasis(state._lastUp);
       state.leanFused = 0;
-      state._gravLP = null;
+      resetSensorFilters();
       store.set('cruscotto.calib', state.calib);
       updateCalibStatus();
       toast('Calibrato.', 'ok');
@@ -2306,7 +2667,7 @@ function init() {
       state.calib = state._calibBackup !== undefined ? state._calibBackup : state.calib;
       state._calibBackup = undefined;
       state.leanFused = null;
-      state._gravLP = null;
+      resetSensorFilters();
       state.gpsStatus = 'waiting';
       state.session.lastPos = null;
       state.cameras = [];
@@ -2328,6 +2689,7 @@ function init() {
     if (state.calib) {
       state.calib = null;
       state.leanFused = null;
+      resetSensorFilters();
       store.del('cruscotto.calib');
       updateCalibStatus();
       toast('Orientamento cambiato: rifai la calibrazione.', 'err', 5000);
@@ -2351,6 +2713,8 @@ function init() {
     if (state.mapType === 'leaflet' && state.map) setTimeout(() => { state.map.invalidateSize(); applyMapRotation(); }, 60);
     else if (state.mapType === 'canvas') drawCanvasMap();
   });
+
+  els.btnBench.addEventListener('click', startBench);
 
   els.btnImportCam.addEventListener('click', () => els.camFile.click());
   els.camFile.addEventListener('change', () => {

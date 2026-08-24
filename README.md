@@ -82,10 +82,64 @@ L'app è organizzata in 4 schede (barra in basso): **Dashboard · Mappa · Grafi
 
 - L'accelerometro "sente" gravità + forza centrifuga. In curva **a regime** la risultante è perpendicolare al telaio: il solo accelerometro misura quindi ~0° di piega proprio quando sei più piegato. Da fermo o in rettilineo, invece, è l'unico riferimento assoluto.
 - Per questo la piega usa un **filtro complementare**: il giroscopio integra la velocità di rollio attorno all'asse longitudinale moto e dà la dinamica; l'accelerometro corregge la deriva, ma **solo quando è credibile** (modulo della risultante ≈ 1 g e accelerazione laterale sotto 0,15 g). In curva la correzione viene quasi azzerata, così l'angolo non collassa a zero.
+- Il filtro è di tipo **PI**: al termine proporzionale si aggiunge un integrale che stima il bias residuo del giroscopio quando l'accelerometro è affidabile (rettilineo) e continua ad applicarlo quando non lo è (curva). Senza integrale, in curva tenuta la piega derivava di parecchi gradi.
 - Puoi disattivarlo da **Impostazioni → Fusione giroscopio**: si torna al passa-basso sul solo accelerometro (comportamento delle versioni precedenti).
+- L'indicatore **affidabilità** sotto il quadrante segue la vibrazione misurata: non corregge nulla, ti dice quanto fidarti del numero. Vedi la sezione *Vibrazioni*.
 - La **calibrazione** non registra più solo la verticale, ma una terna completa (su / avanti / destra) del frame moto. Così l'inclinazione all'indietro del supporto da manubrio non falsa più né la piega né la scomposizione delle accelerazioni.
 - Cambiare **Orientamento montaggio** azzera la calibrazione: l'app te lo dice e ti chiede di rifarla.
 - Se piega destra/sinistra risultano invertite sul tuo montaggio, usa **Impostazioni → Inverti segno piega**.
+
+## Vibrazioni
+
+Sono il limite principale della misura, e non con un solo meccanismo — per questo non basta filtrare più forte.
+
+**1. Aliasing.** Il browser cappa `devicemotion` a ~60 Hz, quindi Nyquist è 30 Hz. La vibrazione motore sta sopra e si ripiega dentro la banda utile. Nel caso peggiore — vibrazione esattamente alla frequenza di campionamento — appare come **offset costante**, indistinguibile da una piega vera:
+
+| motore | regime che ripiega su 0 Hz (a 60 Hz) |
+|---|---|
+| 4 cilindri | ≈1800 rpm |
+| bicilindrico | ≈3600 rpm |
+| monocilindrico | ≈7200 rpm |
+
+Questo **non è risolvibile via software**: il dato aliasato è già indistinguibile dal segnale. Si risolve solo smorzando il supporto.
+
+**2. Rettificazione della norma.** `‖a‖` è non lineare, quindi rumore a media nulla non si cancella: con 0,3 g RMS di vibrazione la norma legge ~1,09 g invece di 1,00. L'app filtra il **vettore** e poi ne prende la norma, non il contrario, così il rumore si cancella davvero.
+
+**3. Deriva del giroscopio.** Il rumore sul giroscopio viene integrato e diventa random walk: cresce senza limite. È il motivo per cui, sotto vibrazione, **l'accelerometro è il riferimento più affidabile, non meno** — il suo errore resta limitato. Il filtro ne tiene conto: la vibrazione allarga la tolleranza e *alza* il peso dell'accelerometro, non lo abbassa.
+
+Cosa fa l'app, in concreto:
+
+- media dei campioni nell'intervallo di log (anti-alias in decimazione 60→20 Hz);
+- mediana mobile sul vettore accelerazione, contro impulsi da buche e giunti;
+- passa-basso vettoriale prima della norma;
+- pesi continui invece di soglie a gradino;
+- saturazione simmetrica del giroscopio invece di azzeramento dei picchi;
+- stima del bias di rollio da fermo, più un **termine integrale** che lo impara in rettilineo e continua ad applicarlo in curva, dove l'accelerometro non può correggere nulla;
+- colonna `vib_g` nel CSV e indicatore di affidabilità sul cruscotto.
+
+### Supporto: la leva più efficace
+
+Serve **rigido in rotazione, smorzato in alta frequenza**. Morsetto a serraggio con inserto in gomma o silicone, oppure isolatore a fune. Da evitare snodi a sfera e frizioni: cedono lentamente e introducono oscillazioni a 1–5 Hz, che cadono *dentro* la banda della piega — peggiorano la misura invece di migliorarla.
+
+### Diagnostica e test a banco
+
+**Storico → Diagnostica vibrazioni** mostra in tempo reale frequenza del sensore, vibrazione RMS, norma filtrata, peso della correzione, bias stimato e piega letta.
+
+Il **Test banco 20 s** sfrutta un fatto comodo: a moto ferma e dritta sul cavalletto la piega vera è 0° per costruzione, quindi ogni scostamento è errore misurabile.
+
+1. Moto sul cavalletto, dritta, telefono montato come in marcia. Calibra.
+2. Lancia il test a **motore spento**: è il tuo riferimento.
+3. Ripetilo **al minimo** e poi vicino ai regimi critici della tabella sopra.
+
+Lettura del risultato:
+
+| errore max | verdetto |
+|---|---|
+| < 1,5° | ottimo |
+| < 3° | accettabile |
+| ≥ 3° | supporto da rivedere |
+
+Se l'errore è basso a motore spento e cresce col regime, è vibrazione che entra dal supporto — nessuna impostazione software lo sistema.
 
 ## Log / export CSV
 
@@ -103,6 +157,7 @@ Colonne del CSV:
 | `lat_accel_g` / `lon_accel_g` / `vert_accel_g` | accelerazioni in g (frame moto) |
 | `gyro_roll_dps` | velocità angolare di rollio attorno all'asse moto (deg/s) |
 | `gap` | `1` = discontinuità temporale prima di questa riga |
+| `vib_g` | vibrazione RMS (g) nell'intervallo: sopra ~0,35 g tratta la piega con cautela |
 | `lat` / `lon` / `alt_m` / `heading_deg` / `gps_acc_m` | posizione GPS |
 
 Le prime righe (prefisso `#`) sono metadati sessione (max piega, max velocità, distanza).
@@ -135,8 +190,8 @@ Il file usa la virgola come separatore. Su Excel italiano potresti vedere tutto 
 
 ## Limiti noti
 
-- **Vibrazioni** ad alti regimi → rumore su accelerometro/giroscopio; il filtro attenua ma non elimina.
-- **Deriva del giroscopio**: in una curva molto lunga la correzione accelerometrica è quasi spenta, quindi un piccolo errore può accumularsi. Si riassorbe al rientro in rettilineo.
+- **Aliasing della vibrazione**: sopra 30 Hz il contenuto si ripiega nella banda utile e non è più separabile dal segnale. Vedi la sezione *Vibrazioni*: è un limite del campionamento a 60 Hz imposto dal browser, non del filtro.
+- **Deriva del giroscopio**: in una curva molto lunga la correzione accelerometrica è spenta per costruzione. Il termine integrale applica il bias appreso in rettilineo, ma non può inseguire una deriva che nasce dentro la curva stessa.
 - **Velocità GPS** può sottostimare a bassa velocità o in galleria.
 - **Montaggio non rigido** introduce errore nella piega.
 - **Distanza**: i punti a meno di 5 m dal precedente vengono scartati, quindi la distanza è leggermente sottostimata a passo d'uomo.
