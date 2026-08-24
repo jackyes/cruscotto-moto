@@ -7,6 +7,20 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta http-equiv="Content-Security-Policy" content="
+  default-src 'none';
+  script-src 'self' 'unsafe-inline' https://unpkg.com;
+  style-src 'self' 'unsafe-inline' https://unpkg.com;
+  img-src 'self' data: blob: https://*.tile.openstreetmap.org https://unpkg.com;
+  connect-src 'self' https://overpass-api.de https://overpass.kumi.systems;
+  font-src 'self';
+  manifest-src 'self';
+  worker-src 'self';
+  base-uri 'none';
+  form-action 'none';
+  object-src 'none'">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%230b0f14'/%3E%3Ctext x='16' y='23' font-size='19' text-anchor='middle' fill='%2329b6f6'%3E%E2%97%89%3C/text%3E%3C/svg%3E">
 <title>Cruscotto Moto</title>
 <style>
   :root {
@@ -131,6 +145,39 @@
   #map { height: 100%; width: 100%; }
   #mapCanvas { display: none; width: 100%; height: 100%; }
 
+  /* Track-up: ruota il container mappa (nessun plugin leaflet-rotate richiesto).
+     Il riquadro è sovradimensionato di sqrt(2) così gli angoli restano coperti a ogni angolo. */
+  .map-box.rot #map {
+    width: 142%; height: 142%;
+    margin-left: -21%; margin-top: -21%;
+    transform-origin: 50% 50%;
+    will-change: transform;
+  }
+  /* Contro-rotazione dei controlli, così restano leggibili con la mappa ruotata */
+  .map-box.rot .map-ctrl, .map-box.rot .map-full-btn { transform: none; }
+
+  /* Toast non bloccanti (sostituiscono alert/confirm durante la guida) */
+  .toast-wrap {
+    position: fixed; left: 50%; bottom: calc(96px + env(safe-area-inset-bottom));
+    transform: translateX(-50%); z-index: 300;
+    display: flex; flex-direction: column; gap: 8px; align-items: center;
+    width: max-content; max-width: 92vw; pointer-events: none;
+  }
+  .toast {
+    background: var(--card-2); color: var(--txt); border: 1px solid var(--line);
+    border-radius: 12px; padding: 12px 16px; font-size: 14px; font-weight: 600;
+    box-shadow: 0 6px 24px rgba(0,0,0,.5); pointer-events: auto; text-align: center;
+  }
+  .toast.err { border-color: var(--bad); color: var(--bad); }
+  .toast.ok  { border-color: var(--good); color: var(--good); }
+  .toast .tbtns { display: flex; gap: 8px; margin-top: 10px; justify-content: center; }
+  .toast .tbtns button { padding: 8px 14px; min-height: 40px; font-size: 13px; }
+
+  .warnbar {
+    background: var(--bad); color: #fff; font-size: 13px; font-weight: 600;
+    border-radius: 10px; padding: 10px 12px; line-height: 1.4;
+  }
+
   /* ===== Charts ===== */
   .chart-item { margin-bottom: 14px; }
   .chart-item .clbl { display: flex; justify-content: space-between; font-size: 12px; color: var(--dim); margin-bottom: 4px; font-weight: 600; }
@@ -235,6 +282,8 @@
   </header>
 
   <div id="camAlert" class="cam-alert" style="display:none;"></div>
+  <div id="toasts" class="toast-wrap"></div>
+  <div id="secWarn" class="warnbar" style="display:none;"></div>
 
   <button id="permBtn" style="display:none; width:100%; background:var(--warn); color:#2a1a04; border-color:var(--warn);">
     Consenti sensori (motion/orientation)
@@ -347,6 +396,10 @@
           <button id="btnExportGpx">GPX (sessione)</button>
           <button id="btnExportCsvHist">CSV storico</button>
         </div>
+        <div class="controls" style="margin-bottom:12px;">
+          <button id="btnImportCam">📥 Importa autovelox</button>
+        </div>
+        <input type="file" id="camFile" accept=".json,.txt,.geojson,.csv" style="display:none;">
         <div class="hist-list" id="sessionList">
           <div class="empty">Nessun giro salvato. Avvia un log e fermalo per salvarlo qui.</div>
         </div>
@@ -365,6 +418,14 @@
         <div class="set-row">
           <span>Inverti segno piega</span>
           <input type="checkbox" id="invertLean">
+        </div>
+        <div class="set-row">
+          <span>Fusione giroscopio (filtro complementare)</span>
+          <input type="checkbox" id="gyroFusion" checked>
+        </div>
+        <div class="set-row">
+          <span>Solo autovelox davanti (±60°)</span>
+          <input type="checkbox" id="camAhead" checked>
         </div>
         <div class="set-row">
           <span>Schermo sempre acceso (wake lock)</span>
@@ -429,6 +490,23 @@ const CAM_QUERY_RADIUS_M = 10000; // raggio query Overpass (m)
 const CAM_STALE_MS = 15 * 60 * 1000; // refresh cache dopo 15 min
 const CAM_MIN_MOVE_M = 5000;   // nuova query se spostati > 5 km dal centro cache
 const CAM_COOLDOWN_MS = 60000; // non ri-avvisa stessa camera entro 60 s
+const CAM_FAIL_BACKOFF_MS = 120000; // dopo un errore Overpass, riprova non prima di 2 min
+const CAM_GRID_DEG = 0.02;     // lato cella griglia spaziale camere (~2 km)
+const CAM_MARKER_RADIUS_M = 15000; // disegna marker solo entro questo raggio
+const CAM_AHEAD_DEG = 60;      // semi-apertura del cono "davanti a me"
+const LEAN_SMOOTH = 0.5;       // filtro passa-basso piega accel-only (0..1, più alto = più liscio)
+const LEAN_ACC_TRUST = 0.02;   // peso della correzione accelerometrica nel filtro complementare
+const LEAN_ACC_TOL_G = 0.06;   // |‖a‖/g − 1| massimo per fidarsi dell'accelerometro
+const LEAN_ACC_LAT_MAX = 0.15; // |lat G| massimo per fidarsi dell'accelerometro
+const LEAN_GYRO_MAX_DPS = 400; // scarta letture giroscopio oltre questo (spike da vibrazione)
+/* Segno del giroscopio allineato alla convenzione di leanFromUp (positivo = destra).
+   Se sul tuo montaggio la fusione muove la piega nel verso sbagliato, disattiva
+   "Fusione giroscopio" nelle impostazioni oppure usa "Inverti segno piega". */
+const LEAN_GYRO_SIGN = -1;
+const SAMPLE_MS = 1000 / LOG_HZ;  // periodo campionamento log (timer reale, non rAF)
+const GAP_MS = 500;               // buco temporale oltre il quale il log segna una discontinuità
+const DISPLAY_HZ = 15;            // refresh UI (rAF throttlato: batteria/calore)
+const HEADING_MIN_MS = 3;         // sotto questa velocità l'heading GPS è rumore
 
 const state = {
   mount: 'landscape-left',
@@ -440,7 +518,8 @@ const state = {
   gyroRoll: 0,
   latG: 0, lonG: 0, vertG: 0,
   speedKph: 0, speedMs: 0,
-  gps: { lat: null, lon: null, alt: null, heading: null, acc: null },
+  gps: { lat: null, lon: null, alt: null, heading: null, acc: null }, // smussata: solo marker
+  pos: { lat: null, lon: null },   // grezza: distanze, traccia, avvisi autovelox
   gpsStatus: 'waiting',
   logging: false,
   rows: [],
@@ -452,23 +531,34 @@ const state = {
   mapReady: false,
   mapType: null,             // 'leaflet' | 'canvas'
   cameras: [],
+  importedCameras: [],
+  camGrid: null,             // Map<cellKey, camera[]> — indice spaziale
   camAlerts: true,
+  camAhead: true,
   camDist: 400,
   camCenter: null,
   camTs: 0,
   camCooldown: {},
-  follow: false,
+  camFetching: false,
+  camRetryAfter: 0,
+  camLastDist: {},           // distanza precedente per camera (rilevamento avvicinamento)
+  follow: true,
   trackUp: false,
   compass: null,
   compassOffset: 0,
+  gyroFusion: true,
+  sessionId: null,
+  flushSeq: 0,
+  flushedRows: 0,
 };
 
-let lastT = performance.now();
-let lastSample = performance.now();
 let lastFlush = performance.now();
 let lastChartT = performance.now();
+let lastDisplayT = 0;
 let lastTrackT = 0;
 let wakeLock = null;
+let sampleTimer = null;
+let lastMotionT = 0;
 
 /* ============================== Mapping assi ==============================
    Frame moto: forward = +X, up = +Z, left = +Y.
@@ -476,16 +566,27 @@ let wakeLock = null;
    Il montaggio definisce solo quale asse dispositivo è "laterale"/"verticale" per le accelerazioni.
 */
 const MOUNT = {
-  'landscape-left':  { vert: 'x',  lat: 'y',  lon: '-z' },
-  'landscape-right': { vert: '-x', lat: '-y', lon: '-z' },
-  'portrait':        { vert: 'y',  lat: '-x', lon: '-z' },
+  'landscape-left':  { vert: 'x',  lat: 'y',  lon: '-z', up: { x: 1, y: 0, z: 0 } },
+  'landscape-right': { vert: '-x', lat: '-y', lon: '-z', up: { x: -1, y: 0, z: 0 } },
+  'portrait':        { vert: 'y',  lat: '-x', lon: '-z', up: { x: 0, y: 1, z: 0 } },
 };
-
 function axis(v, key) {
   const neg = key[0] === '-';
   const c = key[neg ? 1 : 0];
   const val = v[c] || 0;
   return neg ? -val : val;
+}
+
+/* ============================== Algebra vettoriale ============================== */
+const vdot = (a, b) => a.x * b.x + a.y * b.y + a.z * b.z;
+const vcross = (a, b) => ({
+  x: a.y * b.z - a.z * b.y,
+  y: a.z * b.x - a.x * b.z,
+  z: a.x * b.y - a.y * b.x,
+});
+function vnorm(v) {
+  const m = Math.hypot(v.x, v.y, v.z) || 1;
+  return { x: v.x / m, y: v.y / m, z: v.z / m };
 }
 
 /* ============================== Lean (piega) ============================== */
@@ -500,6 +601,48 @@ function leanFromUp(U, U0) {
   const dot   = U0.x * U.x + U0.y * U.y;
   // angolo segnato da U0 a U attorno a +dZ; schermo verso pilota: positivo = destra
   return Math.atan2(cross, dot) * 180 / Math.PI;
+}
+
+/* Base ortonormale del frame moto espressa nel frame telefono.
+   La calibrazione fissa l'asse UP reale (gravità a moto dritta e ferma): questo
+   assorbe l'inclinazione del supporto, che altrimenti fa sanguinare l'accelerazione
+   longitudinale in quella verticale e falsa la piega.
+   fwd viene ortogonalizzato (Gram-Schmidt) rispetto a up; right = fwd × up. */
+function axisVec(key) {
+  const neg = key[0] === '-';
+  const c = key[neg ? 1 : 0];
+  const v = { x: 0, y: 0, z: 0 };
+  v[c] = neg ? -1 : 1;
+  return v;
+}
+
+function buildBasis(up, mount) {
+  const U = vnorm(up);
+  const m = MOUNT[mount || state.mount] || MOUNT['landscape-left'];
+  const nf = axisVec(m.lon); // forward nominale del montaggio (oggi '-z' per tutti)
+  let F = {
+    x: nf.x - vdot(nf, U) * U.x,
+    y: nf.y - vdot(nf, U) * U.y,
+    z: nf.z - vdot(nf, U) * U.z,
+  };
+  if (Math.hypot(F.x, F.y, F.z) < 1e-3) {
+    // caso degenere: forward nominale quasi parallelo a up → ripiega sull'asse laterale
+    const alt = axisVec(m.lat);
+    F = { x: alt.x - vdot(alt, U) * U.x, y: alt.y - vdot(alt, U) * U.y, z: alt.z - vdot(alt, U) * U.z };
+  }
+  F = vnorm(F);
+  /* right = up × fwd, non fwd × up: solo così il segno del laterale coincide con
+     quello della tabella MOUNT già usata (e già validata su strada). Con l'altro
+     ordine la barra "Laterale" e la colonna lat_accel_g del CSV si invertivano. */
+  const R = vnorm(vcross(U, F));
+  return { up: U, fwd: F, right: R };
+}
+
+/* Compat: la calibrazione salvata in v1 era il solo vettore up. */
+function calibBasis(c) {
+  if (!c) return null;
+  if (c.up && c.fwd && c.right) return c;
+  return buildBasis(c);
 }
 
 /* ============================== DOM ============================== */
@@ -520,8 +663,44 @@ const els = {
   sessionList: $('sessionList'), sessionDetail: $('sessionDetail'),
   btnExportCsv: $('btnExportCsv'), btnExportGpx: $('btnExportGpx'), btnExportCsvHist: $('btnExportCsvHist'),
   camAlert: $('camAlert'), camAlertsChk: $('camAlerts'), camDistSel: $('camDist'), btnMapFull: $('btnMapFull'),
+  btnImportCam: $('btnImportCam'), camFile: $('camFile'),
   btnCenter: $('btnCenter'), btnFollow: $('btnFollow'), btnTrackUp: $('btnTrackUp'), compassOffsetSel: $('compassOffset'),
+  gyroFusion: $('gyroFusion'), camAheadChk: $('camAhead'),
+  toasts: $('toasts'), secWarn: $('secWarn'), mapBox: document.querySelector('.map-box'),
 };
+
+/* ============================== Toast (non bloccanti) ============================== */
+function toast(msg, kind, ms) {
+  const el = document.createElement('div');
+  el.className = 'toast' + (kind ? ' ' + kind : '');
+  el.textContent = msg;
+  els.toasts.appendChild(el);
+  setTimeout(() => el.remove(), ms || 3500);
+  return el;
+}
+
+/* Conferma non bloccante: risolve true/false senza congelare il rendering. */
+function confirmToast(msg) {
+  return new Promise(res => {
+    const el = document.createElement('div');
+    el.className = 'toast';
+    const p = document.createElement('div');
+    p.textContent = msg;
+    const row = document.createElement('div');
+    row.className = 'tbtns';
+    const yes = document.createElement('button');
+    yes.textContent = 'Conferma';
+    yes.style.color = 'var(--bad)';
+    const no = document.createElement('button');
+    no.textContent = 'Annulla';
+    row.appendChild(no); row.appendChild(yes);
+    el.appendChild(p); el.appendChild(row);
+    els.toasts.appendChild(el);
+    const done = v => { el.remove(); res(v); };
+    yes.addEventListener('click', () => done(true));
+    no.addEventListener('click', () => done(false));
+  });
+}
 
 /* ============================== Gauge SVG ============================== */
 function buildGauge() {
@@ -588,6 +767,7 @@ function setNeedle(lean) {
 const store = {
   get(k, d) { try { const v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
   set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} },
+  del(k) { try { localStorage.removeItem(k); } catch (e) {} },
 };
 
 function loadSettings() {
@@ -598,19 +778,24 @@ function loadSettings() {
   state.camAlerts = s.camAlerts !== false;
   state.camDist = s.camDist || 400;
   state.compassOffset = s.compassOffset || 0;
+  state.gyroFusion = s.gyroFusion !== false;
+  state.camAhead = s.camAhead !== false;
   els.mountSel.value = state.mount;
   els.invertLean.checked = state.invertLean;
   els.wakeLockChk.checked = state.wakeLockOn;
   els.camAlertsChk.checked = state.camAlerts;
   els.camDistSel.value = String(state.camDist);
   els.compassOffsetSel.value = String(state.compassOffset);
+  els.gyroFusion.checked = state.gyroFusion;
+  els.camAheadChk.checked = state.camAhead;
   const c = store.get('cruscotto.calib', null);
-  if (c) { state.calib = c; updateCalibStatus(); }
+  if (c) { state.calib = calibBasis(c); updateCalibStatus(); }
 }
 function saveSettings() {
   store.set('cruscotto.settings', {
     mount: state.mount, invertLean: state.invertLean, wakeLockOn: state.wakeLockOn,
-    camAlerts: state.camAlerts, camDist: state.camDist, compassOffset: state.compassOffset
+    camAlerts: state.camAlerts, camDist: state.camDist, compassOffset: state.compassOffset,
+    gyroFusion: state.gyroFusion, camAhead: state.camAhead
   });
 }
 function updateCalibStatus() {
@@ -630,41 +815,85 @@ function linearAccel(e) {
   return null;
 }
 
+/* Accelerazione lineare: se il device non espone e.acceleration (comune su Android
+   senza sensore lineare HW) la si ricava da accelerationIncludingGravity togliendo
+   la gravità stimata con un passa-basso. Prima queste tre grandezze restavano
+   inchiodate a zero, senza alcun avviso, anche nel CSV. */
+function estimateLinear(ig) {
+  if (!state._gravLP) { state._gravLP = { x: ig.x, y: ig.y, z: ig.z }; return { x: 0, y: 0, z: 0 }; }
+  const a = 0.02; // tau ≈ 0.8 s a 60 Hz
+  state._gravLP.x += a * (ig.x - state._gravLP.x);
+  state._gravLP.y += a * (ig.y - state._gravLP.y);
+  state._gravLP.z += a * (ig.z - state._gravLP.z);
+  return { x: ig.x - state._gravLP.x, y: ig.y - state._gravLP.y, z: ig.z - state._gravLP.z };
+}
+
 function onDeviceMotion(e) {
   if (state.demo) return;
-  const now = performance.now();
-  let dt = (now - lastT) / 1000;
-  lastT = now;
-  if (!(dt > 0) || dt > 0.05) dt = 0.02;
+
+  const nowP = performance.now();
+  let dt = (nowP - lastMotionT) / 1000;
+  lastMotionT = nowP;
+  if (!(dt > 0) || dt > 0.25) dt = 0; // primo evento o freeze: niente integrazione
 
   const ig = accIncG(e);
-  const la = linearAccel(e);
+  const la = linearAccel(e) || (ig ? estimateLinear(ig) : null);
   const m = MOUNT[state.mount];
+  const B = state.calib; // base ortonormale già costruita
 
   if (la) {
-    state.latG = axis(la, m.lat) / G;
-    state.lonG = axis(la, m.lon) / G;
-    state.vertG = axis(la, m.vert) / G;
-  } else if (ig) {
-    state.latG = 0; state.lonG = 0; state.vertG = 0;
+    if (B) {
+      // Proiezione nel frame moto reale: elimina l'errore dovuto al supporto inclinato
+      state.latG  = vdot(la, B.right) / G;
+      state.lonG  = vdot(la, B.fwd)   / G;
+      state.vertG = vdot(la, B.up)    / G;
+    } else {
+      state.latG  = axis(la, m.lat)  / G;
+      state.lonG  = axis(la, m.lon)  / G;
+      state.vertG = axis(la, m.vert) / G;
+    }
+    state.accelDerived = !linearAccel(e);
   }
 
+  // Velocità di rollio attorno all'asse longitudinale moto (non attorno a z del telefono)
   const rr = e.rotationRate;
-  state.gyroRoll = rr ? (rr.alpha || 0) : 0;
+  let rollRate = 0;
+  if (rr) {
+    const W = { x: rr.beta || 0, y: rr.gamma || 0, z: rr.alpha || 0 };
+    rollRate = B ? vdot(W, B.fwd) : (rr.alpha || 0);
+    rollRate *= LEAN_GYRO_SIGN;
+    if (Math.abs(rollRate) > LEAN_GYRO_MAX_DPS) rollRate = 0; // spike da vibrazione
+    if (state.invertLean) rollRate = -rollRate;
+  }
+  state.gyroRoll = rollRate;
+  state.hasGyro = !!(rr && (rr.alpha != null || rr.beta != null || rr.gamma != null));
 
-  if (ig && state.calib) {
+  if (ig && B) {
     const U = upVector(ig);
     state._lastUp = U;
-    let lean = leanFromUp(U, state.calib);
-    if (state.invertLean) lean = -lean;
-    const roll = state.invertLean ? -state.gyroRoll : state.gyroRoll;
-    if (state.leanFused == null) {
-      state.leanFused = lean;
+
+    // Stima accelerometrica: in curva a regime la risultante è ⟂ al telaio, quindi
+    // questa stima tende a 0 e va usata solo come riferimento anti-deriva.
+    let leanAcc = leanFromUp(U, B.up);
+    if (state.invertLean) leanAcc = -leanAcc;
+
+    const gRatio = Math.hypot(ig.x, ig.y, ig.z) / G;
+    const trust = Math.abs(gRatio - 1) < LEAN_ACC_TOL_G && Math.abs(state.latG) < LEAN_ACC_LAT_MAX;
+
+    if (state.gyroFusion && state.hasGyro) {
+      // Filtro complementare: il giroscopio dà la dinamica, l'accelerometro toglie la deriva.
+      if (state.leanFused == null) state.leanFused = leanAcc;
+      if (dt) state.leanFused += rollRate * dt;
+      const k = trust ? LEAN_ACC_TRUST : LEAN_ACC_TRUST * 0.05;
+      state.leanFused += k * (leanAcc - state.leanFused);
     } else {
-      state.leanFused = 0.98 * (state.leanFused + roll * dt) + 0.02 * lean;
+      // Fallback: passa-basso sul solo accelerometro (comportamento storico)
+      if (state.leanFused == null) state.leanFused = leanAcc;
+      else state.leanFused += LEAN_SMOOTH * (leanAcc - state.leanFused);
     }
+    state.leanFused = Math.max(-80, Math.min(80, state.leanFused));
     state.lean = state.leanFused;
-  } else if (ig && !state.calib) {
+  } else if (ig && !B) {
     state._lastUp = upVector(ig);
     state.leanFused = null;
     state.lean = 0;
@@ -673,9 +902,16 @@ function onDeviceMotion(e) {
 
 function onDeviceOrientation(e) {
   if (state.demo) return;
-  // bussola device (heading magnetico) → track-up anche da fermo
-  if (e.webkitCompassHeading != null) state.compass = e.webkitCompassHeading;
-  else if (e.alpha != null) state.compass = e.alpha;
+  /* Bussola device (heading magnetico) → track-up anche da fermo.
+     e.alpha di 'deviceorientation' è RELATIVO all'orientamento iniziale su Android:
+     usabile come heading solo se l'evento è assoluto (absolute===true o
+     'deviceorientationabsolute'), e va convertito con 360−alpha perché alpha cresce
+     in senso antiorario. */
+  if (e.webkitCompassHeading != null) {
+    state.compass = e.webkitCompassHeading;
+  } else if (e.alpha != null && (e.absolute === true || e.type === 'deviceorientationabsolute')) {
+    state.compass = (360 - e.alpha) % 360;
+  }
   if (e.beta == null || e.gamma == null) return;
   const b = e.beta * Math.PI / 180, g = e.gamma * Math.PI / 180;
   const up = { x: -Math.cos(b) * Math.sin(g), y: Math.sin(b), z: Math.cos(b) * Math.cos(g) };
@@ -694,7 +930,10 @@ function onGeolocation(pos) {
   if (state.speedMs < SPEED_DEADBAND_MS) state.speedMs = 0;
   state.speedKph = state.speedMs * 3.6;
 
-  // Posizione: leggero smoothing (EMA) per ridurre jitter del marker
+  /* Posizione grezza per tutto ciò che è metrico (distanze, traccia, avvisi):
+     lo smoothing serve solo a non far ballare il marker. A 130 km/h con fix a 1 Hz
+     l'EMA arretra il punto di ~50 m — inaccettabile per un avviso autovelox. */
+  state.pos.lat = c.latitude; state.pos.lon = c.longitude;
   if (state.gps.lat == null) {
     state.gps.lat = c.latitude; state.gps.lon = c.longitude;
   } else {
@@ -707,6 +946,10 @@ function onGeolocation(pos) {
 
   maybeLoadCameras(c.latitude, c.longitude);
   checkCameras();
+
+  // Marker/follow si aggiornano a ogni fix, anche se il punto traccia viene scartato:
+  // altrimenti in città o da fermo la mappa sembra congelata.
+  updateMap();
 
   // Traccia + distanza: gate su distanza minima + accuratezza (no jitter da fermo)
   const okAcc = c.accuracy == null || c.accuracy <= GPS_ACC_MAX;
@@ -778,7 +1021,13 @@ function setupSensors() {
 
 function addListeners() {
   if (window.DeviceMotionEvent) window.addEventListener('devicemotion', onDeviceMotion, true);
-  if (window.DeviceOrientationEvent) window.addEventListener('deviceorientation', onDeviceOrientation, true);
+  if (window.DeviceOrientationEvent) {
+    // 'deviceorientationabsolute' è l'unico che dà un alpha riferito al nord su Android
+    if ('ondeviceorientationabsolute' in window) {
+      window.addEventListener('deviceorientationabsolute', onDeviceOrientation, true);
+    }
+    window.addEventListener('deviceorientation', onDeviceOrientation, true);
+  }
   if (navigator.geolocation) {
     navigator.geolocation.watchPosition(onGeolocation, onGeolocationErr, {
       enableHighAccuracy: true, maximumAge: 0, timeout: 10000
@@ -786,6 +1035,15 @@ function addListeners() {
   } else {
     state.gpsStatus = 'err'; updateGpsStatus();
   }
+}
+
+/* Senza secure context geolocation e sensori falliscono in silenzio: meglio dirlo. */
+function checkSecureContext() {
+  if (window.isSecureContext) return;
+  els.secWarn.style.display = 'block';
+  els.secWarn.textContent =
+    'Pagina non in contesto sicuro (HTTPS). GPS e sensori resteranno inattivi. ' +
+    'Servi il file via HTTPS (GitHub Pages / Vercel / Netlify), non aprirlo con file://.';
 }
 
 /* ============================== Traccia GPS ============================== */
@@ -801,33 +1059,94 @@ function appendTrackPoint(lat, lon, alt) {
 /* ============================== Avvisi autovelox (OSM/Overpass) ============================== */
 function camKey(c) { return c.lat.toFixed(4) + ',' + c.lon.toFixed(4); }
 
+function allCameras() { return state.cameras.concat(state.importedCameras || []); }
+
+/* ---- Indice spaziale a griglia ----
+   Un DB importato (es. SCDB Italia) supera i 10.000 punti: la scansione lineare a
+   ogni fix GPS e un marker Leaflet per camera bloccavano il telefono. */
+function cellKey(lat, lon) {
+  return Math.floor(lat / CAM_GRID_DEG) + ':' + Math.floor(lon / CAM_GRID_DEG);
+}
+function rebuildCamGrid() {
+  const g = new Map();
+  for (const c of allCameras()) {
+    if (typeof c.lat !== 'number' || typeof c.lon !== 'number') continue;
+    if (!isFinite(c.lat) || !isFinite(c.lon)) continue;
+    const k = cellKey(c.lat, c.lon);
+    let a = g.get(k);
+    if (!a) { a = []; g.set(k, a); }
+    a.push(c);
+  }
+  state.camGrid = g;
+}
+function camsNear(lat, lon, radiusM) {
+  if (!state.camGrid) rebuildCamGrid();
+  const dLat = radiusM / 111320;
+  const dLon = radiusM / (111320 * Math.max(0.15, Math.cos(lat * Math.PI / 180)));
+  const y0 = Math.floor((lat - dLat) / CAM_GRID_DEG), y1 = Math.floor((lat + dLat) / CAM_GRID_DEG);
+  const x0 = Math.floor((lon - dLon) / CAM_GRID_DEG), x1 = Math.floor((lon + dLon) / CAM_GRID_DEG);
+  const out = [];
+  for (let y = y0; y <= y1; y++) {
+    for (let x = x0; x <= x1; x++) {
+      const a = state.camGrid.get(y + ':' + x);
+      if (a) for (const c of a) out.push(c);
+    }
+  }
+  return out;
+}
+
+/* Rilevamento iniziale da A verso B, in gradi bussola (0 = nord). */
+function bearing(a, b) {
+  const la1 = a.lat * Math.PI / 180, la2 = b.lat * Math.PI / 180;
+  const dLon = (b.lon - a.lon) * Math.PI / 180;
+  const y = Math.sin(dLon) * Math.cos(la2);
+  const x = Math.cos(la1) * Math.sin(la2) - Math.sin(la1) * Math.cos(la2) * Math.cos(dLon);
+  return (Math.atan2(y, x) * 180 / Math.PI + 360) % 360;
+}
+function angleDiff(a, b) {
+  let d = Math.abs(a - b) % 360;
+  return d > 180 ? 360 - d : d;
+}
+
 function loadCachedCameras() {
   const c = store.get('cruscotto.cameras', null);
   if (c && c.cameras && c.cameras.length) {
     state.cameras = c.cameras;
     state.camCenter = c.center;
     state.camTs = c.ts || 0;
+    rebuildCamGrid();
     renderCameras();
   }
 }
 
 async function fetchCameras(lat, lon) {
+  // Guard anti-flood: senza questo, ogni fix GPS (1 Hz) lanciava una nuova query
+  // mentre la precedente era ancora in volo → decine di richieste identiche e ban IP.
+  if (state.camFetching) return;
+  if (Date.now() < state.camRetryAfter) return;
+  state.camFetching = true;
   const q = `[out:json][timeout:25];(node["highway"="speed_camera"](around:${CAM_QUERY_RADIUS_M},${lat},${lon});node["enforcement"="speed_camera"](around:${CAM_QUERY_RADIUS_M},${lat},${lon}););out body;`;
   try {
     const res = await fetch('https://overpass-api.de/api/interpreter?data=' + encodeURIComponent(q));
-    if (!res.ok) return;
+    if (!res.ok) { state.camRetryAfter = Date.now() + CAM_FAIL_BACKOFF_MS; return; }
     const data = await res.json();
     const cams = (data.elements || []).map(el => ({
       lat: el.lat, lon: el.lon,
       maxspeed: (el.tags && el.tags.maxspeed) || '',
       name: (el.tags && el.tags.name) || ''
-    }));
+    })).filter(c => typeof c.lat === 'number' && typeof c.lon === 'number');
     state.cameras = cams;
     state.camCenter = { lat, lon };
     state.camTs = Date.now();
+    state.camRetryAfter = 0;
     store.set('cruscotto.cameras', { center: { lat, lon }, ts: state.camTs, cameras: cams });
+    rebuildCamGrid();
     renderCameras();
-  } catch (e) { /* mantiene cache precedente */ }
+  } catch (e) {
+    state.camRetryAfter = Date.now() + CAM_FAIL_BACKOFF_MS; // mantiene cache precedente
+  } finally {
+    state.camFetching = false;
+  }
 }
 
 function maybeLoadCameras(lat, lon) {
@@ -836,13 +1155,30 @@ function maybeLoadCameras(lat, lon) {
   if (stale || moved) fetchCameras(lat, lon);
 }
 
+/* Etichetta tooltip come nodo di testo: i tag OSM e i file importati sono dati di
+   terze parti, e bindTooltip/innerHTML li interpretavano come HTML. */
+function camLabel(c) {
+  const parts = [];
+  if (c.name) parts.push(String(c.name));
+  if (c.maxspeed) parts.push(String(c.maxspeed));
+  return parts.join(' · ');
+}
+
 function renderCameras() {
   if (state.mapType === 'leaflet' && state.map) {
     if (!state.camLayer) state.camLayer = L.layerGroup().addTo(state.map);
     state.camLayer.clearLayers();
-    for (const c of state.cameras) {
+    const p = state.pos.lat != null ? state.pos : (state.gps.lat != null ? state.gps : null);
+    // Con un DB nazionale importato non si disegna tutto: solo ciò che è vicino.
+    const list = p ? camsNear(p.lat, p.lon, CAM_MARKER_RADIUS_M) : allCameras().slice(0, 500);
+    for (const c of list) {
       const m = L.circleMarker([c.lat, c.lon], { radius: 7, color: '#f87171', fillColor: '#f87171', fillOpacity: 0.9, weight: 2 });
-      if (c.maxspeed) m.bindTooltip((c.name ? c.name + ' · ' : '') + c.maxspeed);
+      const lbl = camLabel(c);
+      if (lbl) {
+        const span = document.createElement('span');
+        span.textContent = lbl;
+        m.bindTooltip(span);
+      }
       m.addTo(state.camLayer);
     }
   }
@@ -850,9 +1186,11 @@ function renderCameras() {
 }
 
 function trackUpHeading() {
+  // Sotto ~11 km/h l'heading GPS è rumore puro e faceva girare la mappa su sé stessa.
   const h = state.gps.heading;
+  if (h != null && !isNaN(h) && state.speedMs >= HEADING_MIN_MS) return h;
+  if (state.compass != null) return (state.compass + state.compassOffset + 360) % 360;
   if (h != null && !isNaN(h)) return h;
-  if (state.compass != null) return (state.compass + state.compassOffset) % 360;
   return null;
 }
 function setFollow(on) {
@@ -860,18 +1198,37 @@ function setFollow(on) {
   els.btnFollow.classList.toggle('on', on);
   if (on) centerMap(); // recentra subito all'attivazione
 }
+
+/* Track-up senza plugin: leaflet-rotate non è caricato, quindi map.setBearing()
+   e map.resetNorth() non esistono e lanciavano TypeError a ogni aggiornamento.
+   Si ruota il container via CSS (riquadro sovradimensionato per coprire gli angoli). */
+function applyMapRotation() {
+  if (!els.mapBox) return;
+  const on = state.trackUp && state.mapType === 'leaflet';
+  els.mapBox.classList.toggle('rot', on);
+  const mapEl = els.map;
+  if (!on) { mapEl.style.transform = ''; return; }
+  const h = trackUpHeading();
+  if (h == null) return;
+  mapEl.style.transform = 'rotate(' + (-h).toFixed(1) + 'deg)';
+}
 function setTrackUp(on) {
   state.trackUp = on;
   els.btnTrackUp.classList.toggle('on', on);
   if (state.mapType === 'leaflet' && state.map) {
-    if (on) { const h = trackUpHeading(); if (h != null) state.map.setBearing(-h); }
-    else state.map.resetNorth();
+    applyMapRotation();
+    setTimeout(() => state.map.invalidateSize(), 60);
+  } else if (state.mapType === 'canvas') {
+    drawCanvasMap();
   }
 }
 function centerMap() {
   if (state.gps.lat == null) return;
   if (state.mapType === 'leaflet' && state.map) {
-    state.map.panTo([state.gps.lat, state.gps.lon]);
+    // Prima del primo fitBounds lo zoom è 5 (vista Italia): panTo lasciava l'utente lì.
+    const z = state.map.getZoom();
+    if (z == null || z < 14) state.map.setView([state.gps.lat, state.gps.lon], 16);
+    else state.map.panTo([state.gps.lat, state.gps.lon]);
   } else if (state.mapType === 'canvas') {
     state.centerPending = true; // centra una tantum, indipendente dal follow
     drawCanvasMap();
@@ -880,26 +1237,61 @@ function centerMap() {
 }
 
 function checkCameras() {
-  if (!state.camAlerts || !state.cameras.length) return;
-  if (state.gps.lat == null) return;
+  if (!state.camAlerts) return;
+  if (state.pos.lat == null) return;
+  const me = { lat: state.pos.lat, lon: state.pos.lon };
+  // Solo le celle attorno: niente scansione dell'intero DB a ogni fix.
+  const cams = camsNear(me.lat, me.lon, state.camDist * 2 + 500);
+  if (!cams.length) return;
+
+  const hdg = trackUpHeading();
+  const useBearing = state.camAhead && hdg != null && state.speedMs >= HEADING_MIN_MS;
+  const now = Date.now();
+  const seen = {};
+
   let nearest = null, nearestD = Infinity;
-  for (const c of state.cameras) {
-    const d = haversine({ lat: state.gps.lat, lon: state.gps.lon }, { lat: c.lat, lon: c.lon }) * 1000;
+  for (const c of cams) {
+    const d = haversine(me, { lat: c.lat, lon: c.lon }) * 1000;
+    const k = camKey(c);
+    seen[k] = d;
+    if (d > state.camDist) continue;
+    if (useBearing) {
+      // Scarta gli autovelox alle spalle o sulla carreggiata opposta
+      if (angleDiff(bearing(me, c), hdg) > CAM_AHEAD_DEG) continue;
+    } else {
+      // Senza heading affidabile: avvisa solo se ci si sta avvicinando
+      const prev = state.camLastDist[k];
+      if (prev != null && d > prev - 1) continue;
+    }
     if (d < nearestD) { nearestD = d; nearest = c; }
   }
-  if (!nearest || nearestD > state.camDist) return;
-  const now = Date.now();
+  state.camLastDist = seen;
+
+  if (!nearest) return;
   const k = camKey(nearest);
   if (state.camCooldown[k] && now - state.camCooldown[k] < CAM_COOLDOWN_MS) return;
   state.camCooldown[k] = now;
+  pruneCamCooldown(now);
   alertCamera(nearestD, nearest);
+}
+
+/* Il cooldown cresceva senza limite lungo un viaggio: si tiene solo ciò che è vivo. */
+function pruneCamCooldown(now) {
+  for (const k in state.camCooldown) {
+    if (now - state.camCooldown[k] > CAM_COOLDOWN_MS * 4) delete state.camCooldown[k];
+  }
 }
 
 let camAlertTimer = null;
 function alertCamera(dist, cam) {
-  let label = 'AUTOVELOX';
-  if (cam.maxspeed) label += ' · ' + cam.maxspeed;
-  els.camAlert.innerHTML = '⚠ ' + label + ' <span style="opacity:.85">~' + Math.round(dist) + ' m</span>';
+  // Nessun innerHTML: maxspeed/name arrivano da OSM o da un file importato.
+  els.camAlert.textContent = '';
+  const main = document.createTextNode('⚠ AUTOVELOX' + (cam.maxspeed ? ' · ' + String(cam.maxspeed) : '') + ' ');
+  const sub = document.createElement('span');
+  sub.style.opacity = '.85';
+  sub.textContent = '~' + Math.round(dist) + ' m';
+  els.camAlert.appendChild(main);
+  els.camAlert.appendChild(sub);
   els.camAlert.style.display = 'block';
   clearTimeout(camAlertTimer);
   camAlertTimer = setTimeout(() => { els.camAlert.style.display = 'none'; }, 4000);
@@ -929,10 +1321,103 @@ function beep() {
 }
 document.addEventListener('pointerdown', ensureAudio, { once: true });
 
+/* ============================== Import autovelox (file) ============================== */
+function parseCamerasFile(text) {
+  const out = [];
+  const t = (text || '').trim();
+  if (!t) return out;
+  // CSV: lat,lon[,limite[,nome]] (decimali col punto)
+  if (t[0] !== '{' && t[0] !== '[') {
+    for (const line of t.split(/\r?\n/)) {
+      const p = line.split(/[,;]/).map(s => s.trim());
+      if (p.length < 2) continue;
+      const lat = parseFloat(p[0]); const lon = parseFloat(p[1]);
+      if (isNaN(lat) || isNaN(lon)) continue;
+      out.push({ lat, lon, maxspeed: p[2] || '', name: p[3] || '' });
+    }
+    return out;
+  }
+  try {
+    const data = JSON.parse(t);
+    const arr = Array.isArray(data) ? data : (data.result || data.features || null);
+    if (!Array.isArray(arr)) return out;
+    if (arr.length && arr[0] && arr[0].geometry) {
+      // GeoJSON FeatureCollection
+      for (const f of arr) {
+        const g = f.geometry;
+        if (!g || !g.coordinates) continue;
+        const [lon, lat] = g.coordinates;
+        const pr = f.properties || {};
+        out.push({ lat, lon, maxspeed: pr.vmax || pr.maxspeed || '', name: pr.name || pr.ort || '' });
+      }
+    } else {
+      // SCDB autovelox.it: {lat/lng, vmax, ort, strasse}
+      for (const c of arr) {
+        const lat = c.lat != null ? c.lat : c.breitengrad_dezimal;
+        const lon = c.lng != null ? c.lng : c.laengengrad_dezimal;
+        if (lat == null || lon == null || isNaN(lat) || isNaN(lon)) continue;
+        const name = [c.ort, c.strasse].filter(Boolean).join(' ');
+        out.push({ lat, lon, maxspeed: c.vmax || '', name });
+      }
+    }
+  } catch (e) { /* non-JSON */ }
+  return out;
+}
+
+function importCamerasFile(file) {
+  const reader = new FileReader();
+  reader.onload = async () => {
+    const cams = parseCamerasFile(reader.result)
+      .filter(c => isFinite(c.lat) && isFinite(c.lon) && Math.abs(c.lat) <= 90 && Math.abs(c.lon) <= 180);
+    if (!cams.length) { toast('Nessuna camera trovata nel file.', 'err'); return; }
+    state.importedCameras = cams;
+    /* Un DB nazionale pesa ~1,5 MB: in localStorage rubava quota al log della
+       sessione, che poi falliva in silenzio. Va su IndexedDB. */
+    try {
+      await idb.kvPut('importedCameras', cams);
+      store.del('cruscotto.importedCameras');
+    } catch (e) {
+      toast('Camere caricate ma non salvate (spazio esaurito).', 'err', 5000);
+    }
+    rebuildCamGrid();
+    renderCameras();
+    toast('Importate ' + cams.length + ' camere.', 'ok');
+  };
+  reader.onerror = () => toast('Errore lettura file.', 'err');
+  reader.readAsText(file);
+}
+
+/* Migrazione: le camere importate in localStorage passano a IndexedDB. */
+async function loadImportedCameras() {
+  let cams = null;
+  try { cams = await idb.kvGet('importedCameras'); } catch (e) {}
+  if (!cams) {
+    const legacy = store.get('cruscotto.importedCameras', null);
+    if (legacy && legacy.length) {
+      cams = legacy;
+      try { await idb.kvPut('importedCameras', cams); store.del('cruscotto.importedCameras'); } catch (e) {}
+    }
+  }
+  if (cams && cams.length) {
+    state.importedCameras = cams;
+    rebuildCamGrid();
+    renderCameras();
+  }
+}
+
 /* ============================== Wake lock / Fullscreen ============================== */
 async function requestWakeLock() {
   if (!state.wakeLockOn || !('wakeLock' in navigator)) return;
-  try { wakeLock = await navigator.wakeLock.request('screen'); } catch (e) {}
+  if (wakeLock && !wakeLock.released) return;
+  try {
+    wakeLock = await navigator.wakeLock.request('screen');
+    wakeLock.addEventListener('release', () => { wakeLock = null; });
+  } catch (e) {}
+}
+async function releaseWakeLock() {
+  if (!wakeLock) return;
+  try { await wakeLock.release(); } catch (e) {}
+  wakeLock = null;
 }
 document.addEventListener('visibilitychange', () => {
   if (document.visibilityState === 'visible') requestWakeLock();
@@ -946,35 +1431,69 @@ function toggleFullscreen() {
 }
 
 /* ============================== Logging ============================== */
+let lastSampleWall = 0;
+
 function snapshot() {
-  const t = state.session.start ? (performance.now() - state.session.start) / 1000 : 0;
+  const wall = Date.now();
+  const t = state.session.startWall ? (wall - state.session.startWall) / 1000 : 0;
+  /* Se il campionamento si è fermato (schermo spento, app in background) la riga
+     porta gap=1: prima il timeline saltava senza lasciare traccia nel CSV. */
+  const gap = (lastSampleWall && wall - lastSampleWall > GAP_MS) ? 1 : 0;
+  lastSampleWall = wall;
   return {
     t, speedKmh: state.speedKph, speedMs: state.speedMs,
     lean: state.lean, latG: state.latG, lonG: state.lonG, vertG: state.vertG,
-    gyro: state.gyroRoll,
-    lat: state.gps.lat, lon: state.gps.lon, alt: state.gps.alt,
+    gyro: state.gyroRoll, gap,
+    lat: state.pos.lat, lon: state.pos.lon, alt: state.gps.alt,
     heading: state.gps.heading, gpsAcc: state.gps.acc
   };
+}
+
+/* Il campionamento sta su un timer reale, non su requestAnimationFrame: a 30 fps
+   rAF dava 15 Hz spacciandoli per 20, e si fermava del tutto a schermo spento. */
+function sampleTick() {
+  if (!state.logging) return;
+  state.rows.push(snapshot());
+  if (state.rows.length > MAX_ROWS) {
+    // shift() a 20 Hz su un array da 180k è O(n): si taglia a blocchi, ammortizzato.
+    state.rows.splice(0, Math.ceil(MAX_ROWS * 0.1));
+    state.flushedRows = Math.max(0, state.flushedRows - Math.ceil(MAX_ROWS * 0.1));
+  }
+  const nowP = performance.now();
+  if (nowP - lastFlush >= FLUSH_MS) {
+    lastFlush = nowP;
+    flushLog();
+  }
 }
 
 function startLog() {
   state.logging = true;
   state.rows = [];
   state.track = [];
+  state.sessionId = 's_' + Date.now();
+  state.flushSeq = 0;
+  state.flushedRows = 0;
+  lastSampleWall = 0;
   state.session = {
     maxSpeed: 0, maxLeanR: 0, maxLeanL: 0, distKm: 0,
-    start: performance.now(), startWall: Date.now(),
-    lastPos: state.gps.lat != null ? { lat: state.gps.lat, lon: state.gps.lon } : null
+    start: performance.now(), startWall: Date.now(), endWall: 0,
+    lastPos: state.pos.lat != null ? { lat: state.pos.lat, lon: state.pos.lon } : null
   };
-  lastSample = lastFlush = performance.now();
+  lastFlush = performance.now();
+  idb.clearChunks().catch(() => {});
+  clearInterval(sampleTimer);
+  sampleTimer = setInterval(sampleTick, SAMPLE_MS);
   setLogButton(true);
 }
 
-function stopLog() {
+async function stopLog() {
   state.logging = false;
+  clearInterval(sampleTimer);
+  sampleTimer = null;
+  state.session.endWall = Date.now();
   setLogButton(false);
-  flushLog();
-  saveSession();
+  await flushLog();
+  await saveSession();
 }
 
 function setLogButton(rec) {
@@ -983,14 +1502,42 @@ function setLogButton(rec) {
   els.recBadge.classList.toggle('on', rec);
 }
 
-function flushLog() {
-  if (!state.rows.length) return;
-  try { localStorage.setItem('cruscotto.log', JSON.stringify(state.rows)); } catch (e) {}
+/* Flush incrementale su IndexedDB.
+   Prima: JSON.stringify dell'intero array in localStorage ogni 10 s → saturava la
+   quota da 5 MB dopo ~23 minuti, con QuotaExceededError inghiottito, e produceva
+   un hitch visibile a ogni flush. Ora si scrive solo il delta. */
+async function flushLog() {
+  if (state._flushing) return; // due flush sovrapposti scriverebbero righe doppie
+  const upto = state.rows.length;
+  const pending = state.rows.slice(state.flushedRows, upto);
+  if (!pending.length) return;
+  state._flushing = true;
+  try {
+    await idb.putChunk({
+      sid: state.sessionId,
+      seq: state.flushSeq++,
+      startWall: state.session.startWall,
+      rows: pending,
+    });
+    // La traccia sta in un unico record: replicarla in ogni chunk moltiplicava
+    // fino a 10.000 punti per il numero di flush.
+    await idb.kvPut('activeTrack', { sid: state.sessionId, startWall: state.session.startWall, track: state.track.slice() });
+    state.flushedRows = upto;
+  } catch (e) {
+    if (!state._flushWarned) {
+      state._flushWarned = true;
+      toast('Spazio esaurito: il log non viene più salvato su disco. Esporta il CSV.', 'err', 6000);
+    }
+  } finally {
+    state._flushing = false;
+  }
 }
 
 /* ============================== Export CSV / GPX ============================== */
 function downloadBlob(name, text, type) {
-  const blob = new Blob([text], { type });
+  // text può essere una stringa o un array di parti: l'export storico costruisce
+  // il CSV a pezzi invece di concatenare centinaia di MB in una sola stringa.
+  const blob = new Blob(Array.isArray(text) ? text : [text], { type });
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
   a.download = name;
@@ -1006,28 +1553,35 @@ function stamp() {
   return d.getFullYear() + pad(d.getMonth()+1) + pad(d.getDate()) + '_' + pad(d.getHours()) + pad(d.getMinutes()) + pad(d.getSeconds());
 }
 
-function buildCsv(rows, meta) {
-  const header = 't,speed_kmh,speed_ms,lean_deg,lat_accel_g,lon_accel_g,vert_accel_g,gyro_roll_dps,lat,lon,alt_m,heading_deg,gps_acc_m';
-  const m = [
+const CSV_HEADER = 't,speed_kmh,speed_ms,lean_deg,lat_accel_g,lon_accel_g,vert_accel_g,gyro_roll_dps,gap,lat,lon,alt_m,heading_deg,gps_acc_m';
+
+function csvMeta(meta) {
+  return [
     '# cruscotto-moto export',
     '# sessione: ' + (meta.startISO || new Date().toISOString()),
     '# max_lean_D: ' + (meta.maxLeanR||0).toFixed(1) + ', max_lean_S: ' + (meta.maxLeanL||0).toFixed(1),
     '# max_speed_kmh: ' + (meta.maxSpeed||0).toFixed(1),
     '# distanza_km: ' + (meta.distKm||0).toFixed(3),
   ].join('\n');
-  const lines = rows.map(r => [
-    r.t.toFixed(3), r.speedKmh.toFixed(1), r.speedMs.toFixed(2), r.lean.toFixed(2),
-    (r.latG||0).toFixed(3), (r.lonG||0).toFixed(3), (r.vertG||0).toFixed(3),
-    (r.gyro||0).toFixed(2),
-    r.lat == null ? '' : r.lat.toFixed(6), r.lon == null ? '' : r.lon.toFixed(6),
-    r.alt == null ? '' : r.alt.toFixed(1), r.heading == null ? '' : r.heading.toFixed(1),
-    r.gpsAcc == null ? '' : r.gpsAcc.toFixed(1)
-  ].join(','));
-  return m + '\n' + header + '\n' + lines.join('\n');
+}
+
+const num = (v, d) => (v == null || !isFinite(v)) ? '' : v.toFixed(d);
+
+function csvRows(rows) {
+  return rows.map(r => [
+    num(r.t, 3), num(r.speedKmh, 1), num(r.speedMs, 2), num(r.lean, 2),
+    num(r.latG || 0, 3), num(r.lonG || 0, 3), num(r.vertG || 0, 3),
+    num(r.gyro || 0, 2), r.gap ? '1' : '0',
+    num(r.lat, 6), num(r.lon, 6), num(r.alt, 1), num(r.heading, 1), num(r.gpsAcc, 1)
+  ].join(',')).join('\n');
+}
+
+function buildCsv(rows, meta) {
+  return csvMeta(meta) + '\n' + CSV_HEADER + '\n' + csvRows(rows);
 }
 
 function exportCsv(rows, meta, nameSuffix) {
-  if (!rows || !rows.length) { alert('Nessun dato da esportare.'); return; }
+  if (!rows || !rows.length) { toast('Nessun dato da esportare.', 'err'); return; }
   downloadBlob('cruscotto' + (nameSuffix ? '_' + nameSuffix : '') + '_' + stamp() + '.csv', buildCsv(rows, meta), 'text/csv;charset=utf-8');
 }
 
@@ -1046,65 +1600,209 @@ function buildGpx(track) {
 }
 
 function exportGpx(track, nameSuffix) {
-  if (!track || !track.length) { alert('Nessun percorso da esportare.'); return; }
+  if (!track || !track.length) { toast('Nessun percorso da esportare.', 'err'); return; }
   downloadBlob('cruscotto' + (nameSuffix ? '_' + nameSuffix : '') + '_' + stamp() + '.gpx', buildGpx(track), 'application/gpx+xml');
 }
 
 /* ============================== IndexedDB (storico) ============================== */
+/* Schema v2:
+   - sessions  : record pesante {id, track, rows}
+   - meta      : record leggero {id, meta} — l'elenco Storico legge SOLO questo.
+                 Prima renderHistory() faceva getAll() sulle sessioni complete,
+                 deserializzando fino a 180k righe per sessione solo per disegnare
+                 delle card con data e durata.
+   - logchunks : flush incrementali della sessione in corso (recupero dopo crash)
+   - kv        : blob di configurazione (es. DB autovelox importato) */
 const idb = {
   db: null,
   open() {
     return new Promise((res, rej) => {
-      const r = indexedDB.open('cruscotto', 1);
+      const r = indexedDB.open('cruscotto', 2);
       r.onupgradeneeded = e => {
         const db = e.target.result;
+        const tx = e.target.transaction;
         if (!db.objectStoreNames.contains('sessions')) db.createObjectStore('sessions', { keyPath: 'id' });
+        if (!db.objectStoreNames.contains('meta')) db.createObjectStore('meta', { keyPath: 'id' });
+        if (!db.objectStoreNames.contains('logchunks')) {
+          const s = db.createObjectStore('logchunks', { keyPath: 'k', autoIncrement: true });
+          s.createIndex('sid', 'sid', { unique: false });
+        }
+        if (!db.objectStoreNames.contains('kv')) db.createObjectStore('kv', { keyPath: 'k' });
+        if (e.oldVersion < 2) {
+          // Migrazione one-shot: estrae i meta dalle sessioni esistenti, un record
+          // alla volta con un cursore per non caricare tutto in memoria.
+          const src = tx.objectStore('sessions');
+          const dst = tx.objectStore('meta');
+          src.openCursor().onsuccess = ev => {
+            const cur = ev.target.result;
+            if (!cur) return;
+            const v = cur.value;
+            if (v && v.meta) dst.put({ id: v.id, meta: v.meta, points: (v.rows || []).length });
+            cur.continue();
+          };
+        }
       };
       r.onsuccess = e => { idb.db = e.target.result; res(); };
       r.onerror = () => rej(r.error);
+      r.onblocked = () => rej(new Error('IndexedDB bloccato da un altra scheda'));
+    });
+  },
+  _tx(stores, mode, fn) {
+    return new Promise((res, rej) => {
+      if (!idb.db) return rej(new Error('DB non aperto'));
+      let out;
+      const tx = idb.db.transaction(stores, mode);
+      tx.oncomplete = () => res(out);
+      tx.onerror = () => rej(tx.error);
+      tx.onabort = () => rej(tx.error || new Error('transazione annullata'));
+      out = fn(tx);
     });
   },
   put(obj) {
-    return new Promise((res, rej) => {
-      const tx = idb.db.transaction('sessions', 'readwrite');
+    return idb._tx(['sessions', 'meta'], 'readwrite', tx => {
       tx.objectStore('sessions').put(obj);
-      tx.oncomplete = res; tx.onerror = rej;
+      tx.objectStore('meta').put({ id: obj.id, meta: obj.meta, points: (obj.rows || []).length });
     });
   },
-  getAll() {
-    return new Promise((res, rej) => {
-      const tx = idb.db.transaction('sessions', 'readonly');
-      const rq = tx.objectStore('sessions').getAll();
-      rq.onsuccess = () => res(rq.result || []); rq.onerror = rej;
-    });
+  getMetas() {
+    let val = [];
+    return idb._tx('meta', 'readonly', tx => {
+      const rq = tx.objectStore('meta').getAll();
+      rq.onsuccess = () => { val = rq.result || []; };
+    }).then(() => val);
+  },
+  get(id) {
+    let val = null;
+    return idb._tx('sessions', 'readonly', tx => {
+      const rq = tx.objectStore('sessions').get(id);
+      rq.onsuccess = () => { val = rq.result || null; };
+    }).then(() => val);
+  },
+  keys() {
+    let val = [];
+    return idb._tx('sessions', 'readonly', tx => {
+      const rq = tx.objectStore('sessions').getAllKeys();
+      rq.onsuccess = () => { val = rq.result || []; };
+    }).then(() => val);
   },
   del(id) {
-    return new Promise((res, rej) => {
-      const tx = idb.db.transaction('sessions', 'readwrite');
+    return idb._tx(['sessions', 'meta'], 'readwrite', tx => {
       tx.objectStore('sessions').delete(id);
-      tx.oncomplete = res; tx.onerror = rej;
+      tx.objectStore('meta').delete(id);
     });
+  },
+  putChunk(obj) {
+    return idb._tx('logchunks', 'readwrite', tx => { tx.objectStore('logchunks').put(obj); });
+  },
+  getChunks() {
+    let val = [];
+    return idb._tx('logchunks', 'readonly', tx => {
+      const rq = tx.objectStore('logchunks').getAll();
+      rq.onsuccess = () => { val = rq.result || []; };
+    }).then(() => val);
+  },
+  clearChunks() {
+    return idb._tx(['logchunks', 'kv'], 'readwrite', tx => {
+      tx.objectStore('logchunks').clear();
+      tx.objectStore('kv').delete('activeTrack');
+    });
+  },
+  kvPut(k, v) {
+    return idb._tx('kv', 'readwrite', tx => { tx.objectStore('kv').put({ k, v }); });
+  },
+  kvGet(k) {
+    let val = null;
+    return idb._tx('kv', 'readonly', tx => {
+      const rq = tx.objectStore('kv').get(k);
+      rq.onsuccess = () => { val = rq.result ? rq.result.v : null; };
+    }).then(() => val);
   },
 };
 
 async function saveSession() {
-  if (!state.session.start) return;
+  if (!state.session.startWall) return;
+  const endWall = state.session.endWall || Date.now();
   const meta = {
     startISO: new Date(state.session.startWall).toISOString(),
-    duration: (performance.now() - state.session.start) / 1000,
+    duration: (endWall - state.session.startWall) / 1000,
     maxSpeed: state.session.maxSpeed,
     maxLeanR: state.session.maxLeanR,
     maxLeanL: state.session.maxLeanL,
     distKm: state.session.distKm,
   };
   const sess = {
-    id: 's_' + state.session.startWall,
+    id: state.sessionId || ('s_' + state.session.startWall),
     meta,
     track: state.track.slice(),
     rows: state.rows.slice(),
   };
-  try { await idb.put(sess); } catch (e) { /* quota o errore: log esportabile comunque via CSV */ }
+  try {
+    await idb.put(sess);
+    // Salvata: i chunk di recupero non servono più e liberano spazio.
+    await idb.clearChunks().catch(() => {});
+    store.del('cruscotto.log');
+    toast('Giro salvato (' + sess.rows.length + ' campioni).', 'ok');
+  } catch (e) {
+    // Prima l'errore era muto: l'utente credeva di avere il giro nello storico.
+    toast('Salvataggio fallito (spazio esaurito). Esporta subito il CSV.', 'err', 7000);
+  }
   renderHistory();
+}
+
+/* Recupero dopo crash/refresh: i chunk della sessione interrotta vengono ricomposti
+   e proposti all'utente. Prima 'cruscotto.log' veniva scritto ma non riletto da
+   nessuno, quindi la promessa "sopravvive a un refresh" non era mantenuta. */
+async function recoverChunks() {
+  let chunks = [];
+  try { chunks = await idb.getChunks(); } catch (e) { return; }
+  if (!chunks.length) return;
+  chunks.sort((a, b) => a.seq - b.seq);
+  const rows = [];
+  for (const c of chunks) if (c.rows) for (const r of c.rows) rows.push(r);
+  if (!rows.length) { idb.clearChunks().catch(() => {}); return; }
+  const last = chunks[chunks.length - 1];
+  let saved = null;
+  try { saved = await idb.kvGet('activeTrack'); } catch (e) {}
+  const track = (saved && saved.sid === last.sid && saved.track) ? saved.track : [];
+  const startWall = last.startWall || (saved && saved.startWall) || Date.now();
+  const el = document.createElement('div');
+  el.className = 'toast';
+  const p = document.createElement('div');
+  p.textContent = 'Trovata una sessione interrotta (' + rows.length + ' campioni). Recuperarla nello storico?';
+  const row = document.createElement('div');
+  row.className = 'tbtns';
+  const yes = document.createElement('button');
+  yes.textContent = 'Recupera';
+  yes.className = 'primary';
+  const no = document.createElement('button');
+  no.textContent = 'Scarta';
+  row.appendChild(no); row.appendChild(yes);
+  el.appendChild(p); el.appendChild(row);
+  els.toasts.appendChild(el);
+  yes.addEventListener('click', async () => {
+    el.remove();
+    let maxSpeed = 0, maxLeanR = 0, maxLeanL = 0;
+    for (const r of rows) {
+      if (r.speedKmh > maxSpeed) maxSpeed = r.speedKmh;
+      if (r.lean > maxLeanR) maxLeanR = r.lean;
+      if (r.lean < maxLeanL) maxLeanL = r.lean;
+    }
+    let distKm = 0;
+    for (let i = 1; i < track.length; i++) distKm += haversine(track[i - 1], track[i]);
+    const sess = {
+      id: last.sid || ('s_' + startWall),
+      meta: {
+        startISO: new Date(startWall).toISOString(),
+        duration: rows.length ? rows[rows.length - 1].t : 0,
+        maxSpeed, maxLeanR, maxLeanL, distKm, recovered: true,
+      },
+      track, rows,
+    };
+    try { await idb.put(sess); await idb.clearChunks(); toast('Sessione recuperata.', 'ok'); }
+    catch (e) { toast('Recupero fallito.', 'err'); }
+    renderHistory();
+  });
+  no.addEventListener('click', () => { el.remove(); idb.clearChunks().catch(() => {}); });
 }
 
 function fmtDur(sec) {
@@ -1115,7 +1813,8 @@ function fmtDur(sec) {
 
 async function renderHistory() {
   let sessions = [];
-  try { sessions = await idb.getAll(); } catch (e) {}
+  try { sessions = await idb.getMetas(); } catch (e) {}
+  sessions = sessions.filter(s => s && s.meta);
   sessions.sort((a, b) => (a.meta.startISO < b.meta.startISO ? 1 : -1));
   const list = els.sessionList;
   if (!sessions.length) {
@@ -1137,9 +1836,20 @@ async function renderHistory() {
         '<span>Piega <b>' + Math.abs(s.meta.maxLeanR).toFixed(0) + '°D / ' + Math.abs(s.meta.maxLeanL).toFixed(0) + '°S</b></span>' +
         '<span>Distanza <b>' + (s.meta.distKm||0).toFixed(2) + ' km</b></span>' +
       '</div>';
-    card.addEventListener('click', () => showSessionDetail(s));
+    card.addEventListener('click', () => openSessionDetail(s.id));
     list.appendChild(card);
   }
+}
+
+/* Le righe si caricano solo qui, su richiesta: l'elenco resta leggero. */
+async function openSessionDetail(id) {
+  const el = els.sessionDetail;
+  el.style.display = 'block';
+  el.textContent = 'Caricamento…';
+  let s = null;
+  try { s = await idb.get(id); } catch (e) {}
+  if (!s) { el.textContent = 'Sessione non trovata.'; return; }
+  showSessionDetail(s);
 }
 
 function showSessionDetail(s) {
@@ -1168,8 +1878,8 @@ function showSessionDetail(s) {
   $('dCsv').addEventListener('click', () => exportCsv(s.rows, s.meta, 'storico'));
   $('dGpx').addEventListener('click', () => exportGpx(s.track, 'storico'));
   $('dDel').addEventListener('click', async () => {
-    if (!confirm('Eliminare questo giro?')) return;
-    try { await idb.del(s.id); } catch (e) {}
+    if (!await confirmToast('Eliminare questo giro?')) return;
+    try { await idb.del(s.id); } catch (e) { toast('Eliminazione fallita.', 'err'); return; }
     el.style.display = 'none';
     renderHistory();
   });
@@ -1177,15 +1887,18 @@ function showSessionDetail(s) {
 
 /* ============================== Mappa ============================== */
 function initMap() {
+  // CSS prima del JS: caricandolo dopo, Leaflet inizializzava con stili assenti
+  // e le tile finivano fuori posto al primo render.
+  const link = document.createElement('link');
+  link.rel = 'stylesheet';
+  link.href = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css';
+  link.crossOrigin = 'anonymous';
+  document.head.appendChild(link);
+
   const script = document.createElement('script');
   script.src = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js';
-  script.onload = () => {
-    const link = document.createElement('link');
-    link.rel = 'stylesheet';
-    link.href = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css';
-    document.head.appendChild(link);
-    initLeaflet();
-  };
+  script.crossOrigin = 'anonymous';
+  script.onload = initLeaflet;
   script.onerror = initCanvasMap;
   document.head.appendChild(script);
   setTimeout(() => { if (!state.mapReady) initCanvasMap(); }, 5000);
@@ -1206,20 +1919,30 @@ function initLeaflet() {
   state.mapLayer = L.layerGroup().addTo(map);
   state.mapPos = L.circleMarker([0, 0], { radius: 8, color: '#29b6f6', fillColor: '#29b6f6', fillOpacity: 0.9 }).addTo(state.mapLayer);
   state.mapPoly = L.polyline([], { color: '#29b6f6', weight: 4 }).addTo(state.mapLayer);
+  els.btnFollow.classList.toggle('on', state.follow);
   updateLeaflet();
   renderCameras();
 }
+
+let lastCamRender = 0;
 
 function updateLeaflet() {
   if (!state.map) return;
   const pts = state.track.map(p => [p.lat, p.lon]);
   if (pts.length) {
     state.mapPoly.setLatLngs(pts);
-    if (state.gps.lat != null) state.mapPos.setLatLng([state.gps.lat, state.gps.lon]);
-    if (!state.mapFit) { state.map.fitBounds(pts, { padding: [30, 30] }); state.mapFit = true; }
+    if (!state.mapFit) { state.map.fitBounds(pts, { padding: [30, 30], maxZoom: 16 }); state.mapFit = true; }
   }
-  if (state.follow && state.gps.lat != null) state.map.panTo([state.gps.lat, state.gps.lon]);
-  if (state.trackUp) { const h = trackUpHeading(); if (h != null) state.map.setBearing(-h); }
+  // Il marker si muove a ogni fix, anche quando il punto traccia viene scartato.
+  if (state.gps.lat != null) {
+    state.mapPos.setLatLng([state.gps.lat, state.gps.lon]);
+    if (!state.mapFit) { state.map.setView([state.gps.lat, state.gps.lon], 16); state.mapFit = true; }
+  }
+  if (state.follow && state.gps.lat != null) state.map.panTo([state.gps.lat, state.gps.lon], { animate: false });
+  if (state.trackUp) applyMapRotation();
+  // Ridisegna i marker autovelox quando ci si sposta, non a ogni fix.
+  const now = Date.now();
+  if (now - lastCamRender > 20000) { lastCamRender = now; renderCameras(); }
 }
 
 function initCanvasMap() {
@@ -1234,7 +1957,17 @@ function initCanvasMap() {
 
 function drawCanvasMap() {
   if (state.mapType !== 'canvas' || !state.mapCanvas) return;
-  drawTrackOnCanvas(state.mapCanvas, state.track, { current: true, heading: state.gps.heading, cameras: state.cameras, center: ((state.follow || state.centerPending) && state.gps.lat != null) ? { lat: state.gps.lat, lon: state.gps.lon } : null });
+  const p = state.gps.lat != null ? { lat: state.gps.lat, lon: state.gps.lon } : null;
+  const centered = (state.follow || state.centerPending || state.trackUp) ? p : null;
+  const h = state.trackUp ? trackUpHeading() : null;
+  drawTrackOnCanvas(state.mapCanvas, state.track, {
+    current: true,
+    heading: state.gps.heading,
+    // Con un DB importato disegnare tutto era impraticabile: solo le camere vicine.
+    cameras: p ? camsNear(p.lat, p.lon, CAM_MARKER_RADIUS_M) : allCameras().slice(0, 500),
+    center: centered,
+    rotateDeg: h != null ? -h : 0,
+  });
 }
 
 function updateMap() {
@@ -1278,6 +2011,15 @@ function drawTrackOnCanvas(canvas, track, opts) {
   const X = lon => offX + (lon - minLon) * scale;
   const Y = lat => offY + (maxLat - lat) * scale;
 
+  // Track-up anche sulla mappa di riserva: si ruota il contesto attorno al centro.
+  const rot = (opts && opts.rotateDeg) || 0;
+  if (rot) {
+    ctx.save();
+    ctx.translate(w / 2, h / 2);
+    ctx.rotate(rot * Math.PI / 180);
+    ctx.translate(-w / 2, -h / 2);
+  }
+
   if (hasTrack) {
     ctx.strokeStyle = '#29b6f6'; ctx.lineWidth = 2; ctx.lineJoin = 'round';
     ctx.beginPath();
@@ -1297,14 +2039,18 @@ function drawTrackOnCanvas(canvas, track, opts) {
     ctx.fillStyle = '#34d399'; ctx.beginPath(); ctx.arc(X(s.lon), Y(s.lat), 5, 0, 6.283); ctx.fill();
     ctx.fillStyle = '#f87171'; ctx.beginPath(); ctx.arc(X(e.lon), Y(e.lat), 5, 0, 6.283); ctx.fill();
   }
+  if (rot) ctx.restore(); // il marker resta dritto anche con la mappa ruotata
+
   // posizione corrente + heading
   if (opts && opts.current && hasTrack) {
     const e = track[track.length - 1];
-    const cx = X(e.lon), cy = Y(e.lat);
+    const cx = rot ? w / 2 : X(e.lon), cy = rot ? h / 2 : Y(e.lat);
     ctx.fillStyle = '#e7edf3';
     ctx.beginPath(); ctx.arc(cx, cy, 6, 0, 6.283); ctx.fill();
-    if (opts.heading != null) {
-      const a = opts.heading * Math.PI / 180;
+    // In track-up il verso di marcia è per definizione verso l'alto.
+    const hd = rot ? 0 : opts.heading;
+    if (hd != null) {
+      const a = hd * Math.PI / 180;
       const dx = Math.sin(a), dy = -Math.cos(a);
       ctx.strokeStyle = '#e7edf3'; ctx.lineWidth = 2;
       ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(cx + dx * 18, cy + dy * 18); ctx.stroke();
@@ -1364,7 +2110,7 @@ function switchTab(name) {
   document.querySelectorAll('.panel').forEach(p => p.classList.toggle('active', p.id === 'tab-' + name));
   document.querySelectorAll('nav.tabbar button').forEach(b => b.classList.toggle('active', b.dataset.tab === name));
   if (name === 'map') {
-    if (state.mapType === 'leaflet' && state.map) setTimeout(() => state.map.invalidateSize(), 50);
+    if (state.mapType === 'leaflet' && state.map) setTimeout(() => { state.map.invalidateSize(); applyMapRotation(); }, 50);
     else if (state.mapType === 'canvas') drawCanvasMap();
   } else if (name === 'charts') {
     drawCharts();
@@ -1375,9 +2121,12 @@ function switchTab(name) {
 
 /* ============================== Demo ============================== */
 let demoStart = null;
+let demoLast = null;
 function tickDemo(now) {
   if (!state.demo) return;
-  if (demoStart == null) demoStart = now;
+  if (demoStart == null) { demoStart = now; demoLast = now; }
+  const dt = Math.min(0.25, Math.max(0, (now - demoLast) / 1000));
+  demoLast = now;
   const t = (now - demoStart) / 1000;
   const lean = 38 * Math.sin(t * 0.45) * Math.sin(t * 0.13 + 0.6);
   state.lean = lean;
@@ -1394,17 +2143,21 @@ function tickDemo(now) {
       { lat: 45.0005, lon: 9.0005, maxspeed: '50', name: 'Demo cam 1' },
       { lat: 45.0015, lon: 8.9995, maxspeed: '70', name: 'Demo cam 2' },
     ];
+    rebuildCamGrid();
     renderCameras();
   }
   // traccia in movimento (spirale attorno a 45.0,9.0)
   const lat = 45.0 + 0.025 * Math.sin(t * 0.05) * (1 + t * 0.002);
   const lon = 9.0 + 0.035 * Math.cos(t * 0.05) * (1 + t * 0.002);
   state.gps = { lat, lon, alt: 120, heading: (t * 18) % 360, acc: 5 };
+  state.pos.lat = lat; state.pos.lon = lon;
   state.gpsStatus = 'ok';
   state.session.lastPos = state.session.lastPos || { lat, lon };
-  state.session.distKm += (state.speedMs * 0.05) / 1000;
+  // dt reale: il passo fisso 0.05 s presupponeva frame da 50 ms, rAF ne dà ~16,7
+  state.session.distKm += (state.speedMs * dt) / 1000;
   appendTrackPoint(lat, lon, 120);
   checkCameras();
+  updateMap();
 }
 
 /* ============================== Loop display ============================== */
@@ -1423,6 +2176,11 @@ function updateDisplay() {
   }
   setNeedle(state.lean);
 
+  if (state.accelDerived && !state._accelWarned) {
+    state._accelWarned = true;
+    toast('Accelerazione lineare non esposta dal device: valori ricavati dalla gravità stimata.', null, 6000);
+  }
+
   const latAbs = Math.abs(state.latG), lonAbs = Math.abs(state.lonG), vertAbs = Math.abs(state.vertG);
   els.latVal.textContent = (state.latG >= 0 ? '+' : '') + state.latG.toFixed(2);
   els.lonVal.textContent = (state.lonG >= 0 ? '+' : '') + state.lonG.toFixed(2);
@@ -1431,7 +2189,10 @@ function updateDisplay() {
   setBar(els.lonBar, state.lonG, lonAbs, 1.2);
   setBar(els.vertBar, state.vertG, vertAbs, 1.2);
 
-  if (state.session.start) {
+  /* Massimi e cronometro avanzano solo a registrazione attiva.
+     Prima session.start veniva impostato già al boot: dopo lo Stop il tempo
+     continuava a correre e i massimi si aggiornavano ancora — Demo inclusa. */
+  if (state.logging) {
     state.session.maxSpeed = Math.max(state.session.maxSpeed, state.speedKph);
     state.session.maxLeanR = Math.max(state.session.maxLeanR, state.lean);
     state.session.maxLeanL = Math.min(state.session.maxLeanL, state.lean);
@@ -1440,7 +2201,11 @@ function updateDisplay() {
   els.statDist.textContent = state.session.distKm.toFixed(2);
   els.maxLeanR.textContent = Math.abs(state.session.maxLeanR).toFixed(0) + '°';
   els.maxLeanL.textContent = Math.abs(state.session.maxLeanL).toFixed(0) + '°';
-  const dur = state.session.start ? (performance.now() - state.session.start) / 1000 : 0;
+  let dur = 0;
+  if (state.session.startWall) {
+    const end = state.logging ? Date.now() : (state.session.endWall || state.session.startWall);
+    dur = Math.max(0, (end - state.session.startWall) / 1000);
+  }
   const mm = String(Math.floor(dur / 60)).padStart(2, '0');
   const ss = String(Math.floor(dur % 60)).padStart(2, '0');
   els.statTime.textContent = mm + ':' + ss;
@@ -1458,19 +2223,15 @@ function setBar(el, val, absVal, maxG) {
 
 function mainLoop(now) {
   tickDemo(now);
-  updateDisplay();
-  const nowP = performance.now();
-  if (state.logging) {
-    if (nowP - lastSample >= 1000 / LOG_HZ) {
-      lastSample = nowP;
-      state.rows.push(snapshot());
-      if (state.rows.length > MAX_ROWS) state.rows.shift();
-    }
-    if (nowP - lastFlush >= FLUSH_MS) {
-      lastFlush = nowP;
-      flushLog();
-    }
+  // Il refresh UI è throttlato: a 60 Hz erano ~20 scritture DOM per frame, con il
+  // telefono al sole sul manubrio è batteria e calore per nulla.
+  if (now - lastDisplayT >= 1000 / DISPLAY_HZ) {
+    lastDisplayT = now;
+    updateDisplay();
   }
+  const nowP = performance.now();
+  // Il campionamento del log vive su setInterval (vedi sampleTick): rAF si ferma
+  // a schermo spento e scala col frame rate.
   if (nowP - lastChartT >= 100) {
     lastChartT = nowP;
     sampleCharts(nowP);
@@ -1487,52 +2248,99 @@ function init() {
 
   els.btnCalib.addEventListener('click', () => {
     if (state._lastUp) {
-      state.calib = state._lastUp;
+      // Si salva la base completa (up + forward + right): così l'inclinazione del
+      // supporto non falsa più né la piega né la scomposizione delle accelerazioni.
+      state.calib = buildBasis(state._lastUp);
       state.leanFused = 0;
+      state._gravLP = null;
       store.set('cruscotto.calib', state.calib);
       updateCalibStatus();
+      toast('Calibrato.', 'ok');
     } else {
-      alert('Nessun dato sensore. Avvia la Demo o muovi il telefono, poi ricalibra.');
+      toast('Nessun dato sensore. Avvia la Demo o muovi il telefono, poi ricalibra.', 'err', 5000);
     }
   });
 
   els.btnLogTop.addEventListener('click', () => state.logging ? stopLog() : startLog());
   els.btnExportCsv.addEventListener('click', () => {
-    const rows = state.rows.length ? state.rows : store.get('cruscotto.log', []);
-    if (!rows.length) { alert('Nessun dato. Avvia un log.'); return; }
+    if (!state.rows.length) { toast('Nessun dato. Avvia un log.', 'err'); return; }
     const meta = { startISO: new Date(state.session.startWall || Date.now()).toISOString(), maxSpeed: state.session.maxSpeed, maxLeanR: state.session.maxLeanR, maxLeanL: state.session.maxLeanL, distKm: state.session.distKm };
-    exportCsv(rows, meta, 'sessione');
+    exportCsv(state.rows, meta, 'sessione');
   });
   els.btnExportGpx.addEventListener('click', () => exportGpx(state.track, 'sessione'));
   els.btnExportCsvHist.addEventListener('click', async () => {
-    // esporta tutte le sessioni storiche in un unico CSV
-    let sessions = [];
-    try { sessions = await idb.getAll(); } catch (e) {}
-    if (!sessions.length) { alert('Nessuna sessione storica.'); return; }
-    const rows = sessions.flatMap(s => s.rows || []);
-    if (!rows.length) { alert('Nessun dato nelle sessioni.'); return; }
-    exportCsv(rows, { startISO: sessions[0].meta.startISO, maxSpeed: 0, maxLeanR: 0, maxLeanL: 0, distKm: 0 }, 'storico_tutti');
+    /* Export storico in streaming: una sessione per volta, parti di stringa passate
+       a Blob. Prima un flatMap caricava tutte le righe di tutte le sessioni in RAM
+       e le concatenava in un'unica stringa gigante. */
+    let ids = [];
+    try { ids = await idb.keys(); } catch (e) {}
+    if (!ids.length) { toast('Nessuna sessione storica.', 'err'); return; }
+    const t = toast('Export in corso…', null, 60000);
+    const parts = [];
+    let total = 0, first = true;
+    for (const id of ids) {
+      let s = null;
+      try { s = await idb.get(id); } catch (e) { continue; }
+      if (!s || !s.rows || !s.rows.length) continue;
+      if (first) { parts.push(csvMeta(s.meta || {}) + '\n' + CSV_HEADER + '\n'); first = false; }
+      parts.push('# --- sessione ' + (s.meta ? s.meta.startISO : id) + ' ---\n');
+      parts.push(csvRows(s.rows) + '\n');
+      total += s.rows.length;
+    }
+    t.remove();
+    if (!total) { toast('Nessun dato nelle sessioni.', 'err'); return; }
+    downloadBlob('cruscotto_storico_tutti_' + stamp() + '.csv', parts, 'text/csv;charset=utf-8');
+    toast('Esportate ' + total + ' righe.', 'ok');
   });
 
   els.btnFullscreen.addEventListener('click', toggleFullscreen);
   els.btnDemo.addEventListener('click', () => {
     state.demo = !state.demo;
     demoStart = null;
+    demoLast = null;
     els.btnDemo.classList.toggle('on', state.demo);
     els.btnDemo.textContent = state.demo ? 'Demo ON' : 'Demo';
     if (!state.demo) {
+      // Ripristina la calibrazione reale: la Demo la sovrascriveva con un vettore
+      // finto e non la rimetteva a posto, falsando la piega fino al reload.
+      state.calib = state._calibBackup !== undefined ? state._calibBackup : state.calib;
+      state._calibBackup = undefined;
       state.leanFused = null;
+      state._gravLP = null;
       state.gpsStatus = 'waiting';
       state.session.lastPos = null;
+      state.cameras = [];
+      rebuildCamGrid();
+      updateCalibStatus();
+      renderCameras();
     } else {
-      state.calib = { x: 1, y: 0, z: 0 };
+      state._calibBackup = state.calib;
+      state.calib = buildBasis({ x: 1, y: 0, z: 0 });
       updateCalibStatus();
     }
   });
 
-  els.mountSel.addEventListener('change', () => { state.mount = els.mountSel.value; saveSettings(); });
+  els.mountSel.addEventListener('change', () => {
+    state.mount = els.mountSel.value;
+    saveSettings();
+    // Cambiare montaggio invalida la base calibrata: meglio dirlo che lasciare
+    // dati falsi con lo stato che continua a dire "calibrato".
+    if (state.calib) {
+      state.calib = null;
+      state.leanFused = null;
+      store.del('cruscotto.calib');
+      updateCalibStatus();
+      toast('Orientamento cambiato: rifai la calibrazione.', 'err', 5000);
+    }
+  });
   els.invertLean.addEventListener('change', () => { state.invertLean = els.invertLean.checked; saveSettings(); });
-  els.wakeLockChk.addEventListener('change', () => { state.wakeLockOn = els.wakeLockChk.checked; saveSettings(); if (state.wakeLockOn) requestWakeLock(); });
+  els.gyroFusion.addEventListener('change', () => { state.gyroFusion = els.gyroFusion.checked; state.leanFused = null; saveSettings(); });
+  els.camAheadChk.addEventListener('change', () => { state.camAhead = els.camAheadChk.checked; saveSettings(); });
+  els.wakeLockChk.addEventListener('change', () => {
+    state.wakeLockOn = els.wakeLockChk.checked;
+    saveSettings();
+    if (state.wakeLockOn) requestWakeLock(); else releaseWakeLock();
+  });
   els.camAlertsChk.addEventListener('change', () => { state.camAlerts = els.camAlertsChk.checked; saveSettings(); });
   els.camDistSel.addEventListener('change', () => { state.camDist = parseInt(els.camDistSel.value, 10); saveSettings(); });
   els.compassOffsetSel.addEventListener('change', () => { state.compassOffset = parseInt(els.compassOffsetSel.value, 10); saveSettings(); });
@@ -1540,25 +2348,46 @@ function init() {
   els.btnMapFull.addEventListener('click', () => {
     const full = document.body.classList.toggle('map-fullscreen');
     els.btnMapFull.textContent = full ? '✕' : '⛶';
-    if (state.mapType === 'leaflet' && state.map) setTimeout(() => state.map.invalidateSize(), 60);
+    if (state.mapType === 'leaflet' && state.map) setTimeout(() => { state.map.invalidateSize(); applyMapRotation(); }, 60);
     else if (state.mapType === 'canvas') drawCanvasMap();
+  });
+
+  els.btnImportCam.addEventListener('click', () => els.camFile.click());
+  els.camFile.addEventListener('change', () => {
+    if (els.camFile.files && els.camFile.files[0]) importCamerasFile(els.camFile.files[0]);
+    els.camFile.value = '';
   });
 
   els.btnCenter.addEventListener('click', centerMap);
   els.btnFollow.addEventListener('click', () => setFollow(!state.follow));
+  els.btnFollow.classList.toggle('on', state.follow); // "segui" è attivo di default
   els.btnTrackUp.addEventListener('click', () => setTrackUp(!state.trackUp));
 
   document.querySelectorAll('nav.tabbar button').forEach(b => b.addEventListener('click', () => switchTab(b.dataset.tab)));
 
-  state.session.start = performance.now();
-  state.session.startWall = Date.now();
+  // La sessione non parte al boot: cronometro e massimi restano fermi fino a Start.
   loadCachedCameras();
-  idb.open().then(() => renderHistory());
+  idb.open().then(async () => {
+    await loadImportedCameras();
+    await renderHistory();
+    await recoverChunks();
+  }).catch(() => toast('Storico non disponibile (IndexedDB non accessibile).', 'err', 5000));
 
+  checkSecureContext();
   initMap();
   setupSensors();
   requestWakeLock();
   requestAnimationFrame(mainLoop);
+
+  // Flush opportunistico prima che il sistema possa scaricare la pagina.
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'hidden' && state.logging) flushLog();
+  });
+  window.addEventListener('pagehide', () => { if (state.logging) flushLog(); });
+
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('sw.js').catch(() => {});
+  }
 }
 
 init();
