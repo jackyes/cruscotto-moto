@@ -37,6 +37,7 @@ Alternative (entrambe HTTPS automatico):
 
 1. Apri la pagina dal telefono, concedi la posizione quando richiesto.
 2. **Impostazioni → Orientamento montaggio**: scegli come è montato il telefono (landscape top a sinistra / destra, o portrait).
+   **Impostazioni → Tema**: scuro, chiaro (ad alto contrasto per il sole diretto) o automatico. Il cruscotto si adatta a entrambi gli orientamenti senza scorrere.
 3. **Calibrazione**: a moto **dritta e ferma su piano**, premi **Calibra** e tienila ferma per 2 secondi. Se la moto si muove la calibrazione viene rifiutata con un messaggio, invece di essere accettata sbagliata. Rifai la calibrazione se cambi supporto o orientamento.
    *Al primo avvio dopo l'aggiornamento del filtro la calibrazione precedente viene invalidata: va rifatta.*
 4. **Start Log** per registrare, **Stop Log** per fermare, **Export CSV** per scaricare.

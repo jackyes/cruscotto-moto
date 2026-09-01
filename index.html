@@ -1,9 +1,9 @@
 <!DOCTYPE html>
-<html lang="it">
+<html lang="it" data-theme="dark">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-<meta name="theme-color" content="#0b0f14">
+<meta name="theme-color" content="#0a0e14" id="metaTheme">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -23,167 +23,230 @@
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%230b0f14'/%3E%3Ctext x='16' y='23' font-size='19' text-anchor='middle' fill='%2329b6f6'%3E%E2%97%89%3C/text%3E%3C/svg%3E">
 <title>Cruscotto Moto</title>
 <style>
+  /* ============ Token ============
+     Tema scuro (default) e tema chiaro ad alto contrasto per il sole diretto.
+     `data-theme` viene risolto in "dark" o "light" dal JS; non si usa "auto" nel CSS. */
   :root {
-    --bg: #0b0f14;
-    --card: #151b23;
-    --card-2: #1b232e;
-    --line: #27303c;
-    --txt: #e7edf3;
-    --dim: #8b98a8;
-    --accent: #29b6f6;
+    --bg: #0a0e14;
+    --surface: #121924;
+    --surface-2: #1a2432;
+    --surface-3: #0d1118;
+    --line: #263243;
+    --line-2: #3a4a5f;
+    --text: #f4f8fc;
+    --text-2: #a8b8c8;
+    --text-3: #6b7c8e;
+    --accent: #38bdf8;
+    --accent-ink: #03232f;
     --good: #34d399;
+    --good-ink: #03251a;
     --warn: #fbbf24;
+    --warn-ink: #2a1a04;
     --bad: #f87171;
+    --bad-ink: #2a0808;
+    --acc-lat: #38bdf8;   /* laterale  */
+    --acc-lon: #fbbf24;   /* longitudinale */
+    --acc-vert: #a78bfa;  /* verticale */
+    --c-bg: #121924;      /* sfondo canvas (grafici / mappa di riserva) */
+    --c-grid: #263243;
+    --c-axis: #8a99aa;
+    --shadow: 0 8px 28px rgba(0,0,0,.45);
+    color-scheme: dark;
   }
+  :root[data-theme="light"] {
+    --bg: #eef2f6;
+    --surface: #ffffff;
+    --surface-2: #e7edf3;
+    --surface-3: #d9e2ea;
+    --line: #c6d2dd;
+    --line-2: #9aabb9;
+    --text: #0b1522;
+    --text-2: #34424f;
+    --text-3: #5b6c7b;
+    --accent: #0069c2;
+    --accent-ink: #ffffff;
+    --good: #00794a;
+    --good-ink: #ffffff;
+    --warn: #8a5700;
+    --warn-ink: #ffffff;
+    --bad: #c1272d;
+    --bad-ink: #ffffff;
+    --acc-lat: #0069c2;
+    --acc-lon: #8a5700;
+    --acc-vert: #5b2fb8;
+    --c-bg: #ffffff;
+    --c-grid: #d5dfe8;
+    --c-axis: #5b6c7b;
+    --shadow: 0 8px 24px rgba(15,23,32,.12);
+    color-scheme: light;
+  }
+
   * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
   html, body { height: 100%; }
   body {
     background: var(--bg);
-    color: var(--txt);
-    font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    color: var(--text);
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
     touch-action: manipulation;
     overflow-x: hidden;
+    -webkit-font-smoothing: antialiased;
   }
   .wrap {
     max-width: 1080px;
     margin: 0 auto;
-    min-height: 100%;
+    height: 100dvh;
     display: flex;
     flex-direction: column;
-    padding: calc(6px + env(safe-area-inset-top)) 12px calc(88px + env(safe-area-inset-bottom));
+    padding: calc(6px + env(safe-area-inset-top)) 12px calc(6px + env(safe-area-inset-bottom));
     gap: 10px;
   }
 
-  /* ===== Top bar ===== */
+  /* Numeri che non ballano: cifre a larghezza fissa ovunque ci sia una misura viva. */
+  .speed-val, .gauge-val, .stat .v, .accel-top .val,
+  #topTime, .dstat .v, .diag-grid b { font-variant-numeric: tabular-nums; }
+
+  /* ============ Top bar ============ */
   header {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    flex-wrap: wrap;
+    display: flex; align-items: center; gap: 12px;
+    flex-shrink: 0; min-height: 44px;
   }
-  header h1 { font-size: 18px; font-weight: 700; letter-spacing: .5px; }
+  header h1 { font-size: 17px; font-weight: 800; letter-spacing: .6px; white-space: nowrap; }
   header h1 .dot { color: var(--accent); }
   .top-spacer { flex: 1; }
-  .status-row { display: flex; align-items: center; gap: 7px; font-size: 12px; color: var(--dim); }
-  .status-dot { width: 9px; height: 9px; border-radius: 50%; background: var(--dim); }
+  .status-row { display: flex; align-items: center; gap: 7px; font-size: 12px; color: var(--text-2); white-space: nowrap; }
+  .status-dot { width: 9px; height: 9px; border-radius: 50%; background: var(--text-3); }
   .status-dot.ok { background: var(--good); box-shadow: 0 0 8px var(--good); }
   .status-dot.err { background: var(--bad); }
   .status-dot.wait { background: var(--warn); }
-  .rec-badge { display: none; color: var(--bad); font-weight: 700; font-size: 13px; }
+  .rec-badge { display: none; color: var(--bad); font-weight: 800; font-size: 13px; white-space: nowrap; }
   .rec-badge.on { display: inline; }
-  #topTime { font-variant-numeric: tabular-nums; color: var(--txt); font-weight: 700; }
+  #topTime { color: var(--text); font-weight: 800; font-size: 15px; }
   #btnLogTop {
-    background: var(--accent); color: #06222f; border: 1px solid var(--accent);
-    border-radius: 10px; padding: 10px 14px; font-size: 14px; font-weight: 700; cursor: pointer;
-    min-height: 44px; touch-action: manipulation;
+    background: var(--accent); color: var(--accent-ink); border: 1px solid var(--accent);
+    border-radius: 12px; padding: 10px 16px; font-size: 14px; font-weight: 800; cursor: pointer;
+    min-height: 44px; touch-action: manipulation; white-space: nowrap;
   }
-  #btnLogTop.rec { background: var(--bad); color: #2a0808; border-color: var(--bad); }
+  #btnLogTop.rec { background: var(--bad); color: var(--bad-ink); border-color: var(--bad); }
 
-  /* ===== Panels ===== */
-  main { flex: 1; }
+  /* ============ Panels ============ */
+  main { flex: 1; min-height: 0; display: flex; flex-direction: column; overflow-y: auto; }
   .panel { display: none; }
   .panel.active { display: block; }
-  .grid { display: grid; grid-template-columns: 1fr; gap: 12px; }
+
+  .grid { display: grid; grid-template-columns: 1fr; gap: 10px; }
   .card {
-    background: var(--card);
+    background: var(--surface);
     border: 1px solid var(--line);
-    border-radius: 16px;
-    padding: 16px;
+    border-radius: 18px;
+    padding: 14px 16px;
+    min-width: 0;
   }
   .card h2 {
-    font-size: 12px; text-transform: uppercase; letter-spacing: 1.2px;
-    color: var(--dim); font-weight: 600; margin-bottom: 8px;
+    font-size: 11px; text-transform: uppercase; letter-spacing: 1.3px;
+    color: var(--text-2); font-weight: 700; margin-bottom: 8px;
   }
 
-  /* Speed */
-  .speed-row { display: flex; align-items: baseline; gap: 10px; }
-  .speed-val { font-size: clamp(64px, 20vw, 140px); font-weight: 800; line-height: 1; }
-  .speed-unit { font-size: 24px; color: var(--dim); font-weight: 600; }
+  /* ============ Dashboard: riempie il viewport, niente scroll ============ */
+  #tab-dashboard.active {
+    display: flex; flex-direction: column; gap: 10px;
+    flex: 1; min-height: 0;
+  }
+  #tab-dashboard .grid {
+    flex: 1; min-height: 0;
+    grid-template-rows: auto auto auto 1fr;
+  }
+  #tab-dashboard .controls { flex-shrink: 0; }
 
-  /* Lean gauge */
-  .lean-wrap { display: flex; flex-direction: column; align-items: center; }
-  .lean-num { font-size: 44px; font-weight: 800; line-height: 1; margin-top: -4px; }
-  .lean-num .deg { font-size: 22px; color: var(--dim); }
-  .lean-dir { font-size: 15px; color: var(--dim); font-weight: 600; letter-spacing: 2px; min-height: 1.2em; }
+  /* Velocità */
+  .speed-row { display: flex; align-items: baseline; gap: 10px; }
+  .speed-val { font-size: clamp(58px, 19vw, 130px); font-weight: 800; line-height: 1; letter-spacing: -1px; }
+  .speed-unit { font-size: 22px; color: var(--text-2); font-weight: 700; }
+
+  /* Piega */
+  .card-lean { display: flex; flex-direction: column; min-height: 0; }
+  .gauge-box { position: relative; flex: 1; min-height: 0; display: flex; align-items: center; justify-content: center; }
+  #gauge { width: 100%; height: auto; max-width: 320px; }
+  #gauge text { font-family: inherit; }
+  #gauge .gauge-arc { stroke: var(--c-grid); }
+  #gauge .gauge-tick { stroke: var(--line-2); }
+  #gauge .gauge-tick.major { stroke: var(--text-2); }
+  #gauge .gauge-label { fill: var(--text-2); }
+  #gauge .gauge-needle { stroke: var(--accent); }
+  #gauge .gauge-hub { fill: var(--accent); }
+  #gauge .gauge-val { fill: var(--text); }
+  #gauge .gauge-deg { fill: var(--text-2); }
+  #gauge .gauge-peak { fill: var(--accent); }
+  .lean-dir { font-size: 15px; color: var(--text-2); font-weight: 800; letter-spacing: 3px; min-height: 1.2em; text-align: center; }
   .lean-dir.right { color: var(--accent); }
   .lean-dir.left { color: var(--good); }
-  .lean-max { display: flex; justify-content: space-between; width: 100%; font-size: 14px; color: var(--dim); margin-top: 6px; }
-  .lean-max b { font-size: 18px; }
+  .lean-max { display: flex; justify-content: space-between; width: 100%; font-size: 13px; color: var(--text-2); margin-top: 4px; }
+  .lean-max b { font-size: 18px; color: var(--text); }
   .lean-max .mx-r { color: var(--accent); }
   .lean-max .mx-l { color: var(--good); }
-  .lean-conf { display: flex; align-items: center; gap: 8px; width: 100%; margin-top: 8px; font-size: 11px; color: var(--dim); }
-  .lean-conf .cbar { flex: 1; height: 5px; border-radius: 3px; background: var(--card-2); overflow: hidden; }
-  .lean-conf .cbar i { display: block; height: 100%; width: 100%; background: var(--good); transition: width .2s linear, background .2s linear; }
+  .lean-conf { display: flex; align-items: center; gap: 8px; width: 100%; margin-top: 6px; font-size: 11px; color: var(--text-2); }
+  .lean-conf .cbar { flex: 1; height: 5px; border-radius: 3px; background: var(--surface-3); overflow: hidden; }
+  .lean-conf .cbar i { display: block; height: 100%; width: 100%; background: var(--good); }
   .lean-conf.warn .cbar i { background: var(--warn); }
   .lean-conf.bad .cbar i { background: var(--bad); }
-  .lean-conf.warn, .lean-conf.bad { color: var(--txt); }
+  .lean-conf.warn, .lean-conf.bad { color: var(--text); }
 
-  /* Diagnostica vibrazioni */
-  .diag-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; margin: 10px 0; }
-  .diag-grid div { background: var(--card-2); border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; }
-  .diag-grid .k { display: block; font-size: 10px; color: var(--dim); text-transform: uppercase; letter-spacing: .6px; }
-  .diag-grid b { font-size: 16px; font-variant-numeric: tabular-nums; }
-  .bench-out { margin-top: 10px; font-size: 13px; line-height: 1.5; }
-  .bench-out .verdict { font-weight: 700; font-size: 14px; display: block; margin-bottom: 4px; }
-  .bench-out .verdict.ok { color: var(--good); }
-  .bench-out .verdict.warn { color: var(--warn); }
-  .bench-out .verdict.bad { color: var(--bad); }
+  /* Accelerazioni: una barra per canale, colore dedicato e direzione per posizione */
+  .accel-row { display: flex; flex-direction: column; gap: 8px; }
+  .accel-top { display: flex; justify-content: space-between; font-size: 13px; margin-bottom: 3px; }
+  .accel-top .lbl { color: var(--text-2); font-weight: 700; }
+  .accel-top .val { font-weight: 800; }
+  .bar { position: relative; height: 10px; background: var(--surface-3); border-radius: 6px; overflow: hidden; }
+  .bar .mid { position: absolute; left: 50%; top: 0; bottom: 0; width: 2px; background: var(--line-2); }
+  .bar .fill { position: absolute; top: 0; bottom: 0; left: 50%; width: 0; border-radius: 6px; }
+  .accel-lat .fill { background: var(--acc-lat); }
+  .accel-lon .fill { background: var(--acc-lon); }
+  .accel-vert .fill { background: var(--acc-vert); }
+  .bar .fill.neg { filter: brightness(.75) saturate(.6); }
 
-  /* Accel */
-  .accel-row { display: flex; flex-direction: column; gap: 10px; }
-  .accel-top { display: flex; justify-content: space-between; font-size: 14px; margin-bottom: 4px; }
-  .accel-top .lbl { color: var(--dim); font-weight: 600; }
-  .accel-top .val { font-weight: 700; font-variant-numeric: tabular-nums; }
-  .bar { position: relative; height: 12px; background: var(--card-2); border-radius: 6px; overflow: hidden; }
-  .bar .mid { position: absolute; left: 50%; top: 0; bottom: 0; width: 2px; background: var(--line); }
-  .bar .fill { position: absolute; top: 0; bottom: 0; left: 50%; width: 0; background: var(--accent); border-radius: 6px; transition: width .08s linear; }
-  .bar .fill.neg { background: var(--warn); }
-
-  /* Stats */
+  /* Statistiche sessione */
   .stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
   .stat { text-align: center; }
-  .stat .v { font-size: 26px; font-weight: 800; font-variant-numeric: tabular-nums; }
-  .stat .k { font-size: 11px; color: var(--dim); text-transform: uppercase; letter-spacing: .8px; }
+  .stat .v { font-size: 24px; font-weight: 800; }
+  .stat .k { font-size: 10px; color: var(--text-2); text-transform: uppercase; letter-spacing: .8px; }
 
-  /* Controls */
+  /* Pulsanti */
   .controls { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
   button {
-    background: var(--card-2); color: var(--txt);
-    border: 1px solid var(--line); border-radius: 12px;
-    padding: 14px 10px; font-size: 15px; font-weight: 600;
-    cursor: pointer; min-height: 48px; touch-action: manipulation;
+    background: var(--surface-2); color: var(--text);
+    border: 1px solid var(--line); border-radius: 13px;
+    padding: 12px 10px; font-size: 14px; font-weight: 700;
+    cursor: pointer; min-height: 46px; touch-action: manipulation;
+    font-family: inherit;
   }
-  button:active { background: #243040; }
-  button.primary { background: var(--accent); color: #06222f; border-color: var(--accent); }
-  button.on { background: var(--good); color: #062b1d; border-color: var(--good); }
+  button:active { background: var(--line); }
+  button.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+  button.on { background: var(--good); color: var(--good-ink); border-color: var(--good); }
+  button.danger { background: transparent; color: var(--bad); border-color: var(--bad); }
+  button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
-  /* ===== Map ===== */
-  .map-box { position: relative; height: 62vh; border-radius: 16px; overflow: hidden; border: 1px solid var(--line); background: var(--card); }
+  /* ============ Mappa ============ */
+  .map-box { position: relative; height: 62dvh; border-radius: 18px; overflow: hidden; border: 1px solid var(--line); background: var(--surface); }
   #map { height: 100%; width: 100%; }
   #mapCanvas { display: none; width: 100%; height: 100%; }
-
-  /* Track-up: ruota il container mappa (nessun plugin leaflet-rotate richiesto).
-     Il riquadro è sovradimensionato di sqrt(2) così gli angoli restano coperti a ogni angolo. */
   .map-box.rot #map {
     width: 142%; height: 142%;
     margin-left: -21%; margin-top: -21%;
     transform-origin: 50% 50%;
     will-change: transform;
   }
-  /* Contro-rotazione dei controlli, così restano leggibili con la mappa ruotata */
   .map-box.rot .map-ctrl, .map-box.rot .map-full-btn { transform: none; }
 
-  /* Toast non bloccanti (sostituiscono alert/confirm durante la guida) */
+  /* Toast */
   .toast-wrap {
-    position: fixed; left: 50%; bottom: calc(96px + env(safe-area-inset-bottom));
+    position: fixed; left: 50%; bottom: calc(84px + env(safe-area-inset-bottom));
     transform: translateX(-50%); z-index: 300;
     display: flex; flex-direction: column; gap: 8px; align-items: center;
     width: max-content; max-width: 92vw; pointer-events: none;
   }
   .toast {
-    background: var(--card-2); color: var(--txt); border: 1px solid var(--line);
-    border-radius: 12px; padding: 12px 16px; font-size: 14px; font-weight: 600;
-    box-shadow: 0 6px 24px rgba(0,0,0,.5); pointer-events: auto; text-align: center;
+    background: var(--surface-2); color: var(--text); border: 1px solid var(--line);
+    border-radius: 13px; padding: 12px 16px; font-size: 14px; font-weight: 700;
+    box-shadow: var(--shadow); pointer-events: auto; text-align: center;
   }
   .toast.err { border-color: var(--bad); color: var(--bad); }
   .toast.ok  { border-color: var(--good); color: var(--good); }
@@ -191,35 +254,35 @@
   .toast .tbtns button { padding: 8px 14px; min-height: 40px; font-size: 13px; }
 
   .warnbar {
-    background: var(--bad); color: #fff; font-size: 13px; font-weight: 600;
-    border-radius: 10px; padding: 10px 12px; line-height: 1.4;
+    background: var(--bad); color: var(--bad-ink); font-size: 13px; font-weight: 700;
+    border-radius: 11px; padding: 10px 12px; line-height: 1.4;
   }
 
-  /* ===== Charts ===== */
+  /* ============ Grafici ============ */
   .chart-item { margin-bottom: 14px; }
-  .chart-item .clbl { display: flex; justify-content: space-between; font-size: 12px; color: var(--dim); margin-bottom: 4px; font-weight: 600; }
-  .chart-item canvas { width: 100%; height: 120px; border-radius: 8px; display: block; }
+  .chart-item .clbl { display: flex; justify-content: space-between; font-size: 12px; color: var(--text-2); margin-bottom: 4px; font-weight: 700; }
+  .chart-item canvas { width: 100%; height: 130px; border-radius: 10px; display: block; }
 
-  /* ===== History ===== */
+  /* ============ Storico ============ */
   .hist-list { display: flex; flex-direction: column; gap: 10px; }
   .sess-card {
-    background: var(--card); border: 1px solid var(--line); border-radius: 14px;
+    background: var(--surface); border: 1px solid var(--line); border-radius: 15px;
     padding: 14px; cursor: pointer;
   }
-  .sess-card:active { background: var(--card-2); }
-  .sess-card .sdate { font-size: 14px; font-weight: 700; margin-bottom: 4px; }
-  .sess-card .srow { display: flex; gap: 14px; font-size: 13px; color: var(--dim); flex-wrap: wrap; }
-  .sess-card .srow b { color: var(--txt); }
+  .sess-card:active { background: var(--surface-2); }
+  .sess-card .sdate { font-size: 14px; font-weight: 800; margin-bottom: 4px; }
+  .sess-card .srow { display: flex; gap: 14px; font-size: 13px; color: var(--text-2); flex-wrap: wrap; }
+  .sess-card .srow b { color: var(--text); }
   .sess-detail { margin-top: 12px; }
   .sess-detail .dstats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 10px; }
-  .sess-detail .dstat { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 10px; text-align: center; }
+  .sess-detail .dstat { background: var(--surface); border: 1px solid var(--line); border-radius: 11px; padding: 10px; text-align: center; }
   .sess-detail .dstat .v { font-size: 20px; font-weight: 800; }
-  .sess-detail .dstat .k { font-size: 10px; color: var(--dim); text-transform: uppercase; letter-spacing: .6px; }
-  .sess-detail canvas { width: 100%; height: 200px; border-radius: 12px; background: var(--card); }
+  .sess-detail .dstat .k { font-size: 10px; color: var(--text-2); text-transform: uppercase; letter-spacing: .6px; }
+  .sess-detail canvas { width: 100%; height: 200px; border-radius: 12px; background: var(--surface); }
   .dbtns { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-top: 10px; }
-  .empty { color: var(--dim); font-size: 14px; text-align: center; padding: 24px 0; }
+  .empty { color: var(--text-2); font-size: 14px; text-align: center; padding: 24px 0; }
 
-  /* ===== Tab bar ===== */
+  /* ============ Tab bar ============ */
   nav.tabbar {
     display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px;
     position: fixed; bottom: 0; left: 0; right: 0;
@@ -230,35 +293,37 @@
     border-top: 1px solid var(--line);
   }
   nav.tabbar button {
-    min-height: 52px; padding: 8px 4px; font-size: 12px; border-radius: 12px;
+    min-height: 52px; padding: 7px 4px; font-size: 11px; border-radius: 13px;
     display: flex; flex-direction: column; align-items: center; gap: 3px;
-    background: var(--card); color: var(--dim);
+    background: transparent; color: var(--text-2); border: 1px solid transparent;
   }
-  nav.tabbar button .ico { font-size: 20px; line-height: 1; }
-  nav.tabbar button.active { background: var(--card-2); color: var(--accent); border-color: var(--accent); }
+  nav.tabbar button .ico { width: 22px; height: 22px; }
+  nav.tabbar button.active { background: var(--surface-2); color: var(--accent); border-color: var(--line); }
+  nav.tabbar button.active .ico { color: var(--accent); }
 
   .cam-alert {
     position: fixed; top: 10px; left: 50%; transform: translateX(-50%);
-    z-index: 200; background: var(--bad); color: #fff; font-weight: 800;
-    padding: 12px 20px; border-radius: 12px; font-size: 18px; text-align: center;
-    max-width: 92%; box-shadow: 0 6px 24px rgba(0,0,0,.5);
+    z-index: 200; background: var(--bad); color: var(--bad-ink); font-weight: 800;
+    padding: 12px 20px; border-radius: 13px; font-size: 18px; text-align: center;
+    max-width: 92%; box-shadow: var(--shadow);
   }
   .map-full-btn {
     position: absolute; top: 10px; right: 10px; z-index: 900;
-    min-height: 40px; padding: 6px 12px; font-size: 18px; border-radius: 10px;
-    background: rgba(21,27,35,.92); color: var(--txt); border: 1px solid var(--line);
+    min-height: 44px; padding: 6px 14px; font-size: 18px; border-radius: 11px;
+    background: var(--surface); color: var(--text); border: 1px solid var(--line);
   }
   .map-ctrl {
-  position: absolute; top: 10px; left: 10px; z-index: 900;
-  display: flex; flex-direction: column; gap: 6px;
-}
-.map-ctrl button {
-  min-height: 40px; min-width: 40px; padding: 6px 8px; font-size: 18px;
-  border-radius: 10px; background: rgba(21,27,35,.92); color: var(--txt);
-  border: 1px solid var(--line); cursor: pointer; touch-action: manipulation;
-  display: flex; align-items: center; justify-content: center;
-}
-.map-ctrl button.on { color: var(--accent); border-color: var(--accent); }
+    position: absolute; top: 10px; left: 10px; z-index: 900;
+    display: flex; flex-direction: column; gap: 6px;
+  }
+  .map-ctrl button {
+    min-height: 44px; min-width: 44px; padding: 6px 8px; font-size: 18px;
+    border-radius: 11px; background: var(--surface); color: var(--text);
+    border: 1px solid var(--line); cursor: pointer; touch-action: manipulation;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .map-ctrl button.on { color: var(--accent); border-color: var(--accent); }
+
   body.map-fullscreen header,
   body.map-fullscreen nav.tabbar,
   body.map-fullscreen #permBtn { display: none !important; }
@@ -269,20 +334,70 @@
   }
   body.map-fullscreen .wrap { padding: 0; max-width: none; }
 
-  /* Settings */
-  details { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 10px 14px; margin-top: 12px; }
-  summary { cursor: pointer; font-size: 14px; color: var(--dim); font-weight: 600; }
+  /* ============ Impostazioni ============ */
+  details { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 10px 14px; margin-top: 12px; }
+  summary { cursor: pointer; font-size: 14px; color: var(--text); font-weight: 700; }
   details[open] summary { margin-bottom: 10px; }
-  .set-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 8px 0; border-top: 1px solid var(--line); font-size: 14px; }
+  .set-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 9px 0; border-top: 1px solid var(--line); font-size: 14px; }
   .set-row:first-of-type { border-top: 0; }
-  select { background: var(--card-2); color: var(--txt); border: 1px solid var(--line); border-radius: 8px; padding: 8px; font-size: 14px; }
-  input[type=checkbox] { width: 20px; height: 20px; accent-color: var(--accent); }
-  .hint { font-size: 12px; color: var(--dim); line-height: 1.4; }
+  .set-row > span:first-child { color: var(--text); }
+  select { background: var(--surface-2); color: var(--text); border: 1px solid var(--line); border-radius: 9px; padding: 8px; font-size: 14px; font-family: inherit; }
+  input[type=checkbox] { width: 22px; height: 22px; accent-color: var(--accent); }
+  .hint { font-size: 12px; color: var(--text-2); line-height: 1.4; }
 
-  @media (min-width: 720px) {
-    .grid { grid-template-columns: 1fr 1fr; }
+  /* ============ Diagnostica ============ */
+  .diag-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; margin: 10px 0; }
+  .diag-grid div { background: var(--surface-2); border: 1px solid var(--line); border-radius: 11px; padding: 8px 10px; }
+  .diag-grid .k { display: block; font-size: 10px; color: var(--text-2); text-transform: uppercase; letter-spacing: .6px; }
+  .diag-grid b { font-size: 16px; }
+  .bench-out { margin-top: 10px; font-size: 13px; line-height: 1.5; }
+  .bench-out .verdict { font-weight: 800; font-size: 14px; display: block; margin-bottom: 4px; }
+  .bench-out .verdict.ok { color: var(--good); }
+  .bench-out .verdict.warn { color: var(--warn); }
+  .bench-out .verdict.bad { color: var(--bad); }
+
+  /* ============ Landscape telefono (montaggio sul manubrio) ============ */
+  @media (orientation: landscape) and (max-height: 540px) {
+    .wrap { gap: 6px; }
+    .card { padding: 10px 12px; }
+    .card h2 { margin-bottom: 5px; }
+    #tab-dashboard .grid {
+      grid-template-columns: 1fr 1.25fr;
+      grid-template-rows: auto auto 1fr;
+      grid-template-areas:
+        "speed lean"
+        "accel lean"
+        "session lean";
+    }
+    .card-speed  { grid-area: speed; }
+    .card-lean   { grid-area: lean; }
+    .card-accel  { grid-area: accel; }
+    .card-session{ grid-area: session; }
+
+    .speed-val { font-size: clamp(40px, 13vh, 78px); }
+    .gauge-box { min-height: 110px; }
+    #gauge { width: auto; height: 100%; max-width: 100%; }
+    .accel-row { gap: 4px; }
+    .bar { height: 7px; }
+    .stats .v { font-size: 17px; }
+    .lean-max { margin-top: 2px; font-size: 12px; }
+    .lean-dir { font-size: 13px; }
+    header h1 { font-size: 13px; }
+    #topTime { font-size: 14px; }
   }
-</style>
+
+  /* ============ Desktop (finestra ampia) ============ */
+  @media (min-width: 720px) and (min-height: 540px) {
+    #tab-dashboard .grid { grid-template-columns: 1fr 1fr; grid-template-rows: auto auto; }
+    .speed-val { font-size: 96px; }
+    .map-box { height: 60dvh; }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    * { transition: none !important; animation: none !important; }
+  }
+
+  </style>
 </head>
 <body>
 <div class="wrap">
@@ -302,27 +417,27 @@
   <div id="toasts" class="toast-wrap"></div>
   <div id="secWarn" class="warnbar" style="display:none;"></div>
 
-  <button id="permBtn" style="display:none; width:100%; background:var(--warn); color:#2a1a04; border-color:var(--warn);">
+  <button id="permBtn" style="display:none; width:100%; background:var(--warn); color:var(--warn-ink); border-color:var(--warn);">
     Consenti sensori (motion/orientation)
   </button>
 
   <main>
     <!-- ===== Dashboard ===== -->
-    <section id="tab-dashboard" class="panel active">
+    <section id="tab-dashboard" role="tabpanel" aria-label="Dashboard" class="panel active">
       <div class="grid">
-        <div class="card">
+        <div class="card card-speed">
           <h2>Velocità</h2>
           <div class="speed-row">
             <span class="speed-val" id="speedVal">0</span>
             <span class="speed-unit">km/h</span>
           </div>
         </div>
-        <div class="card">
+        <div class="card card-lean">
           <h2>Angolo di piega</h2>
-          <div class="lean-wrap">
-            <svg id="gauge" viewBox="0 0 260 150" width="100%" style="max-width:320px;"></svg>
-            <div class="lean-num"><span id="leanVal">--</span><span class="deg">°</span></div>
-            <div class="lean-dir" id="leanDir">&nbsp;</div>
+          <div class="gauge-box">
+            <svg id="gauge" viewBox="0 0 260 150"></svg>
+          </div>
+          <div class="lean-dir" id="leanDir">&nbsp;</div>
             <div class="lean-max">
               <span>Max S <b class="mx-l" id="maxLeanL">0°</b></span>
               <span>Max D <b class="mx-r" id="maxLeanR">0°</b></span>
@@ -331,26 +446,25 @@
               <span class="cbar"><i id="leanConfFill"></i></span>
               <span id="leanConfTxt">affidabilità —</span>
             </div>
-          </div>
         </div>
-        <div class="card">
+        <div class="card card-accel">
           <h2>Accelerazioni (G)</h2>
           <div class="accel-row">
-            <div class="accel-item">
+            <div class="accel-item accel-lat">
               <div class="accel-top"><span class="lbl">Laterale</span><span class="val" id="latVal">0.00</span></div>
               <div class="bar"><div class="mid"></div><div class="fill" id="latBar"></div></div>
             </div>
-            <div class="accel-item">
+            <div class="accel-item accel-lon">
               <div class="accel-top"><span class="lbl">Longitudinale</span><span class="val" id="lonVal">0.00</span></div>
               <div class="bar"><div class="mid"></div><div class="fill" id="lonBar"></div></div>
             </div>
-            <div class="accel-item">
+            <div class="accel-item accel-vert">
               <div class="accel-top"><span class="lbl">Verticale</span><span class="val" id="vertVal">0.00</span></div>
               <div class="bar"><div class="mid"></div><div class="fill" id="vertBar"></div></div>
             </div>
           </div>
         </div>
-        <div class="card">
+        <div class="card card-session">
           <h2>Sessione</h2>
           <div class="stats">
             <div class="stat"><div class="v" id="statMaxSpeed">0</div><div class="k">km/h max</div></div>
@@ -367,7 +481,7 @@
     </section>
 
     <!-- ===== Mappa ===== -->
-    <section id="tab-map" class="panel">
+    <section id="tab-map" role="tabpanel" aria-label="Mappa" class="panel">
       <div class="card">
         <h2>Percorso</h2>
         <div class="map-box">
@@ -390,7 +504,7 @@
     </section>
 
     <!-- ===== Grafici ===== -->
-    <section id="tab-charts" class="panel">
+    <section id="tab-charts" role="tabpanel" aria-label="Grafici" class="panel">
       <div class="card">
         <h2>Andamento (ultimi 60s)</h2>
         <div class="chart-item">
@@ -409,7 +523,7 @@
     </section>
 
     <!-- ===== Storico ===== -->
-    <section id="tab-history" class="panel">
+    <section id="tab-history" role="tabpanel" aria-label="Storico" class="panel">
       <div class="card">
         <h2>Giri registrati</h2>
         <div class="controls" style="margin-bottom:12px;">
@@ -474,6 +588,14 @@
           </select>
         </div>
         <div class="set-row">
+          <span>Tema</span>
+          <select id="themeSel">
+            <option value="dark">Scuro</option>
+            <option value="light">Chiaro (sole)</option>
+            <option value="auto">Automatico</option>
+          </select>
+        </div>
+        <div class="set-row">
           <span>Stato calibrazione</span>
           <span id="calibStatus" class="hint">non calibrato</span>
         </div>
@@ -518,11 +640,23 @@
     </section>
   </main>
 
-  <nav class="tabbar">
-    <button class="active" data-tab="dashboard"><span class="ico">📊</span>Dashboard</button>
-    <button data-tab="map"><span class="ico">🗺️</span>Mappa</button>
-    <button data-tab="charts"><span class="ico">📈</span>Grafici</button>
-    <button data-tab="history"><span class="ico">🗂️</span>Storico</button>
+  <nav class="tabbar" role="tablist" aria-label="Sezioni">
+    <button role="tab" aria-selected="true" class="active" data-tab="dashboard">
+      <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="13" r="9"/><path d="M12 13l4.5-4.5"/></svg>
+      <span>Dashboard</span>
+    </button>
+    <button role="tab" aria-selected="false" data-tab="map">
+      <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 4l6 2 6-2v16l-6 2-6-2-6 2V4z"/><path d="M9 4v16M15 6v16"/></svg>
+      <span>Mappa</span>
+    </button>
+    <button role="tab" aria-selected="false" data-tab="charts">
+      <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="M7 15l3.5-4 3 2.5L20 7"/></svg>
+      <span>Grafici</span>
+    </button>
+    <button role="tab" aria-selected="false" data-tab="history">
+      <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16v13H4z"/><path d="M3 4h18v3H3z"/><path d="M9 11h6"/></svg>
+      <span>Storico</span>
+    </button>
   </nav>
 </div>
 
@@ -603,6 +737,7 @@ const DISPLAY_HZ = 15;            // refresh UI (rAF throttlato: batteria/calore
 const HEADING_MIN_MS = 3;         // sotto questa velocità l'heading GPS è rumore
 
 const state = {
+  theme: 'dark',
   mount: 'landscape-left',
   invertLean: false,
   wakeLockOn: true,
@@ -839,6 +974,7 @@ const els = {
   dgSrc: $('dgSrc'), dgRef: $('dgRef'), dgPitch: $('dgPitch'), dgLeanKin: $('dgLeanKin'),
   dgSpeed: $('dgSpeed'), dgSign: $('dgSign'), dgVibHi: $('dgVibHi'),
   btnBench: $('btnBench'), benchOut: $('benchOut'),
+  themeSel: $('themeSel'), metaTheme: $('metaTheme'),
 };
 
 /* ============================== Toast (non bloccanti) ============================== */
@@ -874,59 +1010,113 @@ function confirmToast(msg) {
   });
 }
 
-/* ============================== Gauge SVG ============================== */
+/* ============================== Gauge SVG ==============================
+   Colori via classi CSS (non piu' esadecimali nel JS): cosi' il tema chiaro/scuro
+   li cambia da solo. Il numero della piega sta DENTRO il quadrante, come elemento
+   SVG, e restano due marker sull'arco per il picco di piega destra/sinistra. */
 function buildGauge() {
   const cx = 130, cy = 130, r = 96;
   const svg = els.gauge;
   svg.innerHTML = '';
+  svg.setAttribute('role', 'img');
+  svg.setAttribute('aria-label', "Angolo di piega");
   const NS = 'http://www.w3.org/2000/svg';
+  const mk = (tag) => document.createElementNS(NS, tag);
   const pt = (ang) => { const a = ang * Math.PI / 180; return { x: cx + r * Math.cos(a), y: cy - r * Math.sin(a) }; };
-  const p0 = pt(150), p2 = pt(30);
-  const path = document.createElementNS(NS, 'path');
-  path.setAttribute('d', `M ${p0.x} ${p0.y} A ${r} ${r} 0 0 1 ${p2.x} ${p2.y}`);
+
+  const path = mk('path');
+  path.setAttribute('d', `M ${pt(150).x} ${pt(150).y} A ${r} ${r} 0 0 1 ${pt(30).x} ${pt(30).y}`);
   path.setAttribute('fill', 'none');
-  path.setAttribute('stroke', '#27303c');
-  path.setAttribute('stroke-width', '14');
+  path.setAttribute('class', 'gauge-arc');
+  path.setAttribute('stroke-width', '16');
   path.setAttribute('stroke-linecap', 'round');
   svg.appendChild(path);
+
   for (let a = -60; a <= 60; a += 10) {
     const ang = 90 - a;
     const major = a % 30 === 0;
-    const r1 = major ? r - 22 : r - 16, r2 = r - 6;
-    const line = document.createElementNS(NS, 'line');
+    const r1 = major ? r - 24 : r - 17, r2 = r - 8;
+    const line = mk('line');
     line.setAttribute('x1', cx + r1 * Math.cos(ang * Math.PI / 180));
     line.setAttribute('y1', cy - r1 * Math.sin(ang * Math.PI / 180));
     line.setAttribute('x2', cx + r2 * Math.cos(ang * Math.PI / 180));
     line.setAttribute('y2', cy - r2 * Math.sin(ang * Math.PI / 180));
-    line.setAttribute('stroke', major ? '#8b98a8' : '#3a4552');
-    line.setAttribute('stroke-width', major ? 2 : 1);
+    line.setAttribute('class', major ? 'gauge-tick major' : 'gauge-tick');
+    line.setAttribute('stroke-width', major ? 2.5 : 1.2);
     svg.appendChild(line);
     if (major) {
-      const txt = document.createElementNS(NS, 'text');
-      txt.setAttribute('x', cx + (r - 34) * Math.cos(ang * Math.PI / 180));
-      txt.setAttribute('y', cy - (r - 34) * Math.sin(ang * Math.PI / 180) + 4);
+      const txt = mk('text');
+      txt.setAttribute('x', cx + (r - 38) * Math.cos(ang * Math.PI / 180));
+      txt.setAttribute('y', cy - (r - 38) * Math.sin(ang * Math.PI / 180) + 4);
       txt.setAttribute('text-anchor', 'middle');
-      txt.setAttribute('font-size', '11');
-      txt.setAttribute('fill', '#8b98a8');
+      txt.setAttribute('font-size', '12');
+      txt.setAttribute('font-weight', '600');
+      txt.setAttribute('class', 'gauge-label');
       txt.textContent = Math.abs(a);
       svg.appendChild(txt);
     }
   }
-  const needle = document.createElementNS(NS, 'g');
-  const nline = document.createElementNS(NS, 'line');
+
+  /* Il numero della piega, al centro del quadrante, con il simbolo del grado. */
+  const num = mk('text');
+  num.setAttribute('x', cx); num.setAttribute('y', 88);
+  num.setAttribute('text-anchor', 'middle');
+  num.setAttribute('class', 'gauge-val');
+  num.setAttribute('font-size', '40');
+  num.setAttribute('font-weight', '800');
+  const tspan = mk('tspan');
+  tspan.setAttribute('id', 'leanVal');
+  tspan.textContent = '--';
+  num.appendChild(tspan);
+  const deg = mk('tspan');
+  deg.setAttribute('class', 'gauge-deg');
+  deg.setAttribute('font-size', '22');
+  deg.textContent = '°';
+  num.appendChild(deg);
+  svg.appendChild(num);
+
+  /* Marker di picco: un punto sull'arco per il massimo destro e sinistro. */
+  const peakR = mk('circle');
+  peakR.setAttribute('r', 4); peakR.setAttribute('class', 'gauge-peak');
+  peakR.style.display = 'none';
+  svg.appendChild(peakR);
+  const peakL = mk('circle');
+  peakL.setAttribute('r', 4); peakL.setAttribute('class', 'gauge-peak');
+  peakL.style.display = 'none';
+  svg.appendChild(peakL);
+
+  const needle = mk('g');
+  const nline = mk('line');
   nline.setAttribute('x1', cx); nline.setAttribute('y1', cy);
-  nline.setAttribute('x2', cx); nline.setAttribute('y2', cy - (r - 26));
-  nline.setAttribute('stroke', '#29b6f6');
+  nline.setAttribute('x2', cx); nline.setAttribute('y2', cy - (r - 30));
+  nline.setAttribute('class', 'gauge-needle');
   nline.setAttribute('stroke-width', '5');
   nline.setAttribute('stroke-linecap', 'round');
   needle.appendChild(nline);
-  const hub = document.createElementNS(NS, 'circle');
-  hub.setAttribute('cx', cx); hub.setAttribute('cy', cy); hub.setAttribute('r', 7);
-  hub.setAttribute('fill', '#29b6f6');
+  const hub = mk('circle');
+  hub.setAttribute('cx', cx); hub.setAttribute('cy', cy); hub.setAttribute('r', 8);
+  hub.setAttribute('class', 'gauge-hub');
   needle.appendChild(hub);
   svg.appendChild(needle);
+
   state._needle = needle;
+  state._peakR = peakR; state._peakL = peakL;
   state._cx = cx; state._cy = cy;
+  els.leanVal = document.getElementById('leanVal');
+}
+
+/* Posiziona i marker di picco sull'arco. angolo 0 = dritto, positivo = destra. */
+function setPeaks(maxR, maxL) {
+  if (!state._peakR) return;
+  const place = (el, deg) => {
+    if (!(deg > 1)) { el.style.display = 'none'; return; }
+    const ang = (90 - Math.max(-60, Math.min(60, deg))) * Math.PI / 180;
+    el.setAttribute('cx', 130 + 96 * Math.cos(ang));
+    el.setAttribute('cy', 130 - 96 * Math.sin(ang));
+    el.style.display = '';
+  };
+  place(state._peakR, maxR);
+  place(state._peakL, -maxL);
 }
 
 function setNeedle(lean) {
@@ -952,6 +1142,8 @@ function loadSettings() {
   state.compassOffset = s.compassOffset || 0;
   state.gyroFusion = s.gyroFusion !== false;
   state.camAhead = s.camAhead !== false;
+  state.theme = s.theme || 'dark';
+  els.themeSel.value = state.theme;
   els.mountSel.value = state.mount;
   els.invertLean.checked = state.invertLean;
   els.wakeLockChk.checked = state.wakeLockOn;
@@ -974,12 +1166,26 @@ function saveSettings() {
   store.set('cruscotto.settings', {
     mount: state.mount, invertLean: state.invertLean, wakeLockOn: state.wakeLockOn,
     camAlerts: state.camAlerts, camDist: state.camDist, compassOffset: state.compassOffset,
-    gyroFusion: state.gyroFusion, camAhead: state.camAhead
+    gyroFusion: state.gyroFusion, camAhead: state.camAhead, theme: state.theme
   });
 }
 function updateCalibStatus() {
   els.calibStatus.textContent = state.calib ? 'calibrato' : 'non calibrato';
-  els.calibStatus.style.color = state.calib ? 'var(--good)' : 'var(--dim)';
+  els.calibStatus.style.color = state.calib ? 'var(--good)' : 'var(--text-2)';
+}
+
+/* Tema: dark/light/auto. "auto" viene risolto qui in dark o light, così il CSS non
+   duplica i token in una media query. Il cambio invalida anche i colori dei canvas. */
+function applyTheme() {
+  let resolved = state.theme || 'dark';
+  if (resolved === 'auto') {
+    resolved = (window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches) ? 'light' : 'dark';
+  }
+  document.documentElement.dataset.theme = resolved;
+  canvasTheme.reset();
+  if (els.metaTheme) els.metaTheme.content = resolved === 'light' ? '#eef2f6' : '#0a0e14';
+  if (state.currentTab === 'charts') drawCharts();
+  if (state.currentTab === 'map' && state.mapType === 'canvas') drawCanvasMap();
 }
 
 /* ============================== Sensori ============================== */
@@ -2942,7 +3148,8 @@ function showSessionDetail(s) {
       '<button id="dGpx">Export GPX</button>' +
       '<button id="dDel" style="color:var(--bad); border-color:var(--bad);">Elimina</button>' +
     '</div>';
-  requestAnimationFrame(() => drawTrackOnCanvas($('replayCanvas'), s.track || [], { startEnd: true }));
+  state._replayTrack = s.track || [];
+  requestAnimationFrame(() => drawTrackOnCanvas($('replayCanvas'), state._replayTrack, { startEnd: true }));
   $('dCsv').addEventListener('click', () => exportCsv(s.rows, s.meta, 'storico'));
   $('dGpx').addEventListener('click', () => exportGpx(s.track, 'storico'));
   $('dDel').addEventListener('click', async () => {
@@ -3052,12 +3259,12 @@ function drawTrackOnCanvas(canvas, track, opts) {
   const h = canvas.clientHeight || 200;
   canvas.width = w * dpr; canvas.height = h * dpr;
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-  ctx.fillStyle = '#0b0f14';
+  ctx.fillStyle = canvasTheme.get('c-bg');
   ctx.fillRect(0, 0, w, h);
   const cams = (opts && opts.cameras) || [];
   const hasTrack = !!(track && track.length);
   if (!hasTrack && !cams.length) {
-    ctx.fillStyle = '#8b98a8'; ctx.font = '13px system-ui'; ctx.textAlign = 'center';
+    ctx.fillStyle = canvasTheme.get('c-axis'); ctx.font = '13px system-ui'; ctx.textAlign = 'center';
     ctx.fillText('Nessun fix GPS', w / 2, h / 2);
     return;
   }
@@ -3089,7 +3296,7 @@ function drawTrackOnCanvas(canvas, track, opts) {
   }
 
   if (hasTrack) {
-    ctx.strokeStyle = '#29b6f6'; ctx.lineWidth = 2; ctx.lineJoin = 'round';
+    ctx.strokeStyle = canvasTheme.get('c-accent'); ctx.lineWidth = 2; ctx.lineJoin = 'round';
     ctx.beginPath();
     track.forEach((p, i) => { const x = X(p.lon), y = Y(p.lat); i ? ctx.lineTo(x, y) : ctx.moveTo(x, y); });
     ctx.stroke();
@@ -3097,15 +3304,15 @@ function drawTrackOnCanvas(canvas, track, opts) {
 
   // camere (punti rossi)
   for (const c of cams) {
-    ctx.fillStyle = '#f87171';
+    ctx.fillStyle = canvasTheme.get('c-bad');
     ctx.beginPath(); ctx.arc(X(c.lon), Y(c.lat), 5, 0, 6.283); ctx.fill();
   }
 
   // inizio (verde) / fine (rossa)
   if (opts && opts.startEnd && hasTrack) {
     const s = track[0], e = track[track.length - 1];
-    ctx.fillStyle = '#34d399'; ctx.beginPath(); ctx.arc(X(s.lon), Y(s.lat), 5, 0, 6.283); ctx.fill();
-    ctx.fillStyle = '#f87171'; ctx.beginPath(); ctx.arc(X(e.lon), Y(e.lat), 5, 0, 6.283); ctx.fill();
+    ctx.fillStyle = canvasTheme.get('c-good'); ctx.beginPath(); ctx.arc(X(s.lon), Y(s.lat), 5, 0, 6.283); ctx.fill();
+    ctx.fillStyle = canvasTheme.get('c-bad'); ctx.beginPath(); ctx.arc(X(e.lon), Y(e.lat), 5, 0, 6.283); ctx.fill();
   }
   if (rot) ctx.restore(); // il marker resta dritto anche con la mappa ruotata
 
@@ -3113,20 +3320,37 @@ function drawTrackOnCanvas(canvas, track, opts) {
   if (opts && opts.current && hasTrack) {
     const e = track[track.length - 1];
     const cx = rot ? w / 2 : X(e.lon), cy = rot ? h / 2 : Y(e.lat);
-    ctx.fillStyle = '#e7edf3';
+    ctx.fillStyle = canvasTheme.get('c-txt');
     ctx.beginPath(); ctx.arc(cx, cy, 6, 0, 6.283); ctx.fill();
     // In track-up il verso di marcia è per definizione verso l'alto.
     const hd = rot ? 0 : opts.heading;
     if (hd != null) {
       const a = hd * Math.PI / 180;
       const dx = Math.sin(a), dy = -Math.cos(a);
-      ctx.strokeStyle = '#e7edf3'; ctx.lineWidth = 2;
+      ctx.strokeStyle = canvasTheme.get('c-txt'); ctx.lineWidth = 2;
       ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(cx + dx * 18, cy + dy * 18); ctx.stroke();
     }
   }
 }
 
 /* ============================== Grafici ============================== */
+/* I canvas non leggono le variabili CSS: i colori si leggono una volta da
+   getComputedStyle e si invalidano al cambio tema (vedi applyTheme). */
+const canvasTheme = {
+  _c: null,
+  get(name) {
+    if (!canvasTheme._c) {
+      const cs = getComputedStyle(document.documentElement);
+      canvasTheme._c = {};
+      for (const n of ['c-bg', 'c-grid', 'c-axis', 'c-accent', 'c-good', 'c-bad', 'c-warn', 'c-txt']) {
+        canvasTheme._c[n] = (cs.getPropertyValue('--' + n) || '').trim();
+      }
+    }
+    return canvasTheme._c[name] || '#888';
+  },
+  reset() { canvasTheme._c = null; }
+};
+
 function sampleCharts(now) {
   state.chartBuf.push({ t: now, speedKph: state.speedKph, lean: state.lean, latG: state.latG, lonG: state.lonG });
   const cutoff = now - CHART_WINDOW;
@@ -3140,7 +3364,7 @@ function drawChart(canvas, data, field, color, min, max, zeroLine) {
   const h = canvas.clientHeight || 120;
   canvas.width = w * dpr; canvas.height = h * dpr;
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-  ctx.fillStyle = '#151b23'; ctx.fillRect(0, 0, w, h);
+  ctx.fillStyle = canvasTheme.get('c-bg'); ctx.fillRect(0, 0, w, h);
   if (!data.length) return;
   const t0 = data[0].t, t1 = data[data.length - 1].t;
   const span = Math.max(1, t1 - t0);
@@ -3149,7 +3373,7 @@ function drawChart(canvas, data, field, color, min, max, zeroLine) {
   const Y = v => h - pad - ((v - min) / (max - min)) * (h - 2 * pad);
 
   // linea zero (solo se nel range)
-  ctx.strokeStyle = '#27303c'; ctx.lineWidth = 1;
+  ctx.strokeStyle = canvasTheme.get('c-grid'); ctx.lineWidth = 1;
   if (zeroLine && min < 0 && max > 0) {
     const y0 = Y(0);
     ctx.beginPath(); ctx.moveTo(0, y0); ctx.lineTo(w, y0); ctx.stroke();
@@ -3166,9 +3390,9 @@ function drawCharts() {
   let maxSp = 80;
   for (const d of buf) if (d.speedKph > maxSp) maxSp = d.speedKph;
   maxSp = Math.ceil(maxSp / 20) * 20 + 20;
-  drawChart(els.chSpeed, buf, 'speedKph', '#29b6f6', 0, maxSp, false);
-  drawChart(els.chLean, buf, 'lean', '#34d399', -60, 60, true);
-  drawChart(els.chLat, buf, 'latG', '#fbbf24', -1.2, 1.2, true);
+  drawChart(els.chSpeed, buf, 'speedKph', canvasTheme.get('c-accent'), 0, maxSp, false);
+  drawChart(els.chLean, buf, 'lean', canvasTheme.get('c-good'), -60, 60, true);
+  drawChart(els.chLat, buf, 'latG', canvasTheme.get('c-warn'), -1.2, 1.2, true);
   els.chSpeedMax.textContent = maxSp + ' km/h';
 }
 
@@ -3348,7 +3572,11 @@ function finishBench() {
 function switchTab(name) {
   state.currentTab = name;
   document.querySelectorAll('.panel').forEach(p => p.classList.toggle('active', p.id === 'tab-' + name));
-  document.querySelectorAll('nav.tabbar button').forEach(b => b.classList.toggle('active', b.dataset.tab === name));
+  document.querySelectorAll('nav.tabbar button').forEach(b => {
+    const on = b.dataset.tab === name;
+    b.classList.toggle('active', on);
+    b.setAttribute('aria-selected', on ? 'true' : 'false');
+  });
   if (name === 'map') {
     if (state.mapType === 'leaflet' && state.map) setTimeout(() => { state.map.invalidateSize(); applyMapRotation(); }, 50);
     else if (state.mapType === 'canvas') drawCanvasMap();
@@ -3447,6 +3675,7 @@ function updateDisplay() {
     els.leanDir.className = 'lean-dir';
   }
   setNeedle(state.lean);
+  setPeaks(state.session.maxLeanR, Math.abs(state.session.maxLeanL));
 
   // Affidabilità della piega: non corregge nulla, ma rende visibile quando la
   // vibrazione sta degradando la misura invece di lasciarlo indovinare.
@@ -3531,6 +3760,7 @@ function mainLoop(now) {
 function init() {
   loadSettings();
   buildGauge();
+  applyTheme();
   updateCalibStatus();
 
   els.btnCalib.addEventListener('click', () => {
@@ -3593,6 +3823,36 @@ function init() {
       state.calib = buildBasis({ x: 1, y: 0, z: 0 });
       updateCalibStatus();
     }
+  });
+
+  els.themeSel.addEventListener('change', () => {
+    state.theme = els.themeSel.value;
+    saveSettings();
+    applyTheme();
+  });
+  if (window.matchMedia) {
+    /* "auto": insegue il tema di sistema mentre l'app è aperta. */
+    const mq = window.matchMedia('(prefers-color-scheme: light)');
+    const onChange = () => { if (state.theme === 'auto') applyTheme(); };
+    if (mq.addEventListener) mq.addEventListener('change', onChange);
+    else if (mq.addListener) mq.addListener(onChange);
+  }
+
+  /* Ridimensionamento / rotazione: non esisteva. Leaflet va invalidato, i canvas
+     dei grafici ridisegnati e i marker di picco ricalcolati alla nuova geometria. */
+  let resizeT = null;
+  window.addEventListener('resize', () => {
+    clearTimeout(resizeT);
+    resizeT = setTimeout(() => {
+      if (state.mapType === 'leaflet' && state.map) { state.map.invalidateSize(); applyMapRotation(); }
+      else if (state.mapType === 'canvas') drawCanvasMap();
+      if (state.currentTab === 'charts') drawCharts();
+      else if (state.currentTab === 'history' && state._replayTrack) drawTrackOnCanvas($('replayCanvas'), state._replayTrack, { startEnd: true });
+    }, 150);
+  });
+  window.addEventListener('orientationchange', () => {
+    /* su iOS l'altezza reale arriva un attimo dopo l'evento */
+    setTimeout(() => { if (state.mapType === 'leaflet' && state.map) state.map.invalidateSize(); }, 300);
   });
 
   els.mountSel.addEventListener('change', () => {
