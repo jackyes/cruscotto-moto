@@ -1263,9 +1263,15 @@ const clampG = v => v > ACCEL_LIMIT_G ? ACCEL_LIMIT_G : (v < -ACCEL_LIMIT_G ? -A
    Ora si media su CALIB_MS con un gate di qualita' su tutta la finestra — se la moto
    si muove, la calibrazione viene RIFIUTATA invece che accettata sbagliata. */
 const CALIB_MS = 2000;
-const CALIB_MAX_ROT_DPS = 1.5;   // rotazione massima tollerata durante la cattura
-const CALIB_MAX_NORM_DEV = 0.03; // |‖a‖/g − 1| massimo
-const CALIB_MAX_SPREAD_DEG = 1.0;// dispersione massima dei campioni attorno alla media
+/* Soglie tarate per tollerare il MINIMO del motore: la vibrazione "rettifica" la
+   norma dell'accelerometro (offset DC dei MEMS) e scuote il giroscopio, ma non e'
+   movimento vero. Un'accelerazione reale (motocicletta spinta o inclinata) resta
+   ben oltre queste soglie. */
+const CALIB_MAX_ROT_DPS = 4.0;   // rotazione istantanea oltre cui il campione non vale
+const CALIB_MAX_NORM_DEV = 0.12; // |‖a‖/g − 1| oltre cui il campione non vale
+const CALIB_MAX_SPREAD_DEG = 3.0;// dispersione massima dei campioni attorno alla media
+const CALIB_MAX_BAD_RATIO = 0.3; // frazione massima di campioni scartati
+const CALIB_MAX_MEAN_ROT = 1.0;  // rotazione MEDIA (°/s) oltre cui la moto si e' mossa
 
 function startCalibration() {
   if (state._calPending) return;
@@ -1277,7 +1283,8 @@ function startCalibration() {
   state._calSum = { x: 0, y: 0, z: 0 };
   state._calN = 0;
   state._calSamples = [];
-  state._calBad = null;
+  state._calBadN = 0;
+  state._calRotSum = 0;
   els.btnCalib.disabled = true;
   const tip = toast('Calibrazione… tieni la moto ferma e dritta.', null, CALIB_MS + 500);
   setTimeout(() => { finishCalibration(tip); }, CALIB_MS);
@@ -1285,12 +1292,15 @@ function startCalibration() {
 
 function collectCalib() {
   if (!state._calPending || !state._lastUp) return;
-  if (state.hasGyro && vlen({ x: state.gyroRoll, y: state.gyroYaw, z: 0 }) > CALIB_MAX_ROT_DPS) {
-    state._calBad = 'la moto si è mossa durante la misura';
-  }
-  if (Math.abs(state.gRatio - 1) > CALIB_MAX_NORM_DEV) {
-    state._calBad = 'accelerazione rilevata: la moto non era ferma';
-  }
+  /* Un singolo scossone non deve condannare la calibrazione: si contano i campioni
+     scartati e si rifiuta solo se sono una frazione rilevante della finestra. */
+  const rotating = state.hasGyro && vlen({ x: state.gyroRoll, y: state.gyroYaw, z: 0 }) > CALIB_MAX_ROT_DPS;
+  const accel = Math.abs(state.gRatio - 1) > CALIB_MAX_NORM_DEV;
+  if (rotating || accel) state._calBadN++;
+  /* Media FIRMATA della rotazione: la vibrazione del motore ha media zero e si
+     annulla, una piega o un movimento reale e' sistematico e resta. E' questo il
+     vero discriminante fra "vibra" e "si muove". */
+  state._calRotSum += state.gyroRoll;
   const u = state._lastUp;
   state._calSum = vadd(state._calSum, u);
   state._calSamples.push(u);
@@ -1310,9 +1320,17 @@ function finishCalibration(tip) {
     const d = Math.acos(Math.max(-1, Math.min(1, vdot(u, mean)))) * 180 / Math.PI;
     if (d > worst) worst = d;
   }
-  if (state._calBad || worst > CALIB_MAX_SPREAD_DEG) {
-    toast('Calibrazione rifiutata: ' + (state._calBad || 'dispersione ' + worst.toFixed(1) + '°') +
-          '. Moto ferma e dritta su piano, poi ripremi Calibra.', 'err', 7000);
+  const badRatio = state._calBadN / Math.max(1, n);
+  const meanRot = Math.abs(state._calRotSum / Math.max(1, n));
+  if (meanRot > CALIB_MAX_MEAN_ROT || badRatio > CALIB_MAX_BAD_RATIO || worst > CALIB_MAX_SPREAD_DEG) {
+    const why = meanRot > CALIB_MAX_MEAN_ROT
+      ? ('la moto si è mossa (rotazione ' + meanRot.toFixed(1) + '°/s)')
+      : (worst > CALIB_MAX_SPREAD_DEG
+          ? ('la moto si è mossa (dispersione ' + worst.toFixed(1) + '°)')
+          : 'la moto si è mossa durante la misura');
+    toast('Calibrazione rifiutata: ' + why +
+          '. Moto dritta e ferma su piano, poi ripremi Calibra. ' +
+          'A motore acceso al minimo va bene: la vibrazione non impedisce la calibrazione.', 'err', 7000);
     return;
   }
   state.calib = buildBasis(mean);
@@ -1857,7 +1875,10 @@ function processSample(sm) {
     aLP = state._accLP;
     updateVibration(ig, dt);
     state.gRatio = vlen(aLP) / G;
-    state._lastUp = upVector(Am);
+    /* La calibrazione cattura il vettore gravita' dal PASSA-BASSO, non dalla mediana:
+       la mediana toglie gli impulsi ma lascia la vibrazione del motore, che a minimo
+       fa sbandare la direzione del verticale e fa scattare il gate di dispersione. */
+    state._lastUp = upVector(aLP || Am);
     collectCalib();
   }
 
