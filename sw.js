@@ -9,7 +9,7 @@
 
 'use strict';
 
-const CACHE_VERSION = 'v2';
+const CACHE_VERSION = 'v3';
 const SHELL_CACHE = 'cruscotto-shell-' + CACHE_VERSION;
 const LIB_CACHE   = 'cruscotto-lib-' + CACHE_VERSION;
 const TILE_CACHE  = 'cruscotto-tiles-' + CACHE_VERSION;
