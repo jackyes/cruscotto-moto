@@ -392,6 +392,11 @@
     display: flex; align-items: center; justify-content: center;
   }
   .map-ctrl button.on { color: var(--accent); border-color: var(--accent); }
+  /* Voce attiva = onda e colore accento (come gli altri toggle); muta = croce e rosso. */
+  #btnNavMute .v-off { display: none; }
+  #btnNavMute.muted { color: var(--bad); border-color: var(--bad); }
+  #btnNavMute.muted .v-on { display: none; }
+  #btnNavMute.muted .v-off { display: inline; }
 
   body.map-fullscreen header,
   body.map-fullscreen nav.tabbar,
@@ -583,6 +588,13 @@
             </button>
             <button id="btnTrackUp" title="Bussola (track-up)" aria-label="Bussola">
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20V5M12 5l-5 5M12 5l5 5"/></svg>
+            </button>
+            <button id="btnNavMute" title="Indicazioni vocali" aria-label="Voce">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M4 9.5v5h3.5L12 18V6L7.5 9.5H4z"/>
+                <path class="v-on" d="M15.5 9a4 4 0 0 1 0 6"/>
+                <path class="v-off" d="M16 10l4 4M20 10l-4 4"/>
+              </svg>
             </button>
           </div>
           <button id="btnMapFull" class="map-full-btn" title="Fullscreen mappa">⛶</button>
@@ -1181,7 +1193,7 @@ const els = {
   navVoice: $('navVoice'), navNoHw: $('navNoHw'), navNoToll: $('navNoToll'),
   navBackroads: $('navBackroads'), navNoFerry: $('navNoFerry'),
   btnImportCam: $('btnImportCam'), camFile: $('camFile'),
-  btnCenter: $('btnCenter'), btnFollow: $('btnFollow'), btnTrackUp: $('btnTrackUp'), compassOffsetSel: $('compassOffset'),
+  btnCenter: $('btnCenter'), btnFollow: $('btnFollow'), btnTrackUp: $('btnTrackUp'), btnNavMute: $('btnNavMute'), compassOffsetSel: $('compassOffset'),
   gyroFusion: $('gyroFusion'), camAheadChk: $('camAhead'),
   toasts: $('toasts'), secWarn: $('secWarn'), mapBox: document.querySelector('.map-box'),
   leanConf: $('leanConf'), leanConfFill: $('leanConfFill'), leanConfTxt: $('leanConfTxt'),
@@ -1376,6 +1388,7 @@ function loadSettings() {
   els.camDistSel.value = String(state.camDist);
   els.camRadiusSel.value = String(state.camRadius);
   els.navVoice.checked = state.navVoice;
+  setNavVoice(state.navVoice, { silentSave: true });
   els.navNoHw.checked = state.navNoHw;
   els.navNoToll.checked = state.navNoToll;
   els.navBackroads.checked = state.navBackroads;
@@ -3310,6 +3323,26 @@ setInterval(() => {
     try { speechSynthesis.resume(); } catch (e) {}
   }
 }, 8000);
+
+/* Un solo punto di verita' per la voce: il pulsante sulla mappa e la casella nelle
+   impostazioni scrivono entrambi qui, cosi' non possono mostrare stati diversi. */
+function setNavVoice(on, opts) {
+  state.navVoice = !!on;
+  if (els.navVoice) els.navVoice.checked = state.navVoice;
+  if (els.btnNavMute) {
+    els.btnNavMute.classList.toggle('on', state.navVoice);
+    els.btnNavMute.classList.toggle('muted', !state.navVoice);
+    els.btnNavMute.title = state.navVoice ? 'Indicazioni vocali attive — tocca per silenziare'
+                                          : 'Indicazioni vocali silenziate — tocca per riattivare';
+  }
+  if (!state.navVoice) {
+    navSpeak.stop();   // zittisce anche l'annuncio in corso, non solo i successivi
+  } else if (opts && opts.user) {
+    // riattivazione da un tocco: e' il gesto utente che serve a sbloccare la sintesi su iOS
+    navSpeak.init(); navSpeak.prime();
+  }
+  if (!opts || !opts.silentSave) saveSettings();
+}
 
 function navShortCue(txt) {
   // toglie il nome della via dal secondo pezzo: un'utterance di 4 s in curva e' inutile
@@ -5424,10 +5457,7 @@ function init() {
     if (!navSimTimer) { toast('Avvia prima la simulazione.', 'err'); return; }
     navSimOff = 25; toast('Deviazione in corso…');
   });
-  els.navVoice.addEventListener('change', () => {
-    state.navVoice = els.navVoice.checked; saveSettings();
-    if (!state.navVoice) navSpeak.stop(); else { navSpeak.init(); navSpeak.prime(); }
-  });
+  els.navVoice.addEventListener('change', () => setNavVoice(els.navVoice.checked, { user: true }));
   els.navNoHw.addEventListener('change', () => { state.navNoHw = els.navNoHw.checked; saveSettings(); });
   els.navNoToll.addEventListener('change', () => { state.navNoToll = els.navNoToll.checked; saveSettings(); });
   els.navBackroads.addEventListener('change', () => { state.navBackroads = els.navBackroads.checked; saveSettings(); });
@@ -5452,6 +5482,10 @@ function init() {
   els.btnFollow.addEventListener('click', () => setFollow(!state.follow));
   els.btnFollow.classList.toggle('on', state.follow); // "segui" è attivo di default
   els.btnTrackUp.addEventListener('click', () => setTrackUp(!state.trackUp));
+  els.btnNavMute.addEventListener('click', () => {
+    setNavVoice(!state.navVoice, { user: true });
+    toast(state.navVoice ? 'Indicazioni vocali attive' : 'Indicazioni vocali silenziate', null, 2000);
+  });
 
   document.querySelectorAll('nav.tabbar button').forEach(b => b.addEventListener('click', () => switchTab(b.dataset.tab)));
 

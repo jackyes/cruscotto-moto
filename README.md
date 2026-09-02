@@ -54,7 +54,7 @@ L'app è organizzata in 4 schede (barra in basso): **Dashboard · Mappa · Grafi
 - Carica **Leaflet + OpenStreetMap** a runtime (da CDN). Mostra posizione corrente (punto + freccia heading) e traccia del percorso.
 - **Fallback offline**: se il CDN non è raggiungibile, ripiega su un canvas che disegna la traccia senza basemappa (zero dipendenze).
 - **Fullscreen mappa**: pulsante ⛶ in alto a destra sulla mappa → la mappa occupa tutto lo schermo (nasconde barra/tab). Ripremi ✕ per uscire.
-- **Controlli mappa** (in alto a sinistra): 🎯 **Centra** (riporta sulla tua posizione), 🧭 **Segui** (attivo di default, si disattiva se trascini la mappa), ⬆️ **Bussola** (track-up: ruota la mappa nel verso di marcia).
+- **Controlli mappa** (in alto a sinistra): 🎯 **Centra** (riporta sulla tua posizione), 🧭 **Segui** (attivo di default, si disattiva se trascini la mappa), ⬆️ **Bussola** (track-up: ruota la mappa nel verso di marcia), 🔊 **Voce** (silenzia o riattiva le indicazioni vocali al volo, anche a mappa intera; è lo stesso interruttore dell'impostazione *Indicazioni vocali*).
 - **Track-up** è realizzato ruotando il container via CSS, senza plugin esterni. Con la mappa ruotata il trascinamento avviene nel sistema di riferimento ruotato: se devi esplorare la mappa a mano, disattiva prima la bussola.
 - L'heading viene dal GPS sopra ~11 km/h; sotto si usa la bussola magnetica del telefono (solo se il dispositivo espone un orientamento *assoluto*), regolabile con **Offset bussola**.
 
@@ -70,7 +70,7 @@ L'app è organizzata in 4 schede (barra in basso): **Dashboard · Mappa · Grafi
 - **Nota legale**: uso a tua discrezione e responsabilità.
 
 ### Navigatore
-- **Turn-by-turn** con percorsi moto: indicazioni passo-passo, banner della manovra successiva, distanza che scala in tempo reale e **indicazioni vocali** in italiano (disattivabili).
+- **Turn-by-turn** con percorsi moto: indicazioni passo-passo, banner della manovra successiva, distanza che scala in tempo reale e **indicazioni vocali** in italiano. Si silenziano al volo col pulsante 🔊 fra i controlli mappa (raggiungibile con i guanti, presente anche a mappa intera): tocca una volta e l'annuncio in corso si interrompe subito.
 - Motore di routing **Valhalla** (istanza pubblica FOSSGIS, nessuna chiave), profilo `motorcycle`. Preferenze: **evita autostrade**, **evita pedaggi**, **evita traghetti** e **preferisci strade secondarie** (il parametro che Valhalla chiama "desiderio di avventura": non garantisce curve, spinge via dalle arterie principali).
 - **Fallback automatico su OSRM** (`routing.openstreetmap.de`) se Valhalla non risponde entro pochi secondi: il navigatore continua a funzionare, ma con profilo auto fisso e senza le preferenze moto. La riga di stato dice sempre quale motore ha risposto. Le istruzioni in italiano per OSRM sono generate dall'app a partire da tipo di manovra, direzione e nome della strada.
 - Destinazione in quattro modi: **ricerca indirizzo** (Photon), **tap lungo sulla mappa**, **coordinate incollate** (anche link Google Maps) o **da un giro salvato**.
