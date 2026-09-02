@@ -3497,25 +3497,40 @@ function navCostingOptions() {
 
 async function navRequestRoute(from, to, hdg, why) {
   if (!from || !to) return;
-  const orig = { lat: from.lat, lon: from.lon };
-  // Senza heading sull'origine, Valhalla e' libero di rispondere con un'inversione a U
-  // verso il punto appena lasciato: in autostrada e' il peggior output possibile.
-  if (hdg != null && isFinite(hdg)) { orig.heading = Math.round(hdg); orig.heading_tolerance = 45; }
-  const req = {
-    locations: [orig, { lat: to.lat, lon: to.lon }],
-    costing: 'motorcycle',
-    costing_options: navCostingOptions(),
-    directions_options: { language: 'it-IT', units: 'kilometers' },
+  // L'heading si passa a Valhalla SOLO quando si e' davvero in movimento: il compass
+  // magnetica da fermo e' rumore, e con heading_tolerance stretto fa fallire Valhalla
+  // con "No suitable edges near location" (error_code 171) = HTTP 400.
+  const useHead = hdg != null && isFinite(hdg) && state.speedMs >= HEADING_MIN_MS;
+  const build = (withHead) => {
+    const orig = { lat: from.lat, lon: from.lon };
+    // Senza heading sull'origine, Valhalla e' libero di rispondere con un'inversione a U
+    // verso il punto appena lasciato: in autostrada e' il peggior output possibile.
+    if (withHead) { orig.heading = Math.round(hdg); orig.heading_tolerance = 60; }
+    return {
+      locations: [orig, { lat: to.lat, lon: to.lon }],
+      costing: 'motorcycle',
+      costing_options: navCostingOptions(),
+      directions_options: { language: 'it-IT', units: 'kilometers' },
+    };
   };
   navSetStatus(why ? 'Ricalcolo in corso…' : 'Calcolo percorso…');
-  let data = null, err = null;
+  let data = null, err = null, retried = false;
   for (const host of NAV_HOSTS) {
     try {
-      const res = await navGate(() => fetchWithTimeout(
+      let req = build(useHead);
+      let res = await navGate(() => fetchWithTimeout(
         host + '?json=' + encodeURIComponent(JSON.stringify(req)), NAV_TIMEOUT_MS));
-      const j = await res.json();
+      let j = await res.json();
+      // "No suitable edges": spesso e' l'heading. Si ritenta una volta senza.
+      if (useHead && !retried && j && (j.error_code === 171 || j.error_code === 154)) {
+        retried = true;
+        req = build(false);
+        res = await navGate(() => fetchWithTimeout(
+          host + '?json=' + encodeURIComponent(JSON.stringify(req)), NAV_TIMEOUT_MS));
+        j = await res.json();
+      }
       // Valhalla riporta gli errori come JSON con error_code, non come HTTP non-2xx.
-      if (j && j.error) { err = new Error(j.error); continue; }
+      if (j && j.error) { err = new Error('Valhalla ' + (j.error_code || '') + ': ' + j.error); continue; }
       if (!res.ok) { err = new Error('HTTP ' + res.status); continue; }
       if (!j || !j.trip || j.trip.status !== 0) { err = new Error('risposta non valida'); continue; }
       data = j; break;
@@ -3531,7 +3546,7 @@ async function navRequestRoute(from, to, hdg, why) {
       navSetStatus('Senza rete: percorso non aggiornato. ' + (err ? err.message : ''));
     } else {
       navSetStatus('Percorso non calcolabile: ' + (err ? err.message : 'errore'));
-      toast('Percorso non calcolabile.', 'err', 5000);
+      toast('Percorso non calcolabile: ' + (err ? err.message : 'errore'), 'err', 7000);
     }
     navRenderBanner(); renderNavPanel();
     return;
@@ -3572,7 +3587,11 @@ async function navGeocode(q) {
   let url = NAV_GEO_HOST + '?limit=6&lang=it&q=' + encodeURIComponent(q);
   if (p) url += '&lat=' + p.lat.toFixed(5) + '&lon=' + p.lon.toFixed(5);
   const res = await navGate(() => fetchWithTimeout(url, NAV_GEO_TIMEOUT_MS));
-  if (!res.ok) throw new Error('HTTP ' + res.status);
+  if (!res.ok) {
+    let detail = '';
+    try { const j = await res.json(); detail = (j && (j.message || j.error)) ? ' — ' + (j.message || j.error) : ''; } catch (e) {}
+    throw new Error('HTTP ' + res.status + detail);
+  }
   const j = await res.json();
   return (j.features || []).map(f => {
     const c = f.geometry && f.geometry.coordinates;   // [lon, lat]: invertito
