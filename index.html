@@ -182,11 +182,11 @@
 
   /* Piega */
   .card-lean { display: flex; flex-direction: column; min-height: 0; }
-  .gauge-box { position: relative; flex: 1; min-height: 132px; display: flex; align-items: center; justify-content: center; }
+  .gauge-box { position: relative; flex: 1; min-height: 0; display: flex; align-items: center; justify-content: center; }
   /* Il gauge si adatta al box (height:100%) invece di forzare l'altezza dal rapporto:
      cosi' il numero della piega, spostato sotto l'ago, resta DENTRO il card e non
      sconfina su "Destra/affidabilita'" quando il box e' basso (portrait). */
-  #gauge { width: 100%; height: 100%; max-width: 270px; }
+  #gauge { width: 100%; height: 100%; max-width: 270px; min-height: 88px; }
   #gauge text { font-family: inherit; }
   #gauge .gauge-arc { stroke: var(--c-grid); }
   #gauge .gauge-tick { stroke: var(--line-2); }
