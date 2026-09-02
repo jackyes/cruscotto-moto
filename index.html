@@ -182,8 +182,11 @@
 
   /* Piega */
   .card-lean { display: flex; flex-direction: column; min-height: 0; }
-  .gauge-box { position: relative; flex: 1; min-height: 0; display: flex; align-items: center; justify-content: center; }
-  #gauge { width: 100%; height: auto; max-width: 270px; }
+  .gauge-box { position: relative; flex: 1; min-height: 132px; display: flex; align-items: center; justify-content: center; }
+  /* Il gauge si adatta al box (height:100%) invece di forzare l'altezza dal rapporto:
+     cosi' il numero della piega, spostato sotto l'ago, resta DENTRO il card e non
+     sconfina su "Destra/affidabilita'" quando il box e' basso (portrait). */
+  #gauge { width: 100%; height: 100%; max-width: 270px; }
   #gauge text { font-family: inherit; }
   #gauge .gauge-arc { stroke: var(--c-grid); }
   #gauge .gauge-tick { stroke: var(--line-2); }
@@ -519,7 +522,7 @@
         <div class="card card-lean">
           <h2>Angolo di piega</h2>
           <div class="gauge-box">
-            <svg id="gauge" viewBox="0 0 260 150"></svg>
+            <svg id="gauge" viewBox="0 0 260 176"></svg>
           </div>
           <div class="lean-dir" id="leanDir">&nbsp;</div>
             <div class="lean-max">
@@ -1271,12 +1274,12 @@ function buildGauge() {
     }
   }
 
-  /* Il numero della piega, al centro del quadrante, con il simbolo del grado. */
+  /* Il numero della piega, sotto l'asse (per non incrociare l'ago), con il grado. */
   const num = mk('text');
-  num.setAttribute('x', cx); num.setAttribute('y', 88);
+  num.setAttribute('x', cx); num.setAttribute('y', 166);
   num.setAttribute('text-anchor', 'middle');
   num.setAttribute('class', 'gauge-val');
-  num.setAttribute('font-size', '40');
+  num.setAttribute('font-size', '34');
   num.setAttribute('font-weight', '800');
   const tspan = mk('tspan');
   tspan.setAttribute('id', 'leanVal');
@@ -3489,7 +3492,7 @@ function navMaybeReroute(pLat, pLon, hdg, why) {
   navSpeak.stop();
   navSpeak.say('Ricalcolo il percorso.', 3);
   navRenderBanner();
-  navRequestRoute({ lat: pLat, lon: pLon }, nv.dest, hdg, why);
+  navRequestRouteSafe({ lat: pLat, lon: pLon }, nv.dest, hdg, why);
 }
 
 /* ---- adattatore OSRM ----
@@ -3620,6 +3623,19 @@ async function navTryOsrm(from, to, hdg) {
   return navFromOsrm(j);
 }
 
+/* Wrapper: navRequestRoute e' chiamata senza await da quattro punti. Un'eccezione al
+   suo interno diventerebbe una unhandled rejection e lascerebbe la riga di stato ferma
+   su "Calcolo percorso...", senza dire niente. Qui si trasforma sempre in un messaggio. */
+function navRequestRouteSafe(from, to, hdg, why) {
+  return navRequestRoute(from, to, hdg, why).catch(e => {
+    const m = (e && e.message) || String(e);
+    navSetStatus('Errore interno nel calcolo percorso: ' + m);
+    toast('Errore interno: ' + m, 'err', 8000);
+    if (state.nav && state.nav.status === 'REROUTING') state.nav.status = 'ACTIVE';
+    navRenderBanner(); renderNavPanel();
+  });
+}
+
 /* ---- richiesta del percorso ----
    GET con ?json=, non POST: e' una richiesta semplice (nessun header custom, nessun
    Content-Type) e quindi non fa scattare il preflight CORS. */
@@ -3651,12 +3667,13 @@ async function navRequestRoute(from, to, hdg, why) {
     };
   };
   navSetStatus(why ? 'Ricalcolo in corso…' : 'Calcolo percorso…');
-  let trip = null, engine = null, err = null, retried = false;
+  let trip = null, engine = null, err = null, retried = false, lastReq = null;
   // 1) Valhalla: profilo moto e preferenze. Timeout corto, cosi' se e' giu' il
   //    fallback parte in fretta invece di far aspettare venti secondi.
   for (const host of NAV_HOSTS) {
     try {
       let req = build(useHead);
+      lastReq = req;
       let res = await navGate(() => fetchWithTimeout(
         host + '?json=' + encodeURIComponent(JSON.stringify(req)), NAV_VALHALLA_TIMEOUT_MS));
       let j = await res.json();
@@ -3664,6 +3681,7 @@ async function navRequestRoute(from, to, hdg, why) {
       if (useHead && !retried && j && (j.error_code === 171 || j.error_code === 154)) {
         retried = true;
         req = build(false);
+        lastReq = req;
         res = await navGate(() => fetchWithTimeout(
           host + '?json=' + encodeURIComponent(JSON.stringify(req)), NAV_VALHALLA_TIMEOUT_MS));
         j = await res.json();
@@ -3719,7 +3737,7 @@ async function navRequestRoute(from, to, hdg, why) {
   nv.travelSinceReroute = 0;
   nv.suppressPost = false;
   nv.shapeRaw = (trip.legs || []).map(l => l.shape);
-  nv.reqSaved = req;
+  nv.reqSaved = lastReq || { from: { lat: from.lat, lon: from.lon }, to: { lat: to.lat, lon: to.lon } };
   state.nav = nv;
   /* Dire quale motore ha risposto: con OSRM le preferenze moto non si applicano, e
      lasciarlo intendere sarebbe peggio che tacere. */
@@ -3870,7 +3888,7 @@ function navSetDest(d) {
   navDrawRoute();
   const p = state.pos.lat != null ? state.pos : (state.gps.lat != null ? state.gps : null);
   if (!p) { navSetStatus('In attesa del primo fix GPS per calcolare il percorso.'); return; }
-  navRequestRoute(p, state.navDest, trackUpHeading(), null);
+  navRequestRouteSafe(p, state.navDest, trackUpHeading(), null);
 }
 
 /* ---- disegno su mappa ----
@@ -3997,7 +4015,7 @@ function navStart() {
     const p = state.pos.lat != null ? state.pos : (state.gps.lat != null ? state.gps : null);
     if (!d) { toast('Scegli prima una destinazione.', 'err'); return; }
     if (!p) { toast('Nessun fix GPS.', 'err'); return; }
-    navRequestRoute(p, d, trackUpHeading(), null);
+    navRequestRouteSafe(p, d, trackUpHeading(), null);
     return;
   }
   const p = state.pos.lat != null ? state.pos : (state.gps.lat != null ? state.gps : null);
@@ -4006,7 +4024,7 @@ function navStart() {
   if (!pr || pr.d > 2000) {
     // troppo lontano dalla rotta salvata: non si riprende alla cieca
     navSetStatus('Sei lontano dal percorso salvato: ricalcolo da qui.');
-    navRequestRoute(p, nv.dest, trackUpHeading(), 'ripresa');
+    navRequestRouteSafe(p, nv.dest, trackUpHeading(), 'ripresa');
     return;
   }
   nv.idx = pr.i; nv.segT = pr.t; nv.sAlong = pr.s; nv.offDist = pr.d;
