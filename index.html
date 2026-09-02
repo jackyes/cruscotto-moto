@@ -12,7 +12,7 @@
   script-src 'self' 'unsafe-inline' https://unpkg.com;
   style-src 'self' 'unsafe-inline' https://unpkg.com;
   img-src 'self' data: blob: https://*.tile.openstreetmap.org https://unpkg.com;
-  connect-src 'self' https://overpass-api.de https://overpass.kumi.systems;
+  connect-src 'self' https://overpass-api.de https://overpass.kumi.systems https://valhalla1.openstreetmap.de https://photon.komoot.io;
   font-src 'self';
   manifest-src 'self';
   worker-src 'self';
@@ -50,6 +50,7 @@
     --c-bg: #121924;      /* sfondo canvas (grafici / mappa di riserva) */
     --c-grid: #263243;
     --c-axis: #8a99aa;
+    --c-route: #a78bfa;   /* percorso del navigatore: distinto da traccia e autovelox */
     --shadow: 0 8px 28px rgba(0,0,0,.45);
     color-scheme: dark;
   }
@@ -77,6 +78,7 @@
     --c-bg: #ffffff;
     --c-grid: #d5dfe8;
     --c-axis: #5b6c7b;
+    --c-route: #5b2fb8;
     --shadow: 0 8px 24px rgba(15,23,32,.12);
     color-scheme: light;
   }
@@ -113,11 +115,27 @@
   header h1 { font-size: 17px; font-weight: 800; letter-spacing: .6px; white-space: nowrap; }
   header h1 .dot { color: var(--accent); }
   .top-spacer { flex: 1; }
-  .status-row { display: flex; align-items: center; gap: 7px; font-size: 12px; color: var(--text-2); white-space: nowrap; }
-  .status-dot { width: 9px; height: 9px; border-radius: 50%; background: var(--text-3); }
+  /* Le righe di stato sono gli unici figli dell'header che possono cedere: titolo, tempo
+     e pulsante hanno larghezza fissa. Senza min-width:0 un figlio flex non scende mai
+     sotto il proprio contenuto, e con due status-row la barra usciva dallo schermo
+     (il pulsante Start finiva fuori gia' a 360px, anche prima del badge autovelox). */
+  .status-row { display: flex; align-items: center; gap: 7px; font-size: 12px; color: var(--text-2); white-space: nowrap; min-width: 0; overflow: hidden; }
+  .status-row > span:last-child { overflow: hidden; text-overflow: ellipsis; }
+  .status-dot { flex: 0 0 auto; width: 9px; height: 9px; border-radius: 50%; background: var(--text-3); }
   .status-dot.ok { background: var(--good); box-shadow: 0 0 8px var(--good); }
   .status-dot.err { background: var(--bad); }
   .status-dot.wait { background: var(--warn); }
+  /* Due .status-row non ci stanno accanto al titolo su un telefono stretto: header e'
+     flex con figli tutti nowrap, e l'unico elemento che cede (.top-spacer) collassa a 0.
+     Sotto i 480px il titolo lascia il posto allo stato, che in marcia serve di piu'. */
+  /* Il titolo cede il posto finche' le due righe di stato non ci stanno per intero:
+     serve circa 560px per titolo + due stati + tempo + pulsante. Sotto quella soglia
+     e' lo stato a valere di piu' in marcia, non il nome dell'app. */
+  @media (max-width: 599px) { header h1 { display: none; } }
+  @media (max-width: 400px) {
+    header { gap: 8px; }
+    #btnLogTop { padding: 10px 12px; }
+  }
   .rec-badge { display: none; color: var(--bad); font-weight: 800; font-size: 13px; white-space: nowrap; }
   .rec-badge.on { display: inline; }
   #topTime { color: var(--text); font-weight: 800; font-size: 15px; }
@@ -282,9 +300,38 @@
   .dbtns { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-top: 10px; }
   .empty { color: var(--text-2); font-size: 14px; text-align: center; padding: 24px 0; }
 
+  /* ============ Navigatore ============ */
+  .nav-input {
+    width: 100%; box-sizing: border-box; background: var(--surface-2); color: var(--text);
+    border: 1px solid var(--line); border-radius: 11px; padding: 12px;
+    font-size: 15px; font-family: inherit; min-height: 44px;
+  }
+  .nav-results { display: flex; flex-direction: column; gap: 4px; margin-top: 6px; }
+  .nav-results button {
+    text-align: left; background: var(--surface-2); color: var(--text);
+    border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px;
+    font-size: 13px; min-height: 44px; line-height: 1.3;
+  }
+  .nav-results button b { display: block; font-size: 14px; }
+  .nav-results button span { color: var(--text-2); font-size: 12px; }
+  .nav-summary { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+  /* .dstat e' definita solo sotto .sess-detail: qui serve la stessa resa, non l'ereditarieta'. */
+  .nav-summary .dstat { background: var(--surface); border: 1px solid var(--line); border-radius: 11px; padding: 10px; text-align: center; }
+  .nav-summary .dstat .v { font-size: 20px; font-weight: 800; }
+  .nav-summary .dstat .k { font-size: 10px; color: var(--text-2); text-transform: uppercase; letter-spacing: .6px; }
+  .nav-steps { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
+  .nav-steps li {
+    display: flex; gap: 10px; align-items: baseline;
+    padding: 9px 4px; border-top: 1px solid var(--line); font-size: 14px; line-height: 1.35;
+  }
+  .nav-steps li:first-child { border-top: 0; }
+  .nav-steps li.done { opacity: .38; }
+  .nav-steps li.cur { background: var(--surface-2); border-radius: 9px; font-weight: 700; }
+  .nav-steps .sd { color: var(--accent); font-variant-numeric: tabular-nums; white-space: nowrap; min-width: 68px; }
+
   /* ============ Tab bar ============ */
   nav.tabbar {
-    display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px;
+    display: grid; grid-template-columns: repeat(5, 1fr); gap: 5px;
     position: fixed; bottom: 0; left: 0; right: 0;
     z-index: 50;
     max-width: 1080px; margin: 0 auto;
@@ -293,13 +340,32 @@
     border-top: 1px solid var(--line);
   }
   nav.tabbar button {
-    min-height: 52px; padding: 7px 4px; font-size: 11px; border-radius: 13px;
+    min-height: 52px; padding: 7px 2px; font-size: 11px; border-radius: 13px;
     display: flex; flex-direction: column; align-items: center; gap: 3px;
     background: transparent; color: var(--text-2); border: 1px solid transparent;
   }
   nav.tabbar button .ico { width: 22px; height: 22px; }
+  /* Con cinque voci le etichette non ci stanno piu' a 11px su un telefono stretto. */
+  @media (max-width: 420px) { nav.tabbar button { font-size: 10px; letter-spacing: -.2px; } }
   nav.tabbar button.active { background: var(--surface-2); color: var(--accent); border-color: var(--line); }
   nav.tabbar button.active .ico { color: var(--accent); }
+
+  /* Banner di manovra: persistente (niente auto-hide come .cam-alert), e sotto di essa
+     nello z-order — un avviso autovelox deve poter coprire una svolta, non viceversa.
+     Non a top:10px: li' coprirebbe stato GPS e Start/Stop. In fullscreen l'header
+     sparisce e il banner puo' risalire. */
+  .nav-banner {
+    position: fixed; top: 58px; left: 50%; transform: translateX(-50%);
+    z-index: 150; background: var(--surface-2); color: var(--text);
+    border: 1px solid var(--accent); border-radius: 14px;
+    padding: 10px 16px; font-size: 17px; font-weight: 800; text-align: center;
+    max-width: 92%; box-shadow: var(--shadow); line-height: 1.25;
+  }
+  .nav-banner .nb-dist { color: var(--accent); }
+  .nav-banner .nb-street { display: block; font-size: 13px; font-weight: 600; color: var(--text-2); margin-top: 2px; }
+  .nav-banner .nb-then { display: block; font-size: 12px; font-weight: 700; color: var(--warn); margin-top: 3px; }
+  .nav-banner.off { border-color: var(--bad); }
+  body.map-fullscreen .nav-banner { top: 10px; }
 
   .cam-alert {
     position: fixed; top: 10px; left: 50%; transform: translateX(-50%);
@@ -420,12 +486,17 @@
       <span class="status-dot wait" id="gpsDot"></span>
       <span id="gpsTxt">GPS attesa</span>
     </div>
+    <div class="status-row" id="camStatus" title="Stato dei dati autovelox">
+      <span class="status-dot wait" id="camDot"></span>
+      <span id="camTxt">Autovelox</span>
+    </div>
     <div class="top-spacer"></div>
     <span class="rec-badge" id="recBadge">● REC</span>
     <span id="topTime">00:00</span>
     <button id="btnLogTop">▶ Start</button>
   </header>
 
+  <div id="navBanner" class="nav-banner" style="display:none;"></div>
   <div id="camAlert" class="cam-alert" style="display:none;"></div>
   <div id="toasts" class="toast-wrap"></div>
   <div id="secWarn" class="warnbar" style="display:none;"></div>
@@ -592,6 +663,49 @@
           </select>
         </div>
         <div class="set-row">
+          <span>Raggio autovelox</span>
+          <select id="camRadius">
+            <option value="10000">10 km</option>
+            <option value="15000" selected>15 km</option>
+            <option value="20000">20 km</option>
+            <option value="30000">30 km</option>
+            <option value="50000">50 km</option>
+          </select>
+        </div>
+        <p class="hint">
+          Quanto lontano si scaricano gli autovelox da OpenStreetMap attorno alla tua
+          posizione. Pi&ugrave; largo = ne vedi di pi&ugrave; sulla mappa, ma la query
+          &egrave; pi&ugrave; lenta e pi&ugrave; pesante per il server. I dati si
+          riaggiornano da soli mentre guidi, senza ricaricare la pagina.
+        </p>
+        <div class="set-row">
+          <span>Indicazioni vocali</span>
+          <input type="checkbox" id="navVoice" checked>
+        </div>
+        <div class="set-row">
+          <span>Evita autostrade</span>
+          <input type="checkbox" id="navNoHw">
+        </div>
+        <div class="set-row">
+          <span>Evita pedaggi</span>
+          <input type="checkbox" id="navNoToll">
+        </div>
+        <div class="set-row">
+          <span>Preferisci strade secondarie</span>
+          <input type="checkbox" id="navBackroads">
+        </div>
+        <div class="set-row">
+          <span>Evita traghetti</span>
+          <input type="checkbox" id="navNoFerry">
+        </div>
+        <p class="hint">
+          Preferenze del navigatore. Partono tutte disattivate, cio&egrave; con il percorso
+          &laquo;normale&raquo;: cambiarle ricalcola solo il prossimo percorso, non quello in corso.
+          <b>Strade secondarie</b> &egrave; il parametro che Valhalla chiama &laquo;desiderio di
+          avventura&raquo;: spinge via dalle arterie principali, ma non garantisce curve e
+          pu&ograve; farti passare su fondi scadenti.
+        </p>
+        <div class="set-row">
           <span>Offset bussola (montaggio)</span>
           <select id="compassOffset">
             <option value="0" selected>0°</option>
@@ -651,6 +765,63 @@
         <div id="benchOut" class="bench-out"></div>
       </details>
     </section>
+
+    <!-- ===== Navigatore ===== -->
+    <section id="tab-nav" role="tabpanel" aria-label="Navigatore" class="panel">
+      <div class="card">
+        <h2>Destinazione</h2>
+        <input type="text" id="navQuery" class="nav-input" placeholder="Cerca indirizzo, o incolla coordinate / link mappe" autocomplete="off" enterkeyhint="search">
+        <div id="navResults" class="nav-results"></div>
+        <div class="controls" style="margin-top:10px;">
+          <button id="btnNavFromMap">📍 Mappa</button>
+          <button id="btnNavFromHist">🗂 Giri</button>
+          <button id="btnNavClear">✕ Azzera</button>
+        </div>
+        <p class="hint" id="navDestTxt">Nessuna destinazione. Sulla mappa puoi anche tenere premuto un punto per sceglierlo.</p>
+      </div>
+
+      <div class="card">
+        <h2>Percorso</h2>
+        <div class="nav-summary">
+          <div class="dstat"><div class="v" id="navSumDist">—</div><div class="k">DISTANZA</div></div>
+          <div class="dstat"><div class="v" id="navSumTime">—</div><div class="k">DURATA</div></div>
+          <div class="dstat"><div class="v" id="navSumEta">—</div><div class="k">ARRIVO</div></div>
+        </div>
+        <div class="controls" style="margin-top:10px;">
+          <button id="btnNavGo">▶ Avvia navigazione</button>
+          <button id="btnNavStop">■ Termina</button>
+        </div>
+        <p class="hint" id="navStatusTxt">Scegli una destinazione per calcolare il percorso.</p>
+      </div>
+
+      <div class="card">
+        <h2>Indicazioni</h2>
+        <ol id="navSteps" class="nav-steps"></ol>
+      </div>
+
+      <details>
+        <summary>Prova senza moto (simulatore)</summary>
+        <p class="hint">
+          Percorre il percorso calcolato generando posizioni finte a 1 Hz, e alimenta
+          esattamente lo stesso codice dei fix GPS veri. Serve per provare avanzamento
+          manovre, banner e voce senza uscire di casa. La deviazione fa scattare il
+          ricalcolo, come in strada.
+        </p>
+        <div class="controls">
+          <button id="btnNavSim">▶ Simula percorso</button>
+          <button id="btnNavSimOff">■ Ferma simulazione</button>
+          <button id="btnNavSimDev">↱ Devia dal percorso</button>
+        </div>
+        <div class="set-row">
+          <span>Velocità simulata</span>
+          <select id="navSimSpeed">
+            <option value="14">50 km/h</option>
+            <option value="25" selected>90 km/h</option>
+            <option value="36">130 km/h</option>
+          </select>
+        </div>
+      </details>
+    </section>
   </main>
 
   <nav class="tabbar" role="tablist" aria-label="Sezioni">
@@ -665,6 +836,10 @@
     <button role="tab" aria-selected="false" data-tab="charts">
       <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="M7 15l3.5-4 3 2.5L20 7"/></svg>
       <span>Grafici</span>
+    </button>
+    <button role="tab" aria-selected="false" data-tab="nav">
+      <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2l8 19-8-5-8 5z"/></svg>
+      <span>Naviga</span>
     </button>
     <button role="tab" aria-selected="false" data-tab="history">
       <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16v13H4z"/><path d="M3 4h18v3H3z"/><path d="M9 11h6"/></svg>
@@ -686,13 +861,19 @@ const CHART_WINDOW = 60000;
 const SPEED_DEADBAND_MS = 0.55; // sotto ~2 km/h → 0 (fermo)
 const TRACK_MIN_M = 5;         // distanza minima tra punti traccia (m)
 const GPS_ACC_MAX = 30;        // scarta fix con accuratezza peggiore (m)
-const CAM_QUERY_RADIUS_M = 10000; // raggio query Overpass (m)
+/* --- raggio dati autovelox ---
+   Il raggio di query e' impostabile (state.camRadius). Raggio marker e soglia di
+   refetch NON sono costanti indipendenti ma derivati: tenerli separati li faceva
+   divergere, e un raggio marker maggiore del raggio scaricato disegna il vuoto. */
+const CAM_RADIUS_CHOICES = [10000, 15000, 20000, 30000, 50000];
+const CAM_RADIUS_DEFAULT = 15000;
+const CAM_MARKER_FACTOR = 1.5; // oltre il bordo scaricato c'e' ancora dato, se importato
+const CAM_MOVE_FACTOR = 0.5;   // refetch a meta' raggio: mezzo raggio di copertura resta davanti
+const CAM_MARKER_MAX = 400;    // tetto marker disegnati (un DB nazionale a 50 km blocca il telefono)
 const CAM_STALE_MS = 15 * 60 * 1000; // refresh cache dopo 15 min
-const CAM_MIN_MOVE_M = 5000;   // nuova query se spostati > 5 km dal centro cache
 const CAM_COOLDOWN_MS = 60000; // non ri-avvisa stessa camera entro 60 s
 const CAM_FAIL_BACKOFF_MS = 120000; // dopo un errore Overpass, riprova non prima di 2 min
 const CAM_GRID_DEG = 0.02;     // lato cella griglia spaziale camere (~2 km)
-const CAM_MARKER_RADIUS_M = 15000; // disegna marker solo entro questo raggio
 const CAM_AHEAD_DEG = 60;      // semi-apertura del cono "davanti a me"
 /* --- piega: filtro di attitudine ---
    TUTTI i guadagni sono in unità di tempo (1/s o s), MAI per-campione.
@@ -781,12 +962,19 @@ const state = {
   camAlerts: true,
   camAhead: true,
   camDist: 400,
+  camRadius: CAM_RADIUS_DEFAULT,
+  camDrawn: 0,               // marker effettivamente disegnati / candidati: il tetto
+  camTotal: 0,               // non deve essere silenzioso (vedi updateCamStatus)
   camCenter: null,
   camTs: 0,
   camCooldown: {},
   camFetching: false,
   camRetryAfter: 0,
   camLastDist: {},           // distanza precedente per camera (rilevamento avvicinamento)
+  // navigazione: preferenze persistite + stato vivo (vedi navReset)
+  navVoice: true, navNoHw: false, navNoToll: false, navBackroads: false, navNoFerry: false,
+  nav: null,                 // null = nessun percorso caricato
+  navDest: null,             // {lat, lon, label} scelta ma non ancora calcolata
   follow: true,
   trackUp: false,
   compass: null,
@@ -976,6 +1164,16 @@ const els = {
   sessionList: $('sessionList'), sessionDetail: $('sessionDetail'),
   btnExportCsv: $('btnExportCsv'), btnExportGpx: $('btnExportGpx'), btnExportCsvHist: $('btnExportCsvHist'),
   camAlert: $('camAlert'), camAlertsChk: $('camAlerts'), camDistSel: $('camDist'), btnMapFull: $('btnMapFull'),
+  camRadiusSel: $('camRadius'), camDot: $('camDot'), camTxt: $('camTxt'),
+  navBanner: $('navBanner'), navQuery: $('navQuery'), navResults: $('navResults'),
+  navDestTxt: $('navDestTxt'), navStatusTxt: $('navStatusTxt'), navSteps: $('navSteps'),
+  navSumDist: $('navSumDist'), navSumTime: $('navSumTime'), navSumEta: $('navSumEta'),
+  btnNavGo: $('btnNavGo'), btnNavStop: $('btnNavStop'), btnNavClear: $('btnNavClear'),
+  btnNavFromMap: $('btnNavFromMap'), btnNavFromHist: $('btnNavFromHist'),
+  btnNavSim: $('btnNavSim'), btnNavSimOff: $('btnNavSimOff'), btnNavSimDev: $('btnNavSimDev'),
+  navSimSpeed: $('navSimSpeed'),
+  navVoice: $('navVoice'), navNoHw: $('navNoHw'), navNoToll: $('navNoToll'),
+  navBackroads: $('navBackroads'), navNoFerry: $('navNoFerry'),
   btnImportCam: $('btnImportCam'), camFile: $('camFile'),
   btnCenter: $('btnCenter'), btnFollow: $('btnFollow'), btnTrackUp: $('btnTrackUp'), compassOffsetSel: $('compassOffset'),
   gyroFusion: $('gyroFusion'), camAheadChk: $('camAhead'),
@@ -1152,6 +1350,14 @@ function loadSettings() {
   state.wakeLockOn = s.wakeLockOn !== false;
   state.camAlerts = s.camAlerts !== false;
   state.camDist = s.camDist || 400;
+  /* Validato contro la lista, non `|| default`: il valore finisce interpolato nella
+     query Overpass, e un localStorage modificato a mano non deve poterci scrivere. */
+  state.camRadius = CAM_RADIUS_CHOICES.indexOf(s.camRadius) >= 0 ? s.camRadius : CAM_RADIUS_DEFAULT;
+  state.navVoice = s.navVoice !== false;
+  state.navNoHw = !!s.navNoHw;
+  state.navNoToll = !!s.navNoToll;
+  state.navBackroads = !!s.navBackroads;
+  state.navNoFerry = !!s.navNoFerry;
   state.compassOffset = s.compassOffset || 0;
   state.gyroFusion = s.gyroFusion !== false;
   state.camAhead = s.camAhead !== false;
@@ -1162,6 +1368,12 @@ function loadSettings() {
   els.wakeLockChk.checked = state.wakeLockOn;
   els.camAlertsChk.checked = state.camAlerts;
   els.camDistSel.value = String(state.camDist);
+  els.camRadiusSel.value = String(state.camRadius);
+  els.navVoice.checked = state.navVoice;
+  els.navNoHw.checked = state.navNoHw;
+  els.navNoToll.checked = state.navNoToll;
+  els.navBackroads.checked = state.navBackroads;
+  els.navNoFerry.checked = state.navNoFerry;
   els.compassOffsetSel.value = String(state.compassOffset);
   els.gyroFusion.checked = state.gyroFusion;
   els.camAheadChk.checked = state.camAhead;
@@ -1178,8 +1390,11 @@ function loadSettings() {
 function saveSettings() {
   store.set('cruscotto.settings', {
     mount: state.mount, invertLean: state.invertLean, wakeLockOn: state.wakeLockOn,
-    camAlerts: state.camAlerts, camDist: state.camDist, compassOffset: state.compassOffset,
-    gyroFusion: state.gyroFusion, camAhead: state.camAhead, theme: state.theme
+    camAlerts: state.camAlerts, camDist: state.camDist, camRadius: state.camRadius,
+    compassOffset: state.compassOffset,
+    gyroFusion: state.gyroFusion, camAhead: state.camAhead, theme: state.theme,
+    navVoice: state.navVoice, navNoHw: state.navNoHw, navNoToll: state.navNoToll,
+    navBackroads: state.navBackroads, navNoFerry: state.navNoFerry
   });
 }
 function updateCalibStatus() {
@@ -2096,6 +2311,9 @@ function onGeolocation(pos) {
 
   maybeLoadCameras(c.latitude, c.longitude);
   checkCameras();
+  /* Prima del return per accuratezza scarsa piu' sotto: la navigazione deve vedere
+     anche i fix imprecisi, per scartarli con criterio proprio invece che non riceverli. */
+  if (state.nav) { navTick(c.latitude, c.longitude, c.accuracy); navRenderBanner(); }
 
   // Marker/follow si aggiornano a ogni fix, anche se il punto traccia viene scartato:
   // altrimenti in città o da fermo la mappa sembra congelata.
@@ -2122,6 +2340,36 @@ function onGeolocationErr() {
   if (state.demo) return;
   state.gpsStatus = 'err';
   updateGpsStatus();
+}
+
+/* Stato dei dati autovelox. Prima, un errore Overpass o l'uscita dal cerchio scaricato
+   erano del tutto silenziosi: l'app smetteva di poter avvisare senza dirlo. Su un'app
+   antiautovelox il fallimento muto e' il caso peggiore. Indipendente da state.camAlerts:
+   i marker si disegnano comunque, quindi sapere che sono incompleti serve lo stesso. */
+function updateCamStatus() {
+  const p = state.pos.lat != null ? state.pos : (state.gps.lat != null ? state.gps : null);
+  const imported = (state.importedCameras || []).length;
+  let cls = 'ok', txt = 'Autovelox ok';
+  if (state.camFetching) {
+    // Per primo: all'avvio camCenter e' nullo e cameras vuoto, e senza questa
+    // precedenza il badge lampeggerebbe rosso a ogni apertura dell'app.
+    cls = 'wait'; txt = 'Autovelox…';
+  } else if (!p) {
+    cls = 'wait'; txt = 'Autovelox attesa';
+  } else if (Date.now() < state.camRetryAfter) {
+    cls = 'err'; txt = 'Autovelox offline';
+  } else if (!state.cameras.length && !imported) {
+    cls = 'err'; txt = 'Autovelox nessun dato';
+  } else if (!imported && (!state.camCenter || haversine(state.camCenter, p) * 1000 > state.camRadius)) {
+    // Fuori dal cerchio scaricato. Con un DB importato la copertura non dipende
+    // dalla cache OSM, quindi non e' un degrado e non si segnala.
+    cls = 'err'; txt = 'Autovelox fuori zona';
+  } else if (state.camTotal > state.camDrawn) {
+    // Il tetto marker ha tagliato: dirlo, o la mappa sembra completa quando non lo e'.
+    cls = 'wait'; txt = 'Autovelox ' + state.camDrawn + '/' + state.camTotal;
+  }
+  els.camDot.className = 'status-dot ' + cls;
+  els.camTxt.textContent = txt;
 }
 
 function updateGpsStatus() {
@@ -2322,6 +2570,11 @@ function camKey(c) { return c.lat.toFixed(4) + ',' + c.lon.toFixed(4); }
 
 function allCameras() { return state.cameras.concat(state.importedCameras || []); }
 
+/* Raggi derivati da state.camRadius: letti da quattro punti diversi, quindi vivono in
+   una funzione sola per non poter divergere. */
+function camMarkerRadius() { return state.camRadius * CAM_MARKER_FACTOR; }
+function camMoveThreshold() { return state.camRadius * CAM_MOVE_FACTOR; }
+
 /* ---- Indice spaziale a griglia ----
    Un DB importato (es. SCDB Italia) supera i 10.000 punti: la scansione lineare a
    ogni fix GPS e un marker Leaflet per camera bloccavano il telefono. */
@@ -2374,10 +2627,30 @@ function loadCachedCameras() {
   if (c && c.cameras && c.cameras.length) {
     state.cameras = c.cameras;
     state.camCenter = c.center;
-    state.camTs = c.ts || 0;
+    /* Una cache presa a raggio minore e' un sottoinsieme di quello richiesto ora: i punti
+       si mostrano comunque (meglio di niente all'avvio offline) ma con ts a 0, cosi' il
+       primo fix riscarica invece di credere di avere gia' tutto. */
+    state.camTs = (c.r && c.r >= state.camRadius) ? (c.ts || 0) : 0;
     rebuildCamGrid();
     renderCameras();
   }
+}
+
+/* Mirror gia' autorizzati sia dalla CSP sia dal service worker. */
+const CAM_HOSTS = [
+  'https://overpass-api.de/api/interpreter',
+  'https://overpass.kumi.systems/api/interpreter',
+];
+
+/* fetch con timeout esplicito, usata da Overpass, dal routing e dal geocoding. Senza
+   AbortController una connessione appesa (galleria, cella satura) non risolveva mai la
+   promise: `finally` non girava, state.camFetching restava true e la guardia anti-flood
+   qui sotto uccideva ogni fetch successiva per il resto della sessione, senza dirlo. */
+async function fetchWithTimeout(url, ms) {
+  const ctl = new AbortController();
+  const kill = setTimeout(() => ctl.abort(), ms);
+  try { return await fetch(url, { signal: ctl.signal }); }
+  finally { clearTimeout(kill); }
 }
 
 async function fetchCameras(lat, lon) {
@@ -2386,10 +2659,23 @@ async function fetchCameras(lat, lon) {
   if (state.camFetching) return;
   if (Date.now() < state.camRetryAfter) return;
   state.camFetching = true;
-  const q = `[out:json][timeout:25];(node["highway"="speed_camera"](around:${CAM_QUERY_RADIUS_M},${lat},${lon});node["enforcement"="speed_camera"](around:${CAM_QUERY_RADIUS_M},${lat},${lon}););out body;`;
+  /* Il timeout del server scala col raggio: a 50 km l'area e' 25 volte quella a 10 km,
+     e i 25 s fissi non bastavano sulle zone dense. */
+  const r = state.camRadius;
+  const tmo = Math.round(25 + (r - 10000) / 1000);
+  const q = `[out:json][timeout:${tmo}];(node["highway"="speed_camera"](around:${r},${lat},${lon});node["enforcement"="speed_camera"](around:${r},${lat},${lon}););out body;`;
+  const qs = '?data=' + encodeURIComponent(q);
   try {
-    const res = await fetch('https://overpass-api.de/api/interpreter?data=' + encodeURIComponent(q));
-    if (!res.ok) { state.camRetryAfter = Date.now() + CAM_FAIL_BACKOFF_MS; return; }
+    let res = null, lastErr = null;
+    // Al primo errore si prova il mirror, prima di rassegnarsi al backoff di 2 minuti.
+    for (const host of CAM_HOSTS) {
+      try {
+        const r2 = await fetchWithTimeout(host + qs, (tmo + 10) * 1000);
+        if (r2.ok) { res = r2; break; }
+        lastErr = new Error('HTTP ' + r2.status);
+      } catch (e) { lastErr = e; }
+    }
+    if (!res) throw lastErr || new Error('overpass non raggiungibile');
     const data = await res.json();
     const cams = (data.elements || []).map(el => ({
       lat: el.lat, lon: el.lon,
@@ -2400,7 +2686,7 @@ async function fetchCameras(lat, lon) {
     state.camCenter = { lat, lon };
     state.camTs = Date.now();
     state.camRetryAfter = 0;
-    store.set('cruscotto.cameras', { center: { lat, lon }, ts: state.camTs, cameras: cams });
+    store.set('cruscotto.cameras', { center: { lat, lon }, ts: state.camTs, r: r, cameras: cams });
     rebuildCamGrid();
     renderCameras();
   } catch (e) {
@@ -2412,7 +2698,7 @@ async function fetchCameras(lat, lon) {
 
 function maybeLoadCameras(lat, lon) {
   const stale = !state.camTs || (Date.now() - state.camTs > CAM_STALE_MS);
-  const moved = !state.camCenter || haversine(state.camCenter, { lat, lon }) * 1000 > CAM_MIN_MOVE_M;
+  const moved = !state.camCenter || haversine(state.camCenter, { lat, lon }) * 1000 > camMoveThreshold();
   if (stale || moved) fetchCameras(lat, lon);
 }
 
@@ -2425,13 +2711,28 @@ function camLabel(c) {
   return parts.join(' · ');
 }
 
+/* Cosa disegnare: mai piu' di CAM_MARKER_MAX marker. Il tetto vive qui e NON dentro
+   camsNear(), che serve anche a checkCameras(): un avviso perso per colpa di un limite
+   di disegno sarebbe il bug peggiore introducibile in quest'app. */
+function camsToDraw() {
+  const p = state.pos.lat != null ? state.pos : (state.gps.lat != null ? state.gps : null);
+  // Con un DB nazionale importato non si disegna tutto: solo ciò che è vicino.
+  const list = p ? camsNear(p.lat, p.lon, camMarkerRadius()) : allCameras();
+  state.camTotal = list.length;
+  state.camDrawn = Math.min(list.length, CAM_MARKER_MAX);
+  if (list.length <= CAM_MARKER_MAX) return list;
+  if (!p) return list.slice(0, CAM_MARKER_MAX);
+  // Si ordina solo quando il tetto morde davvero, e comunque a un redraw ogni 20 s.
+  const withD = list.map(c => ({ c: c, d: haversine(p, { lat: c.lat, lon: c.lon }) }));
+  withD.sort((a, b) => a.d - b.d);
+  return withD.slice(0, CAM_MARKER_MAX).map(x => x.c);
+}
+
 function renderCameras() {
   if (state.mapType === 'leaflet' && state.map) {
     if (!state.camLayer) state.camLayer = L.layerGroup().addTo(state.map);
     state.camLayer.clearLayers();
-    const p = state.pos.lat != null ? state.pos : (state.gps.lat != null ? state.gps : null);
-    // Con un DB nazionale importato non si disegna tutto: solo ciò che è vicino.
-    const list = p ? camsNear(p.lat, p.lon, CAM_MARKER_RADIUS_M) : allCameras().slice(0, 500);
+    const list = camsToDraw();
     for (const c of list) {
       const m = L.circleMarker([c.lat, c.lon], { radius: 7, color: '#f87171', fillColor: '#f87171', fillOpacity: 0.9, weight: 2 });
       const lbl = camLabel(c);
@@ -2664,6 +2965,937 @@ async function loadImportedCameras() {
     rebuildCamGrid();
     renderCameras();
   }
+}
+
+/* ============================== Navigatore (Valhalla) ============================== */
+/* Percorso da valhalla1.openstreetmap.de (istanza pubblica FOSSGIS, nessuna chiave).
+   Vincoli che hanno deciso il design di questo blocco:
+   - la shape e' una polyline a 6 decimali, NON 5: con il divisore sbagliato le
+     coordinate finiscono a un decimo e la mappa disegna il vuoto senza un errore;
+   - il server accetta 1 richiesta/secondo per utente, quindi routing e geocoding
+     condividono una sola coda serializzata (navGate);
+   - `maneuver[k]` descrive la svolta che avviene a shape[begin_shape_index[k]]:
+     mentre si percorre k, quella da annunciare e' la k+1. */
+
+const NAV_HOSTS = ['https://valhalla1.openstreetmap.de/route'];
+const NAV_GEO_HOST = 'https://photon.komoot.io/api';
+const NAV_API_GAP_MS = 1100;      // 1 req/s con margine, per TUTTE le chiamate
+const NAV_TIMEOUT_MS = 20000;
+const NAV_GEO_TIMEOUT_MS = 8000;
+
+const NAV_OFF_FIXES = 4;          // fix consecutivi fuori soglia
+const NAV_OFF_TRAVEL_M = 40;      // ...e metri REALMENTE percorsi: il guard del semaforo
+const NAV_MISS_FIXES = 3;         // rilevatore di manovra mancata
+const NAV_MISS_TRAVEL_M = 25;
+const NAV_WRONG_FIXES = 5;        // contromano
+const NAV_WRONG_TRAVEL_M = 60;
+const NAV_REROUTE_MOVE_M = 60;
+const NAV_REROUTE_BACKOFF = [12000, 25000, 50000, 90000, 120000];
+const NAV_REROUTE_MAX = 6;        // circuit breaker: 6 ricalcoli in 10 min -> manuale
+const NAV_REROUTE_WINDOW_MS = 600000;
+const NAV_RELOCK_LOST = 5;
+const NAV_RELOCK_GAP_MS = 8000;
+const NAV_RELOCK_JUMP_M = 400;
+const NAV_ARRIVE_FIXES = 2;
+const NAV_HEAD_GATE_DEG = 120;    // scarta i segmenti che vanno dall'altra parte
+const NAV_PASS_OVERSHOOT_M = 10;
+const NAV_PASS_EARLY_M = 10;
+const NAV_PASS_HEAD_DEG = 45;
+const NAV_CHAIN_MIN_M = 150;      // due manovre "incatenate" sotto questa distanza
+const NAV_MAX_SEG_SCAN = 400;     // tappo duro sui segmenti valutati per fix
+
+const MAN_ROUNDABOUT_IN = 26, MAN_ROUNDABOUT_OUT = 27;
+
+/* Fasce di annuncio: TEMPORALI, non metriche. 100 m a 130 km/h sono 2,8 s, cioe'
+   troppo tardi per un'uscita autostradale. clamp(v*t, min, max). */
+const NAV_BANDS = [
+  { bit: 8, t: 3.5, min: 25,  max: 140,  name: 'now'  },
+  { bit: 4, t: 9,   min: 80,  max: 350,  name: 'near' },
+  { bit: 2, t: 25,  min: 250, max: 900,  name: 'mid'  },
+  { bit: 1, t: 55,  min: 500, max: 1800, name: 'far'  },
+];
+
+function distM(a, b) { return haversine(a, b) * 1000; } // haversine ritorna km
+
+/* ---- coda globale: una sola richiesta ogni NAV_API_GAP_MS verso Valhalla/Photon.
+   Senza, un ricalcolo e un geocoding concorrenti si fanno 429 a vicenda. ---- */
+let navGateLast = 0, navGateChain = Promise.resolve();
+function navGate(fn) {
+  const run = navGateChain.then(async () => {
+    const wait = NAV_API_GAP_MS - (Date.now() - navGateLast);
+    if (wait > 0) await new Promise(r => setTimeout(r, wait));
+    navGateLast = Date.now();
+    return fn();
+  });
+  navGateChain = run.catch(() => {}); // un errore non deve rompere la catena
+  return run;
+}
+
+/* ---- decodifica polyline, precisione 6 ----
+   Aritmetica float invece di |= e >>: a precisione 6 i valori arrivano a 29 bit e il
+   margine sui 32 bit si assottiglia. Costa nulla e toglie di mezzo la classe di bug. */
+function decodePolyline6(str) {
+  const lats = [], lons = [];
+  let i = 0, lat = 0, lon = 0;
+  const n = str.length;
+  while (i < n) {
+    let shift = 0, result = 0, b;
+    do { b = str.charCodeAt(i++) - 63; result += (b & 0x1f) * Math.pow(2, shift); shift += 5; }
+    while (b >= 0x20 && i < n);
+    lat += (result % 2 === 1) ? -(result + 1) / 2 : result / 2;
+    shift = 0; result = 0;
+    do { b = str.charCodeAt(i++) - 63; result += (b & 0x1f) * Math.pow(2, shift); shift += 5; }
+    while (b >= 0x20 && i < n);
+    lon += (result % 2 === 1) ? -(result + 1) / 2 : result / 2;
+    lats.push(lat * 1e-6); lons.push(lon * 1e-6);
+  }
+  return { lat: lats, lon: lons };
+}
+
+/* Asserzione di sanita': il sintomo dell'errore 5-vs-6 e' latitudine 4.5 invece di 45.
+   Senza questo controllo la mappa mostra solo il vuoto e non c'e' nessun errore. */
+function navShapePlausible(lats, lons) {
+  if (!lats.length) return false;
+  for (let i = 0; i < lats.length; i += Math.max(1, Math.floor(lats.length / 20))) {
+    if (!isFinite(lats[i]) || !isFinite(lons[i])) return false;
+    if (Math.abs(lats[i]) > 90 || Math.abs(lons[i]) > 180) return false;
+  }
+  return true;
+}
+
+/* ---- costruzione delle strutture derivate, una volta sola alla ricezione ----
+   Typed array e non array di oggetti: 12.000 punti come {lat,lon} sono ~1,2 MB e
+   pressione GC in un loop che gira a ogni fix; cosi' sono ~350 KB. */
+function navBuild(trip) {
+  const legs = trip && trip.legs;
+  if (!legs || !legs.length) throw new Error('rotta senza legs');
+  const aLat = [], aLon = [], man = [];
+  for (let L = 0; L < legs.length; L++) {
+    const d = decodePolyline6(legs[L].shape || '');
+    if (!d.lat.length) throw new Error('leg senza shape');
+    // Il primo punto di ogni leg successivo duplica l'ultimo del precedente: va scartato,
+    // e l'offset va sommato agli shape_index o le manovre del leg 2 puntano al leg 1.
+    const skip = L > 0 ? 1 : 0;
+    const off = aLat.length - skip;
+    for (let i = skip; i < d.lat.length; i++) { aLat.push(d.lat[i]); aLon.push(d.lon[i]); }
+    for (const m of (legs[L].maneuvers || [])) {
+      man.push({
+        type: m.type | 0,
+        text: String(m.instruction || ''),
+        vAlert: String(m.verbal_transition_alert_instruction || ''),
+        vPre: String(m.verbal_pre_transition_instruction || ''),
+        vPost: String(m.verbal_post_transition_instruction || ''),
+        multiCue: !!m.verbal_multi_cue,
+        streets: (m.street_names || []).map(String),
+        beginIdx: (m.begin_shape_index | 0) + off,
+        endIdx: (m.end_shape_index | 0) + off,
+        time: +m.time || 0,
+        brgBefore: (m.bearing_before == null) ? null : +m.bearing_before,
+        brgAfter: (m.bearing_after == null) ? null : +m.bearing_after,
+        roundExit: m.roundabout_exit_count == null ? null : (m.roundabout_exit_count | 0),
+        legIdx: L,
+        silent: false,
+      });
+    }
+  }
+  if (!navShapePlausible(aLat, aLon)) throw new Error('shape implausibile (precisione polyline?)');
+
+  const n = aLat.length;
+  const lat = new Float64Array(n), lon = new Float64Array(n);
+  for (let i = 0; i < n; i++) { lat[i] = aLat[i]; lon[i] = aLon[i]; }
+  const cum = new Float64Array(n);
+  for (let i = 1; i < n; i++) {
+    cum[i] = cum[i - 1] + distM({ lat: lat[i - 1], lon: lon[i - 1] }, { lat: lat[i], lon: lon[i] });
+  }
+  const brg = new Float32Array(Math.max(0, n - 1));
+  for (let i = 0; i < n - 1; i++) {
+    brg[i] = bearing({ lat: lat[i], lon: lon[i] }, { lat: lat[i + 1], lon: lon[i + 1] });
+  }
+  const flags = new Uint8Array(n);
+
+  const M = man.length;
+  const sMan = new Float64Array(M), tEnd = new Float64Array(M);
+  let acc = 0;
+  for (let k = 0; k < M; k++) {
+    sMan[k] = cum[Math.min(n - 1, Math.max(0, man[k].beginIdx))];
+    acc += man[k].time; tEnd[k] = acc;
+    // Dentro una rotonda i bearing ruotano di 360 gradi in 30 m: li' il gate di heading
+    // ucciderebbe il match, quindi si marca il tratto e lo si disattiva.
+    if (man[k].type === MAN_ROUNDABOUT_IN || man[k].type === MAN_ROUNDABOUT_OUT) {
+      for (let i = Math.max(0, man[k].beginIdx); i <= Math.min(n - 1, man[k].endIdx); i++) flags[i] |= 1;
+    }
+    // L'uscita dalla rotonda non si annuncia: il verbal della enter contiene gia'
+    // "prendi la N-esima uscita", e l'arco e' piu' corto della fascia piu' stretta,
+    // quindi tutte le sue fasce scatterebbero nello stesso fix.
+    if (man[k].type === MAN_ROUNDABOUT_OUT) man[k].silent = true;
+  }
+  return { n, lat, lon, cum, brg, flags, man, sMan, tEnd,
+           totalM: cum[n - 1], totalS: acc };
+}
+
+function navReset() {
+  state.nav = null;
+  navSpeak.stop();
+  navRenderBanner();
+  navDrawRoute();
+}
+
+/* ---- proiezione punto-segmento in piano equirettangolare locale ----
+   Origine nella posizione corrente: numeri piccoli, niente cancellazione, e cos(lat)
+   calcolato una volta per fix invece che per segmento. A 44 gradi cos = 0,72:
+   ignorarlo gonfia le distanze est-ovest del 39%. */
+function navSegNearest(nv, i, kx, ky, pLat, pLon) {
+  const ax = (nv.lon[i] - pLon) * kx, ay = (nv.lat[i] - pLat) * ky;
+  const bx = (nv.lon[i + 1] - pLon) * kx, by = (nv.lat[i + 1] - pLat) * ky;
+  const dx = bx - ax, dy = by - ay;
+  const L2 = dx * dx + dy * dy;
+  let t = 0;
+  if (L2 > 1e-9) t = Math.max(0, Math.min(1, -(ax * dx + ay * dy) / L2));
+  const cx = ax + t * dx, cy = ay + t * dy;
+  return { d2: cx * cx + cy * cy, t: t };
+}
+
+function navLowerBound(cum, n, v) {
+  let lo = 0, hi = n - 1;
+  while (lo < hi) { const m = (lo + hi) >> 1; if (cum[m] < v) lo = m + 1; else hi = m; }
+  return lo;
+}
+
+/* Aggancio alla polilinea. Non argmin geometrico puro: su un percorso che ripassa
+   vicino a se stesso (tornanti, ritorno sulla stessa strada, doppia carreggiata)
+   il punto piu' vicino e' quello sbagliato, l'aggancio salta di 40 km e il navigatore
+   comincia ad annunciare svolte di un altro pezzo di percorso. */
+function navProject(nv, pLat, pLon, hdg, v, acc, full) {
+  const kx = 111320 * Math.cos(pLat * Math.PI / 180), ky = 111132;
+  let lo, hi;
+  if (full) { lo = 0; hi = nv.n - 2; }
+  else {
+    const back = Math.max(60, 2 * v), fwd = Math.max(200, 6 * v + 3 * (acc || 0));
+    lo = navLowerBound(nv.cum, nv.n, nv.sAlong - back);
+    hi = navLowerBound(nv.cum, nv.n, nv.sAlong + fwd);
+    hi = Math.min(nv.n - 2, Math.max(lo, Math.min(hi, lo + NAV_MAX_SEG_SCAN)));
+  }
+  const useHead = hdg != null && isFinite(hdg);
+  let best = null, bestScore = Infinity;
+  for (let pass = 0; pass < 2; pass++) {
+    // pass 0 con il gate di heading; pass 1 senza, se il gate ha escluso tutto
+    for (let i = lo; i <= hi; i++) {
+      const round = (nv.flags[i] & 1) !== 0;
+      let dh = 0;
+      if (useHead && !round) {
+        dh = angleDiff(hdg, nv.brg[i]);
+        if (pass === 0 && dh > NAV_HEAD_GATE_DEG) continue;
+      }
+      const r = navSegNearest(nv, i, kx, ky, pLat, pLon);
+      const d = Math.sqrt(r.d2);
+      const s = nv.cum[i] + r.t * (nv.cum[i + 1] - nv.cum[i]);
+      // penalita' di regressione: 0,75 m per ogni metro indietro oltre 20 m di slack
+      const back = full ? 0 : Math.max(0, (nv.sAlong - 20) - s) * 0.75;
+      const head = (useHead && !round) ? 60 * dh / 180 : 0;
+      const score = d + back + head;
+      if (score < bestScore) { bestScore = score; best = { i: i, t: r.t, d: d, s: s }; }
+    }
+    if (best) break;
+  }
+  return best;
+}
+
+/* ---- avanzamento manovre ----
+   `while`, non `if`: dopo una galleria ci si ritrova due o tre manovre avanti, e con
+   `if` si scaricano tre "adesso gira" consecutivi per svolte gia' superate. */
+function navPassed(nv, k, hdg) {
+  if (k >= nv.man.length) return false;
+  if (nv.offDist > nv.offThr) return false;   // match scadente: si congela
+  if (nv.sAlong >= nv.sMan[k] + NAV_PASS_OVERSHOOT_M) return true;
+  if (nv.sAlong >= nv.sMan[k] - NAV_PASS_EARLY_M &&
+      hdg != null && nv.man[k].brgAfter != null &&
+      angleDiff(hdg, nv.man[k].brgAfter) <= NAV_PASS_HEAD_DEG) return true;
+  return false;
+}
+
+function navAdvance(nv, hdg) {
+  let moved = 0;
+  while (nv.nextMan < nv.man.length && navPassed(nv, nv.nextMan, hdg)) {
+    nv.nextMan++; nv.spoken = 0; moved++;
+  }
+  // Le manovre consumate in blocco da un recupero GPS non devono generare il post-cue:
+  // "continua per 3 km su via X" quando via X e' gia' alle spalle e' disinformazione.
+  if (moved > 1) nv.suppressPost = true;
+  return moved;
+}
+
+function navBandDist(b, vRef) { return Math.max(b.min, Math.min(b.max, vRef * b.t)); }
+
+function navFmtDist(m) {
+  if (m < 150) return Math.round(m / 10) * 10 + ' metri';
+  if (m < 950) return Math.round(m / 50) * 50 + ' metri';
+  if (m < 3000) return (m / 1000).toFixed(1).replace('.', ',') + ' chilometri';
+  return Math.round(m / 1000) + ' chilometri';
+}
+function navFmtShort(m) {
+  if (m < 1000) return Math.round(m / 10) * 10 + ' m';
+  return (m / 1000).toFixed(m < 10000 ? 1 : 0).replace('.', ',') + ' km';
+}
+function navFmtTime(s) {
+  if (!isFinite(s) || s < 0) return '—';
+  const h = Math.floor(s / 3600), m = Math.round((s % 3600) / 60);
+  return h ? h + ' h ' + String(m).padStart(2, '0') : m + ' min';
+}
+
+/* ---- sintesi vocale ----
+   speak() ACCODA, non interrompe: due annunci ravvicinati si sovrappongono. Un annuncio
+   a bassa priorita' che arriva in ritardo e' peggio del silenzio (un "adesso gira"
+   accodato dietro una frase lunga arriva a curva fatta), quindi si scarta invece di
+   accodare, e si cancella solo per priorita' alta. */
+const navSpeak = {
+  voice: null, busy: false, prio: -1, timer: null, primed: false,
+  init() {
+    if (!('speechSynthesis' in window)) return;
+    const pick = () => {
+      const vs = speechSynthesis.getVoices() || [];
+      this.voice = vs.find(v => /^it([-_]|$)/i.test(v.lang)) || null;
+    };
+    pick();
+    // getVoices() e' asincrona su Chrome: al primo giro la lista e' vuota.
+    try { speechSynthesis.addEventListener('voiceschanged', pick); } catch (e) {}
+  },
+  /* Su iOS il primo speak() deve stare dentro un gesto utente, o la navigazione
+     resta muta e lo si scopre a 90 km/h. Si innesca sul tap "Avvia". */
+  prime() {
+    if (this.primed || !('speechSynthesis' in window)) return;
+    this.primed = true;
+    this.say('Navigazione avviata', 4);
+  },
+  say(text, prio) {
+    if (!state.navVoice || !text) return;
+    if (!('speechSynthesis' in window)) return;
+    if (this.busy) {
+      if (prio >= 3 && prio > this.prio) speechSynthesis.cancel();
+      else return;                       // scartato di proposito, non accodato
+    }
+    const u = new SpeechSynthesisUtterance(text);
+    u.lang = 'it-IT';
+    if (this.voice) u.voice = this.voice;
+    u.rate = 1.05;
+    this.busy = true; this.prio = prio;
+    const done = () => { this.busy = false; this.prio = -1; clearTimeout(this.timer); };
+    u.onend = done; u.onerror = done;
+    // onend non e' affidabile su tutti i motori Android: watchdog proporzionale.
+    clearTimeout(this.timer);
+    this.timer = setTimeout(done, Math.max(2500, text.length * 90));
+    try { speechSynthesis.speak(u); } catch (e) { done(); }
+  },
+  stop() {
+    if (!('speechSynthesis' in window)) return;
+    try { speechSynthesis.cancel(); } catch (e) {}
+    this.busy = false; this.prio = -1; clearTimeout(this.timer);
+  },
+};
+
+/* Android Chrome tronca la sintesi dopo ~15 s: heartbeat mentre sta parlando. */
+setInterval(() => {
+  if (navSpeak.busy && 'speechSynthesis' in window) {
+    try { speechSynthesis.resume(); } catch (e) {}
+  }
+}, 8000);
+
+function navShortCue(txt) {
+  // toglie il nome della via dal secondo pezzo: un'utterance di 4 s in curva e' inutile
+  return String(txt || '').replace(/\s+su\s+.*$/i, '').replace(/\.$/, '');
+}
+
+function navAnnounce(nv, vRef) {
+  if (nv.status !== 'ACTIVE') return;           // muti durante il ricalcolo
+  const k = nv.nextMan;
+  if (k >= nv.man.length) return;
+  const m = nv.man[k];
+  if (m.silent) return;
+  const d = nv.distToNext;
+  // dalla fascia piu' vicina verso l'esterno, al massimo una per fix
+  for (const b of NAV_BANDS) {
+    if (nv.spoken & b.bit) continue;
+    if (d > navBandDist(b, vRef)) continue;
+    // Si settano anche i bit delle fasce piu' lontane: altrimenti da fermi vRef crolla,
+    // le soglie si stringono e una fascia gia' passata torna eleggibile.
+    let mask = 0;
+    for (const o of NAV_BANDS) if (o.t >= b.t) mask |= o.bit;
+    nv.spoken |= mask;                          // PRIMA di say(), e in modo sincrono
+    let txt;
+    if (b.name === 'now') {
+      txt = m.vPre || m.text;
+    } else if (b.name === 'far' && m.vAlert && d >= 1200 && d <= 2200) {
+      // vAlert ha la distanza incorporata nel testo: verbatim solo nella sua finestra
+      txt = m.vAlert;
+    } else {
+      txt = 'Fra ' + navFmtDist(d) + ', ' + (m.vPre || m.text);
+    }
+    // manovre incatenate: Valhalla marca multiCue e il suo vPre contiene gia' entrambe
+    if ((b.name === 'near' || b.name === 'now') && k + 1 < nv.man.length) {
+      const gap = nv.sMan[k + 1] - nv.sMan[k];
+      if (gap < Math.max(NAV_CHAIN_MIN_M, 6 * vRef)) {
+        if (!m.multiCue) txt += ', poi ' + navShortCue(nv.man[k + 1].vPre || nv.man[k + 1].text);
+        nv.preSpoken[k + 1] = (nv.preSpoken[k + 1] || 0) | 1 | 2 | 4 | (gap < 60 ? 8 : 0);
+      }
+    }
+    const prio = b.name === 'now' ? 4 : b.name === 'near' ? 3 : b.name === 'mid' ? 2 : 1;
+    navSpeak.say(txt, prio);
+    return;
+  }
+}
+
+/* ---- il tick per fix GPS ----
+   Ordine non permutabile: proietta -> valuta fuori percorso (con il nextMan VECCHIO)
+   -> avanza -> distanze -> voce -> persist. Valutare il fuori percorso dopo
+   l'avanzamento fa risultare "superata" la manovra mancata, e il rilevatore B
+   non scatta mai. */
+function navTick(pLat, pLon, acc) {
+  const nv = state.nav;
+  if (!nv || nv.status === 'IDLE') return;
+  const now = Date.now();
+  const v = state.speedMs || 0;
+  const hdg = trackUpHeading();
+  const gap = nv.lastFixAt ? (now - nv.lastFixAt) : 0;
+  const jump = (nv.lastLat != null) ? distM({ lat: nv.lastLat, lon: nv.lastLon }, { lat: pLat, lon: pLon }) : 0;
+  const resumed = gap > 30000;                 // ritorno da background / galleria
+  nv.vEMA = nv.vEMA == null ? v : (nv.vEMA + 0.25 * (v - nv.vEMA));
+  const vRef = Math.max(5, nv.vEMA);
+
+  // 1. aggancio
+  const needFull = nv.lostCount >= NAV_RELOCK_LOST || resumed ||
+                   (nv.lastGoodAt && now - nv.lastGoodAt > NAV_RELOCK_GAP_MS) ||
+                   jump > NAV_RELOCK_JUMP_M;
+  let pr = navProject(nv, pLat, pLon, hdg, v, acc, needFull);
+  if (!pr) { nv.lastFixAt = now; return; }
+  if (needFull && Math.abs(pr.s - nv.sAlong) > 300) {
+    // salto grosso: conferma su due fix prima di adottarlo
+    if (nv.pendingS != null && Math.abs(pr.s - nv.pendingS) < 200) { nv.pendingS = null; }
+    else { nv.pendingS = pr.s; nv.lastFixAt = now; nv.lastLat = pLat; nv.lastLon = pLon; return; }
+  }
+  nv.idx = pr.i; nv.segT = pr.t; nv.sAlong = pr.s; nv.offDist = pr.d;
+  nv.snapLat = nv.lat[pr.i] + pr.t * (nv.lat[pr.i + 1] - nv.lat[pr.i]);
+  nv.snapLon = nv.lon[pr.i] + pr.t * (nv.lon[pr.i + 1] - nv.lon[pr.i]);
+  // soglia adattiva: la componente su acc e' il vero freno, senza si ricalcola
+  // ogni 15 s in un canyon urbano
+  nv.offThr = Math.max(30, Math.min(90, 30 + 1.5 * (acc || 0) + 0.3 * v));
+  if (nv.offDist <= nv.offThr) { nv.lastGoodAt = now; nv.lostCount = 0; }
+  else nv.lostCount++;
+
+  const travelled = jump;
+  const judging = (acc == null || acc <= GPS_ACC_MAX) && !resumed;
+  // Senza questo incremento il freno "60 m dall'ultima richiesta" non si sblocca mai
+  // e dopo il primo ricalcolo tutti i successivi restano bloccati per sempre.
+  nv.travelSinceReroute = (nv.travelSinceReroute || 0) + travelled;
+
+  // 2. fuori percorso — tre rilevatori, tutti prima dell'avanzamento
+  let trigger = null;
+  if (nv.status === 'ACTIVE' && judging) {
+    // A) scarto laterale persistente. Il guard del semaforo e' offTravel, NON offCount:
+    //    da fermi il GPS deriva di 60 m in quattro secondi e il contatore arriverebbe
+    //    a 4 lo stesso, ma la distanza percorsa resta zero.
+    if (nv.offDist > nv.offThr) { nv.offCount++; nv.offTravel += travelled; }
+    else { nv.offCount = 0; nv.offTravel = 0; }
+    if (nv.offCount >= NAV_OFF_FIXES && nv.offTravel >= NAV_OFF_TRAVEL_M) trigger = 'scarto';
+
+    // B) manovra mancata. Serve perche' A e' troppo lento: dopo un'uscita autostradale
+    //    persa la rotta resta parallela 300-400 m e A scatta dopo 10-15 s, quando
+    //    l'uscita dopo e' a 12 km.
+    const k = nv.nextMan, mk = k < nv.man.length ? nv.man[k] : null;
+    if (mk && hdg != null && mk.brgAfter != null && mk.brgBefore != null &&
+        nv.sAlong >= nv.sMan[k] - 5 &&
+        angleDiff(hdg, mk.brgAfter) > 60 &&
+        angleDiff(mk.brgBefore, mk.brgAfter) > 25) {
+      nv.missCount++; nv.missTravel += travelled;
+    } else { nv.missCount = 0; nv.missTravel = 0; }
+    if (nv.missCount >= NAV_MISS_FIXES && nv.missTravel >= NAV_MISS_TRAVEL_M) trigger = 'manovra mancata';
+
+    // C) contromano
+    if (hdg != null && angleDiff(hdg, nv.brg[nv.idx]) > 135) { nv.wrongCount++; nv.wrongTravel += travelled; }
+    else { nv.wrongCount = 0; nv.wrongTravel = 0; }
+    if (nv.wrongCount >= NAV_WRONG_FIXES && nv.wrongTravel >= NAV_WRONG_TRAVEL_M) trigger = 'contromano';
+
+    // D) scorciatoia forte: scarto grosso con fix buono, non si aspetta
+    if (nv.offDist > 150 && (acc == null || acc < 20) && v > 5) { nv.farCount++; } else nv.farCount = 0;
+    if (nv.farCount >= 2) trigger = 'fuori percorso';
+  }
+
+  // 3. avanzamento manovre (solo se non stiamo per ricalcolare)
+  if (!trigger) navAdvance(nv, hdg);
+
+  // 4. distanze e tempi
+  const k = nv.nextMan;
+  nv.distToNext = k < nv.man.length ? Math.max(0, nv.sMan[k] - nv.sAlong) : 0;
+  nv.distRemain = Math.max(0, nv.totalM - nv.sAlong);
+  const kc = Math.max(0, k - 1);
+  const span = Math.max(1, (k < nv.man.length ? nv.sMan[k] : nv.totalM) - nv.sMan[kc]);
+  const frac = Math.max(0, Math.min(1, (nv.sAlong - nv.sMan[kc]) / span));
+  nv.timeRemain = (nv.tEnd[nv.man.length - 1] - nv.tEnd[kc]) + (1 - frac) * nv.man[kc].time;
+
+  // 5. arrivo
+  const arriveM = Math.max(25, 1.5 * (acc || 0));
+  const near = nv.dest ? distM({ lat: pLat, lon: pLon }, nv.dest) : Infinity;
+  if (nv.status === 'ACTIVE' && (nv.distRemain < 15 || near < arriveM)) {
+    nv.arriveCount++;
+    if (nv.arriveCount >= NAV_ARRIVE_FIXES) {
+      nv.status = 'ARRIVED';
+      navSpeak.say('Sei arrivato a destinazione.', 4);
+      trigger = null;
+    }
+  } else nv.arriveCount = 0;
+
+  // 6. voce
+  if (nv.status === 'ACTIVE' && !trigger) {
+    if (nv.preSpoken[k]) { nv.spoken |= nv.preSpoken[k]; nv.preSpoken[k] = 0; }
+    navAnnounce(nv, vRef);
+  }
+
+  // 7. ricalcolo, con i freni
+  if (trigger) navMaybeReroute(pLat, pLon, hdg, trigger);
+
+  nv.lastFixAt = now; nv.lastLat = pLat; nv.lastLon = pLon;
+  navPersistProgress();
+}
+
+/* Freni sul ricalcolo. Il gate globale a 1,1 s copre il limite del server; qui si
+   evita di chiedere una rotta nuova per un errore GPS o per una deviazione voluta. */
+function navMaybeReroute(pLat, pLon, hdg, why) {
+  const nv = state.nav;
+  const now = Date.now();
+  if (nv.status !== 'ACTIVE') return;
+  if (nv.rerouteAt && now - nv.rerouteAt < nv.rerouteWait) return;
+  if (nv.rerouteAt && nv.travelSinceReroute < NAV_REROUTE_MOVE_M) return;
+  // circuit breaker: se sto deviando apposta, il navigatore deve smettere di insistere
+  nv.rerouteLog = (nv.rerouteLog || []).filter(t => now - t < NAV_REROUTE_WINDOW_MS);
+  if (nv.rerouteLog.length >= NAV_REROUTE_MAX) {
+    nv.status = 'OFF_MANUAL';
+    navSpeak.say('Fuori percorso. Tocca ricalcola quando vuoi.', 3);
+    navRenderBanner(); renderNavPanel();
+    return;
+  }
+  nv.rerouteLog.push(now);
+  nv.rerouteAt = now; nv.travelSinceReroute = 0;
+  nv.rerouteStreak = (nv.lastRerouteEnd && now - nv.lastRerouteEnd < 60000) ? nv.rerouteStreak + 1 : 0;
+  nv.rerouteWait = NAV_REROUTE_BACKOFF[Math.min(nv.rerouteStreak, NAV_REROUTE_BACKOFF.length - 1)];
+  nv.status = 'REROUTING';
+  nv.offCount = 0; nv.offTravel = 0; nv.missCount = 0; nv.wrongCount = 0; nv.farCount = 0;
+  navSpeak.stop();
+  navSpeak.say('Ricalcolo il percorso.', 3);
+  navRenderBanner();
+  navRequestRoute({ lat: pLat, lon: pLon }, nv.dest, hdg, why);
+}
+
+/* ---- richiesta del percorso ----
+   GET con ?json=, non POST: e' una richiesta semplice (nessun header custom, nessun
+   Content-Type) e quindi non fa scattare il preflight CORS. */
+function navCostingOptions() {
+  return { motorcycle: {
+    use_highways: state.navNoHw ? 0.1 : 0.5,
+    use_tolls: state.navNoToll ? 0.0 : 0.5,
+    use_ferry: state.navNoFerry ? 0.0 : 0.5,
+    use_trails: state.navBackroads ? 0.6 : 0.0,
+  } };
+}
+
+async function navRequestRoute(from, to, hdg, why) {
+  if (!from || !to) return;
+  const orig = { lat: from.lat, lon: from.lon };
+  // Senza heading sull'origine, Valhalla e' libero di rispondere con un'inversione a U
+  // verso il punto appena lasciato: in autostrada e' il peggior output possibile.
+  if (hdg != null && isFinite(hdg)) { orig.heading = Math.round(hdg); orig.heading_tolerance = 45; }
+  const req = {
+    locations: [orig, { lat: to.lat, lon: to.lon }],
+    costing: 'motorcycle',
+    costing_options: navCostingOptions(),
+    directions_options: { language: 'it-IT', units: 'kilometers' },
+  };
+  navSetStatus(why ? 'Ricalcolo in corso…' : 'Calcolo percorso…');
+  let data = null, err = null;
+  for (const host of NAV_HOSTS) {
+    try {
+      const res = await navGate(() => fetchWithTimeout(
+        host + '?json=' + encodeURIComponent(JSON.stringify(req)), NAV_TIMEOUT_MS));
+      const j = await res.json();
+      // Valhalla riporta gli errori come JSON con error_code, non come HTTP non-2xx.
+      if (j && j.error) { err = new Error(j.error); continue; }
+      if (!res.ok) { err = new Error('HTTP ' + res.status); continue; }
+      if (!j || !j.trip || j.trip.status !== 0) { err = new Error('risposta non valida'); continue; }
+      data = j; break;
+    } catch (e) { err = e; }
+  }
+  const prev = state.nav;
+  if (!data) {
+    if (prev && prev.man) {
+      // Mai cancellare la rotta salvata: la linea vecchia resta l'informazione piu'
+      // utile che si abbia, e senza rete e' l'unica.
+      prev.status = 'OFF_NONET';
+      prev.lastRerouteEnd = Date.now();
+      navSetStatus('Senza rete: percorso non aggiornato. ' + (err ? err.message : ''));
+    } else {
+      navSetStatus('Percorso non calcolabile: ' + (err ? err.message : 'errore'));
+      toast('Percorso non calcolabile.', 'err', 5000);
+    }
+    navRenderBanner(); renderNavPanel();
+    return;
+  }
+  let nv;
+  try { nv = navBuild(data.trip); }
+  catch (e) { navSetStatus('Percorso illeggibile: ' + e.message); toast('Percorso illeggibile.', 'err', 5000); return; }
+
+  nv.dest = { lat: to.lat, lon: to.lon, label: (state.navDest && state.navDest.label) || (prev && prev.dest && prev.dest.label) || '' };
+  nv.status = 'ACTIVE';
+  nv.idx = 0; nv.segT = 0; nv.sAlong = 0; nv.offDist = 0; nv.offThr = 50;
+  nv.nextMan = Math.min(1, nv.man.length - 1);   // la 0 e' la partenza: la prossima e' la 1
+  nv.spoken = 0; nv.preSpoken = {};
+  nv.offCount = 0; nv.offTravel = 0; nv.missCount = 0; nv.missTravel = 0;
+  nv.wrongCount = 0; nv.wrongTravel = 0; nv.farCount = 0; nv.lostCount = 0; nv.arriveCount = 0;
+  nv.vEMA = null; nv.lastFixAt = 0; nv.lastGoodAt = Date.now(); nv.lastLat = null; nv.lastLon = null;
+  nv.rerouteAt = prev ? prev.rerouteAt : 0;
+  nv.rerouteWait = prev ? prev.rerouteWait : 0;
+  nv.rerouteStreak = prev ? (prev.rerouteStreak || 0) : 0;
+  nv.rerouteLog = prev ? (prev.rerouteLog || []) : [];
+  nv.lastRerouteEnd = Date.now();
+  nv.travelSinceReroute = 0;
+  nv.suppressPost = false;
+  nv.shapeRaw = (data.trip.legs || []).map(l => l.shape);
+  nv.reqSaved = req;
+  state.nav = nv;
+  navSetStatus(why ? 'Percorso ricalcolato.' : 'Percorso pronto.');
+  navPersistRoute();
+  navDrawRoute();
+  navFitRoute();
+  navRenderBanner();
+  renderNavPanel();
+}
+
+/* ---- geocoding (Photon) ---- */
+async function navGeocode(q) {
+  const p = state.pos.lat != null ? state.pos : (state.gps.lat != null ? state.gps : null);
+  let url = NAV_GEO_HOST + '?limit=6&lang=it&q=' + encodeURIComponent(q);
+  if (p) url += '&lat=' + p.lat.toFixed(5) + '&lon=' + p.lon.toFixed(5);
+  const res = await navGate(() => fetchWithTimeout(url, NAV_GEO_TIMEOUT_MS));
+  if (!res.ok) throw new Error('HTTP ' + res.status);
+  const j = await res.json();
+  return (j.features || []).map(f => {
+    const c = f.geometry && f.geometry.coordinates;   // [lon, lat]: invertito
+    const pr = f.properties || {};
+    if (!c || c.length < 2) return null;
+    const name = pr.name || [pr.street, pr.housenumber].filter(Boolean).join(' ') || pr.city || '?';
+    const sub = [pr.street && pr.name ? pr.street : null, pr.postcode, pr.city, pr.state, pr.country]
+      .filter(Boolean).join(', ');
+    return { lat: +c[1], lon: +c[0], label: String(name), sub: String(sub) };
+  }).filter(Boolean);
+}
+
+/* Coordinate incollate: "44.0367, 10.1417" oppure un link mappe. Solo regex, niente rete. */
+function navParseCoords(t) {
+  const s = String(t || '').trim();
+  let m = s.match(/[!]3d(-?\d+\.\d+)[!]4d(-?\d+\.\d+)/);      // link Google Maps
+  if (m) return { lat: +m[1], lon: +m[2], label: 'Coordinate' };
+  m = s.match(/@(-?\d+\.\d+),\s*(-?\d+\.\d+)/);                // .../@lat,lon,15z
+  if (m) return { lat: +m[1], lon: +m[2], label: 'Coordinate' };
+  m = s.match(/^(-?\d{1,2}(?:[.,]\d+)?)\s*[,; ]\s*(-?\d{1,3}(?:[.,]\d+)?)$/);
+  if (m) {
+    const la = parseFloat(m[1].replace(',', '.')), lo = parseFloat(m[2].replace(',', '.'));
+    if (Math.abs(la) <= 90 && Math.abs(lo) <= 180) return { lat: la, lon: lo, label: 'Coordinate' };
+  }
+  return null;
+}
+
+/* ---- UI ---- */
+function navSetStatus(t) { if (els.navStatusTxt) els.navStatusTxt.textContent = t; }
+
+const NAV_ICON = { 8:'↑', 9:'↗', 10:'→', 11:'↘', 12:'↩', 13:'↩', 14:'↙', 15:'←', 16:'↖',
+  17:'↑', 18:'↗', 19:'↖', 20:'↗', 21:'↖', 22:'↑', 23:'↗', 24:'↖', 25:'⤵',
+  26:'⟳', 27:'⟳', 1:'●', 2:'●', 3:'●', 4:'⚑', 5:'⚑', 6:'⚑' };
+function navIcon(m) { return NAV_ICON[m.type] || '↑'; }
+
+/* Nessun innerHTML: i nomi delle strade vengono da OSM, sono dati di terze parti. */
+function navRenderBanner() {
+  const nv = state.nav, el = els.navBanner;
+  if (!el) return;
+  if (!nv || nv.status === 'IDLE' || nv.status === 'ARRIVED' && nv.bannerDone) {
+    el.style.display = 'none'; return;
+  }
+  el.textContent = '';
+  el.classList.toggle('off', nv.status === 'OFF_NONET' || nv.status === 'OFF_MANUAL' || nv.status === 'REROUTING');
+  if (nv.status === 'REROUTING') { el.appendChild(document.createTextNode('⟳ Ricalcolo…')); el.style.display = 'block'; return; }
+  if (nv.status === 'ARRIVED') { el.appendChild(document.createTextNode('⚑ Arrivato')); el.style.display = 'block'; return; }
+  if (nv.status === 'OFF_NONET' || nv.status === 'OFF_MANUAL') {
+    const b = nv.snapLat != null ? bearing({ lat: nv.lastLat, lon: nv.lastLon }, { lat: nv.snapLat, lon: nv.snapLon }) : null;
+    el.appendChild(document.createTextNode(
+      (nv.status === 'OFF_NONET' ? '⚠ Senza rete · ' : '⚠ Fuori percorso · ') +
+      'rientro a ' + navFmtShort(nv.offDist || 0) + (b != null ? ' verso ' + Math.round(b) + '°' : '')));
+    el.style.display = 'block'; return;
+  }
+  const k = nv.nextMan;
+  if (k >= nv.man.length) { el.style.display = 'none'; return; }
+  const m = nv.man[k];
+  el.appendChild(document.createTextNode(navIcon(m) + ' '));
+  const d = document.createElement('span'); d.className = 'nb-dist';
+  d.textContent = navFmtShort(nv.distToNext); el.appendChild(d);
+  const st = document.createElement('span'); st.className = 'nb-street';
+  st.textContent = m.text || (m.streets.join(', '));
+  el.appendChild(st);
+  if (k + 1 < nv.man.length && (nv.sMan[k + 1] - nv.sMan[k]) < NAV_CHAIN_MIN_M) {
+    const t2 = document.createElement('span'); t2.className = 'nb-then';
+    t2.textContent = 'poi ' + navIcon(nv.man[k + 1]) + ' ' + navShortCue(nv.man[k + 1].text);
+    el.appendChild(t2);
+  }
+  el.style.display = 'block';
+}
+
+function renderNavPanel() {
+  const nv = state.nav;
+  if (els.navDestTxt) {
+    const d = (nv && nv.dest) || state.navDest;
+    els.navDestTxt.textContent = d
+      ? (d.label ? d.label + ' — ' : '') + d.lat.toFixed(5) + ', ' + d.lon.toFixed(5)
+      : 'Nessuna destinazione. Sulla mappa puoi anche tenere premuto un punto per sceglierlo.';
+  }
+  if (els.navSumDist) {
+    els.navSumDist.textContent = nv ? navFmtShort(nv.status === 'IDLE' ? nv.totalM : nv.distRemain || nv.totalM) : '—';
+    els.navSumTime.textContent = nv ? navFmtTime(nv.timeRemain || nv.totalS) : '—';
+    if (nv) {
+      const t = new Date(Date.now() + (nv.timeRemain || nv.totalS) * 1000);
+      els.navSumEta.textContent = String(t.getHours()).padStart(2, '0') + ':' + String(t.getMinutes()).padStart(2, '0');
+    } else els.navSumEta.textContent = '—';
+  }
+  const ol = els.navSteps;
+  if (!ol) return;
+  ol.textContent = '';
+  if (!nv) return;
+  for (let k = 0; k < nv.man.length; k++) {
+    const m = nv.man[k];
+    const li = document.createElement('li');
+    if (k < nv.nextMan) li.className = 'done';
+    else if (k === nv.nextMan) li.className = 'cur';
+    const sd = document.createElement('span'); sd.className = 'sd';
+    sd.textContent = k === nv.nextMan ? navFmtShort(nv.distToNext)
+      : navFmtShort(Math.max(0, nv.sMan[k] - nv.sAlong));
+    const tx = document.createElement('span');
+    tx.textContent = navIcon(m) + ' ' + (m.text || m.streets.join(', '));
+    li.appendChild(sd); li.appendChild(tx);
+    ol.appendChild(li);
+  }
+}
+
+function navRenderResults(list) {
+  const box = els.navResults;
+  box.textContent = '';
+  for (const r of list) {
+    const b = document.createElement('button');
+    const t = document.createElement('b'); t.textContent = r.label;
+    const s = document.createElement('span'); s.textContent = r.sub || '';
+    b.appendChild(t); b.appendChild(s);
+    b.addEventListener('click', () => { navSetDest(r); box.textContent = ''; els.navQuery.value = r.label; });
+    box.appendChild(b);
+  }
+}
+
+function navSetDest(d) {
+  state.navDest = { lat: d.lat, lon: d.lon, label: d.label || '' };
+  renderNavPanel();
+  navDrawRoute();
+  const p = state.pos.lat != null ? state.pos : (state.gps.lat != null ? state.gps : null);
+  if (!p) { navSetStatus('In attesa del primo fix GPS per calcolare il percorso.'); return; }
+  navRequestRoute(p, state.navDest, trackUpHeading(), null);
+}
+
+/* ---- disegno su mappa ----
+   Layer separato: updateLeaflet tocca solo mapPoly/mapPos per nome e renderCameras
+   fa clearLayers() solo su camLayer, quindi questo non viene mai toccato da nessuno. */
+function navDrawRoute() {
+  if (state.mapType === 'leaflet' && state.map) {
+    if (!state.navLayer) state.navLayer = L.layerGroup().addTo(state.map);
+    state.navLayer.clearLayers();
+    const nv = state.nav;
+    if (nv && nv.n) {
+      const pts = [];
+      for (let i = 0; i < nv.n; i++) pts.push([nv.lat[i], nv.lon[i]]);
+      L.polyline(pts, { color: '#a78bfa', weight: 6, opacity: 0.85 }).addTo(state.navLayer);
+      const k = nv.nextMan;
+      if (k < nv.man.length) {
+        const a = Math.max(0, nv.man[k].beginIdx), b = Math.min(nv.n - 1, nv.man[k].endIdx);
+        const seg = [];
+        for (let i = a; i <= b; i++) seg.push([nv.lat[i], nv.lon[i]]);
+        if (seg.length > 1) L.polyline(seg, { color: '#f0abfc', weight: 7 }).addTo(state.navLayer);
+      }
+    }
+    const d = (state.nav && state.nav.dest) || state.navDest;
+    if (d) L.circleMarker([d.lat, d.lon], { radius: 8, color: '#a78bfa', fillColor: '#a78bfa', fillOpacity: 0.9, weight: 3 }).addTo(state.navLayer);
+  }
+  if (state.mapType === 'canvas') drawCanvasMap();
+}
+
+function navFitRoute() {
+  const nv = state.nav;
+  if (!nv || !nv.n || state.mapType !== 'leaflet' || !state.map) return;
+  const pts = [[nv.lat[0], nv.lon[0]], [nv.lat[nv.n - 1], nv.lon[nv.n - 1]]];
+  for (let i = 0; i < nv.n; i += Math.max(1, Math.floor(nv.n / 200))) pts.push([nv.lat[i], nv.lon[i]]);
+  setFollow(false);
+  state.map.fitBounds(pts, { padding: [30, 30] });
+}
+
+/* Traccia della rotta per il canvas di riserva, sottocampionata: il canvas ridisegna
+   a ogni fix e mille segmenti per frame non servono a niente. */
+function navRouteForCanvas() {
+  const nv = state.nav;
+  if (!nv || !nv.n) return null;
+  const step = Math.max(1, Math.floor(nv.n / 400));
+  const out = [];
+  for (let i = 0; i < nv.n; i += step) out.push({ lat: nv.lat[i], lon: nv.lon[i] });
+  out.push({ lat: nv.lat[nv.n - 1], lon: nv.lon[nv.n - 1] });
+  return out;
+}
+
+/* ---- persistenza ----
+   Due record: la rotta si scrive una volta per versione, il progresso e' throttlato.
+   Si salva la STRINGA polyline, non i typed array: pesano il triplo e si ricostruiscono
+   in una decina di millisecondi. */
+async function navPersistRoute() {
+  const nv = state.nav;
+  if (!nv) { try { await idb.kvPut('activeRoute', null); } catch (e) {} return; }
+  try {
+    await idb.kvPut('activeRoute', {
+      ts: Date.now(), dest: nv.dest, req: nv.reqSaved, shape: nv.shapeRaw,
+      man: nv.man, totalM: nv.totalM, totalS: nv.totalS,
+    });
+  } catch (e) {}
+}
+
+let navProgT = 0;
+function navPersistProgress() {
+  const nv = state.nav;
+  if (!nv) return;
+  const now = Date.now();
+  if (now - navProgT < 5000 && nv.nextMan === navProgLastMan) return;
+  navProgT = now; navProgLastMan = nv.nextMan;
+  idb.kvPut('navProgress', {
+    ts: now, sAlong: nv.sAlong, nextMan: nv.nextMan,
+    lat: nv.lastLat, lon: nv.lastLon,
+  }).catch(() => {});
+}
+let navProgLastMan = -1;
+
+/* Il ripristino non e' cieco: riprendere nextMan cosi' com'e' fa annunciare, appena
+   riaperta l'app, una svolta che e' venti chilometri alle spalle. */
+async function navRestore() {
+  let r = null, pg = null;
+  try { r = await idb.kvGet('activeRoute'); pg = await idb.kvGet('navProgress'); } catch (e) { return; }
+  if (!r || !r.shape || !r.shape.length) return;
+  let nv;
+  try { nv = navBuild({ legs: r.shape.map((sh, i) => ({ shape: sh, maneuvers: [] })) }); }
+  catch (e) { return; }
+  // le manovre si riprendono dal record, non si ricostruiscono
+  nv.man = r.man || [];
+  const M = nv.man.length;
+  nv.sMan = new Float64Array(M); nv.tEnd = new Float64Array(M);
+  let acc = 0;
+  for (let k = 0; k < M; k++) {
+    nv.sMan[k] = nv.cum[Math.min(nv.n - 1, Math.max(0, nv.man[k].beginIdx))];
+    acc += nv.man[k].time || 0; nv.tEnd[k] = acc;
+  }
+  nv.totalS = acc;
+  nv.dest = r.dest; nv.reqSaved = r.req; nv.shapeRaw = r.shape;
+  nv.status = 'IDLE';                       // non riparte da sola
+  nv.idx = 0; nv.segT = 0; nv.sAlong = (pg && pg.sAlong) || 0; nv.offDist = 0; nv.offThr = 50;
+  nv.nextMan = Math.min(Math.max(1, (pg && pg.nextMan) || 1), Math.max(0, M - 1));
+  nv.spoken = 0; nv.preSpoken = {};
+  nv.offCount = 0; nv.offTravel = 0; nv.missCount = 0; nv.missTravel = 0;
+  nv.wrongCount = 0; nv.wrongTravel = 0; nv.farCount = 0; nv.lostCount = 0; nv.arriveCount = 0;
+  nv.vEMA = null; nv.lastFixAt = 0; nv.lastGoodAt = 0; nv.lastLat = pg && pg.lat; nv.lastLon = pg && pg.lon;
+  nv.rerouteLog = []; nv.rerouteStreak = 0; nv.rerouteAt = 0; nv.rerouteWait = 0;
+  nv.travelSinceReroute = 0; nv.resumeHint = pg || null;
+  nv.stale = !pg || (Date.now() - pg.ts > 1800000);
+  state.nav = nv;
+  state.navDest = nv.dest ? { lat: nv.dest.lat, lon: nv.dest.lon, label: nv.dest.label } : null;
+  navDrawRoute();
+  renderNavPanel();
+  navSetStatus(nv.stale
+    ? 'Percorso salvato trovato (vecchio). Tocca Avvia per riprendere.'
+    : 'Percorso salvato trovato. Tocca Avvia per riprendere.');
+}
+
+/* Avvio/ripresa: si riaggancia con un full scan e si passa ad ACTIVE solo dopo. */
+function navStart() {
+  const nv = state.nav;
+  navSpeak.init(); navSpeak.prime();       // il gesto utente e' questo tap
+  if (!nv) {
+    const d = state.navDest;
+    const p = state.pos.lat != null ? state.pos : (state.gps.lat != null ? state.gps : null);
+    if (!d) { toast('Scegli prima una destinazione.', 'err'); return; }
+    if (!p) { toast('Nessun fix GPS.', 'err'); return; }
+    navRequestRoute(p, d, trackUpHeading(), null);
+    return;
+  }
+  const p = state.pos.lat != null ? state.pos : (state.gps.lat != null ? state.gps : null);
+  if (!p) { toast('Nessun fix GPS.', 'err'); return; }
+  const pr = navProject(nv, p.lat, p.lon, trackUpHeading(), state.speedMs || 0, state.gps.acc, true);
+  if (!pr || pr.d > 2000) {
+    // troppo lontano dalla rotta salvata: non si riprende alla cieca
+    navSetStatus('Sei lontano dal percorso salvato: ricalcolo da qui.');
+    navRequestRoute(p, nv.dest, trackUpHeading(), 'ripresa');
+    return;
+  }
+  nv.idx = pr.i; nv.segT = pr.t; nv.sAlong = pr.s; nv.offDist = pr.d;
+  // il nextMan si ricava dalla posizione, non dal record salvato
+  let k = 1;
+  while (k < nv.man.length && nv.sMan[k] < nv.sAlong + 5) k++;
+  nv.nextMan = Math.min(k, nv.man.length - 1);
+  nv.spoken = 0; nv.preSpoken = {};
+  nv.status = 'ACTIVE'; nv.lastGoodAt = Date.now();
+  navSetStatus('Navigazione in corso.');
+  navRenderBanner(); renderNavPanel(); navDrawRoute();
+}
+
+function navStop() {
+  navSimStop();
+  state.nav = null; state.navDest = null;
+  navSpeak.stop();
+  idb.kvPut('activeRoute', null).catch(() => {});
+  idb.kvPut('navProgress', null).catch(() => {});
+  els.navQuery.value = ''; els.navResults.textContent = '';
+  navSetStatus('Navigazione terminata.');
+  navRenderBanner(); renderNavPanel(); navDrawRoute();
+}
+
+/* ---- simulatore ----
+   Percorre la shape generando posizioni finte a 1 Hz e alimenta esattamente lo stesso
+   codice dei fix veri. Senza, questa funzione non e' provabile senza salire in moto. */
+let navSimTimer = null, navSimS = 0, navSimOff = 0;
+function navSimStop() { clearInterval(navSimTimer); navSimTimer = null; navSimOff = 0; }
+function navSimStart() {
+  const nv = state.nav;
+  if (!nv || !nv.n) { toast('Calcola prima un percorso.', 'err'); return; }
+  navSimStop();
+  navSimS = nv.sAlong || 0;
+  navSimTimer = setInterval(() => {
+    const v = parseFloat(els.navSimSpeed.value) || 25;
+    navSimS += v;
+    if (navSimS >= nv.totalM) { navSimS = nv.totalM; }
+    const i = Math.max(0, Math.min(nv.n - 2, navLowerBound(nv.cum, nv.n, navSimS) - 1));
+    const span = Math.max(1e-6, nv.cum[i + 1] - nv.cum[i]);
+    const t = Math.max(0, Math.min(1, (navSimS - nv.cum[i]) / span));
+    let la = nv.lat[i] + t * (nv.lat[i + 1] - nv.lat[i]);
+    let lo = nv.lon[i] + t * (nv.lon[i + 1] - nv.lon[i]);
+    if (navSimOff > 0) {
+      // scarto perpendicolare crescente, per far scattare il ricalcolo
+      const b = (nv.brg[i] + 90) * Math.PI / 180;
+      la += Math.cos(b) * navSimOff / 111132;
+      lo += Math.sin(b) * navSimOff / (111320 * Math.cos(la * Math.PI / 180));
+      navSimOff += 25;
+    }
+    state.pos.lat = la; state.pos.lon = lo;
+    state.gps.lat = la; state.gps.lon = lo;
+    state.gps.heading = nv.brg[i]; state.gps.acc = 6;
+    state.speedMs = v; state.speedKph = v * 3.6; state.gpsStatus = 'ok';
+    updateGpsStatus();
+    navTick(la, lo, 6);
+    updateMap();
+    navRenderBanner();
+    if (state.currentTab === 'nav') renderNavPanel();
+    if (navSimS >= nv.totalM) navSimStop();
+  }, 1000);
+  toast('Simulazione avviata.', 'ok');
 }
 
 /* ============================== Wake lock / Fullscreen ============================== */
@@ -3225,6 +4457,12 @@ function initLeaflet() {
   map.setView([42.5, 12.5], 5); // vista iniziale (Italia) prima del primo fix
   state.map = map;
   map.on('dragstart', () => setFollow(false));
+  // Leaflet emette 'contextmenu' anche sul long-press touch: destinazione senza tastiera.
+  map.on('contextmenu', e => {
+    navSetDest({ lat: e.latlng.lat, lon: e.latlng.lng, label: 'Punto sulla mappa' });
+    toast('Destinazione impostata.', 'ok');
+    switchTab('nav');
+  });
   state.mapLayer = L.layerGroup().addTo(map);
   state.mapPos = L.circleMarker([0, 0], { radius: 8, color: '#29b6f6', fillColor: '#29b6f6', fillOpacity: 0.9 }).addTo(state.mapLayer);
   state.mapPoly = L.polyline([], { color: '#29b6f6', weight: 4 }).addTo(state.mapLayer);
@@ -3273,7 +4511,8 @@ function drawCanvasMap() {
     current: true,
     heading: state.gps.heading,
     // Con un DB importato disegnare tutto era impraticabile: solo le camere vicine.
-    cameras: p ? camsNear(p.lat, p.lon, CAM_MARKER_RADIUS_M) : allCameras().slice(0, 500),
+    cameras: camsToDraw(),
+    route: navRouteForCanvas(),
     center: centered,
     rotateDeg: h != null ? -h : 0,
   });
@@ -3296,8 +4535,9 @@ function drawTrackOnCanvas(canvas, track, opts) {
   ctx.fillStyle = canvasTheme.get('c-bg');
   ctx.fillRect(0, 0, w, h);
   const cams = (opts && opts.cameras) || [];
+  const route = (opts && opts.route) || [];
   const hasTrack = !!(track && track.length);
-  if (!hasTrack && !cams.length) {
+  if (!hasTrack && !cams.length && !route.length) {
     ctx.fillStyle = canvasTheme.get('c-axis'); ctx.font = '13px system-ui'; ctx.textAlign = 'center';
     ctx.fillText('Nessun fix GPS', w / 2, h / 2);
     return;
@@ -3308,6 +4548,11 @@ function drawTrackOnCanvas(canvas, track, opts) {
     if (p.lon < minLon) minLon = p.lon; if (p.lon > maxLon) maxLon = p.lon;
   }
   for (const c of cams) {
+    if (c.lat < minLat) minLat = c.lat; if (c.lat > maxLat) maxLat = c.lat;
+    if (c.lon < minLon) minLon = c.lon; if (c.lon > maxLon) maxLon = c.lon;
+  }
+  // La rotta entra nel bounding box: senza, finirebbe fuori dal riquadro.
+  for (const c of route) {
     if (c.lat < minLat) minLat = c.lat; if (c.lat > maxLat) maxLat = c.lat;
     if (c.lon < minLon) minLon = c.lon; if (c.lon > maxLon) maxLon = c.lon;
   }
@@ -3327,6 +4572,13 @@ function drawTrackOnCanvas(canvas, track, opts) {
     ctx.translate(w / 2, h / 2);
     ctx.rotate(rot * Math.PI / 180);
     ctx.translate(-w / 2, -h / 2);
+  }
+
+  if (route.length > 1) {
+    ctx.strokeStyle = canvasTheme.get('c-route'); ctx.lineWidth = 4; ctx.lineJoin = 'round';
+    ctx.beginPath();
+    route.forEach((p, i) => { const x = X(p.lon), y = Y(p.lat); i ? ctx.lineTo(x, y) : ctx.moveTo(x, y); });
+    ctx.stroke();
   }
 
   if (hasTrack) {
@@ -3376,7 +4628,7 @@ const canvasTheme = {
     if (!canvasTheme._c) {
       const cs = getComputedStyle(document.documentElement);
       canvasTheme._c = {};
-      for (const n of ['c-bg', 'c-grid', 'c-axis', 'c-accent', 'c-good', 'c-bad', 'c-warn', 'c-txt']) {
+      for (const n of ['c-bg', 'c-grid', 'c-axis', 'c-accent', 'c-good', 'c-bad', 'c-warn', 'c-txt', 'c-route']) {
         canvasTheme._c[n] = (cs.getPropertyValue('--' + n) || '').trim();
       }
     }
@@ -3618,6 +4870,8 @@ function switchTab(name) {
     drawCharts();
   } else if (name === 'history') {
     renderHistory();
+  } else if (name === 'nav') {
+    renderNavPanel();
   }
 }
 
@@ -3762,6 +5016,7 @@ function updateDisplay() {
   els.topTime.textContent = mm + ':' + ss;
 
   updateGpsStatus();
+  updateCamStatus();
 }
 
 function setBar(el, val, absVal, maxG) {
@@ -3793,6 +5048,7 @@ function mainLoop(now) {
 /* ============================== Init ============================== */
 function init() {
   loadSettings();
+  navSpeak.init();
   buildGauge();
   applyTheme();
   updateCalibStatus();
@@ -3912,7 +5168,79 @@ function init() {
   });
   els.camAlertsChk.addEventListener('change', () => { state.camAlerts = els.camAlertsChk.checked; saveSettings(); });
   els.camDistSel.addEventListener('change', () => { state.camDist = parseInt(els.camDistSel.value, 10); saveSettings(); });
+  els.camRadiusSel.addEventListener('change', () => {
+    const prev = state.camRadius;
+    state.camRadius = parseInt(els.camRadiusSel.value, 10);
+    saveSettings();
+    if (state.camRadius > prev) {
+      /* Allargando, la cache e' un sottoinsieme di quello che serve: va rifatta subito,
+         altrimenti il raggio nuovo non si vedrebbe fino allo stale (15 min) o a mezzo
+         raggio di viaggio, e la modifica sembrerebbe non aver fatto niente. */
+      state.camTs = 0;
+      state.camRetryAfter = 0; // la scelta esplicita dell'utente annulla il backoff
+      const p = state.pos.lat != null ? state.pos : (state.gps.lat != null ? state.gps : null);
+      if (p) fetchCameras(p.lat, p.lon); // senza fix ci pensa il prossimo maybeLoadCameras
+    }
+    // Restringendo, la cache e' un soprainsieme: basta ridisegnare, niente query.
+    renderCameras();
+    updateCamStatus();
+  });
   els.compassOffsetSel.addEventListener('change', () => { state.compassOffset = parseInt(els.compassOffsetSel.value, 10); saveSettings(); });
+
+  /* ---- navigatore ---- */
+  let navSearchT = null;
+  els.navQuery.addEventListener('input', () => {
+    clearTimeout(navSearchT);
+    const q = els.navQuery.value.trim();
+    if (q.length < 3) { els.navResults.textContent = ''; return; }
+    const c = navParseCoords(q);
+    if (c) { navRenderResults([{ lat: c.lat, lon: c.lon, label: 'Coordinate', sub: c.lat.toFixed(5) + ', ' + c.lon.toFixed(5) }]); return; }
+    // debounce: la policy di Photon e' "sii equo", non una richiesta per tasto premuto
+    navSearchT = setTimeout(async () => {
+      try { navRenderResults(await navGeocode(q)); }
+      catch (e) { navSetStatus('Ricerca non riuscita: ' + e.message); }
+    }, 450);
+  });
+  els.btnNavGo.addEventListener('click', navStart);
+  els.btnNavStop.addEventListener('click', navStop);
+  els.btnNavClear.addEventListener('click', navStop);
+  els.btnNavFromMap.addEventListener('click', () => {
+    switchTab('map');
+    toast('Tieni premuto un punto sulla mappa per sceglierlo come destinazione.', null, 5000);
+  });
+  els.btnNavFromHist.addEventListener('click', async () => {
+    let sessions = [];
+    try { sessions = await idb.getMetas(); } catch (e) {}
+    sessions = sessions.filter(x => x && x.meta).sort((a, b) => (a.meta.startISO < b.meta.startISO ? 1 : -1)).slice(0, 6);
+    if (!sessions.length) { toast('Nessun giro salvato.', 'err'); return; }
+    const out = [];
+    for (const x of sessions) {
+      let full = null;
+      try { full = await idb.get(x.id); } catch (e) {}
+      const tr = full && full.track;
+      if (!tr || !tr.length) continue;
+      const d = new Date(x.meta.startISO);
+      const lbl = d.getDate() + '/' + (d.getMonth() + 1) + '/' + d.getFullYear();
+      out.push({ lat: tr[0].lat, lon: tr[0].lon, label: 'Partenza ' + lbl, sub: 'giro del ' + lbl });
+      out.push({ lat: tr[tr.length - 1].lat, lon: tr[tr.length - 1].lon, label: 'Arrivo ' + lbl, sub: 'giro del ' + lbl });
+    }
+    if (!out.length) { toast('I giri salvati non hanno traccia.', 'err'); return; }
+    navRenderResults(out);
+  });
+  els.btnNavSim.addEventListener('click', navSimStart);
+  els.btnNavSimOff.addEventListener('click', () => { navSimStop(); toast('Simulazione ferma.'); });
+  els.btnNavSimDev.addEventListener('click', () => {
+    if (!navSimTimer) { toast('Avvia prima la simulazione.', 'err'); return; }
+    navSimOff = 25; toast('Deviazione in corso…');
+  });
+  els.navVoice.addEventListener('change', () => {
+    state.navVoice = els.navVoice.checked; saveSettings();
+    if (!state.navVoice) navSpeak.stop(); else { navSpeak.init(); navSpeak.prime(); }
+  });
+  els.navNoHw.addEventListener('change', () => { state.navNoHw = els.navNoHw.checked; saveSettings(); });
+  els.navNoToll.addEventListener('change', () => { state.navNoToll = els.navNoToll.checked; saveSettings(); });
+  els.navBackroads.addEventListener('change', () => { state.navBackroads = els.navBackroads.checked; saveSettings(); });
+  els.navNoFerry.addEventListener('change', () => { state.navNoFerry = els.navNoFerry.checked; saveSettings(); });
 
   els.btnMapFull.addEventListener('click', () => {
     const full = document.body.classList.toggle('map-fullscreen');
@@ -3942,6 +5270,7 @@ function init() {
     await loadImportedCameras();
     await renderHistory();
     await recoverChunks();
+    await navRestore();   // dentro il .then(): fuori, _tx() rigetta con "DB non aperto"
   }).catch(() => toast('Storico non disponibile (IndexedDB non accessibile).', 'err', 5000));
 
   checkSecureContext();

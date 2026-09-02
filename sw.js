@@ -9,7 +9,7 @@
 
 'use strict';
 
-const CACHE_VERSION = 'v3';
+const CACHE_VERSION = 'v4';
 const SHELL_CACHE = 'cruscotto-shell-' + CACHE_VERSION;
 const LIB_CACHE   = 'cruscotto-lib-' + CACHE_VERSION;
 const TILE_CACHE  = 'cruscotto-tiles-' + CACHE_VERSION;
@@ -88,9 +88,12 @@ self.addEventListener('fetch', event => {
   let url;
   try { url = new URL(req.url); } catch (e) { return; }
 
-  // Overpass: mai in cache, la risposta dipende dalla posizione ed è già
-  // memorizzata dall'app. Lasciata passare così com'è.
-  if (url.hostname.endsWith('overpass-api.de') || url.hostname.endsWith('overpass.kumi.systems')) return;
+  // Overpass / routing / geocoding: mai in cache, la risposta dipende dalla posizione
+  // ed è già memorizzata dall'app. Lasciate passare così come sono.
+  if (url.hostname.endsWith('overpass-api.de') ||
+      url.hostname.endsWith('overpass.kumi.systems') ||
+      url.hostname.endsWith('valhalla1.openstreetmap.de') ||
+      url.hostname.endsWith('photon.komoot.io')) return;
 
   if (req.mode === 'navigate') {
     event.respondWith(networkFirst(req));

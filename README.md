@@ -59,13 +59,25 @@ L'app è organizzata in 4 schede (barra in basso): **Dashboard · Mappa · Grafi
 - L'heading viene dal GPS sopra ~11 km/h; sotto si usa la bussola magnetica del telefono (solo se il dispositivo espone un orientamento *assoluto*), regolabile con **Offset bussola**.
 
 ### Avvisi autovelox
-- Autovelox **fissi** da **OpenStreetMap** (query Overpass API attorno alla posizione, raggio 10 km), cache locale. Una sola query per volta, con backoff di 2 minuti in caso di errore.
+- Autovelox **fissi** da **OpenStreetMap** (query Overpass API attorno alla posizione), cache locale. Il **raggio** è impostabile: 10/15/20/30/50 km, default 15 km. Una sola query per volta, con timeout esplicito che scala col raggio; se il server principale non risponde si prova un mirror, e solo se fallisce anche quello scatta il backoff di 2 minuti (la cache precedente resta).
+- I dati si riaggiornano **da soli mentre guidi**, senza ricaricare la pagina: si riscarica quando ti sposti di mezzo raggio dal centro della cache, o dopo 15 minuti. Riducendo il raggio non si riscarica nulla — la cache è già un soprainsieme.
 - Marker rossi sulla mappa (tooltip con limite velocità); avviso **beep + banner** quando ti avvicini entro la distanza impostata.
 - **Filtro direzionale**: con l'opzione *Solo autovelox davanti* avvisa solo per quelli entro ±60° dal verso di marcia, così la carreggiata opposta non fa scattare il banner. Sotto ~11 km/h, dove l'heading non è affidabile, si ripiega su "avvisa solo se la distanza sta calando".
-- I DB importati sono indicizzati su una griglia spaziale e sulla mappa vengono disegnati solo i punti entro 15 km: un archivio nazionale da 15.000 autovelox resta fluido.
-- Impostazioni: toggle **Avvisi autovelox**, **Solo autovelox davanti** e **distanza** (300/400/600 m).
+- I DB importati sono indicizzati su una griglia spaziale; sulla mappa si disegnano solo i punti entro 1,5 volte il raggio impostato, e comunque mai più di 400 marker (i più vicini): un archivio nazionale da 15.000 autovelox resta fluido. Il tetto vale **solo per il disegno** — gli avvisi restano esaustivi.
+- Impostazioni: toggle **Avvisi autovelox**, **Solo autovelox davanti**, **distanza** di avviso (300/400/600 m) e **Raggio autovelox** (10–50 km).
+- **Badge di stato** in alto, accanto a quello GPS, perché un degrado dei dati non resti silenzioso: verde quando la copertura è valida, giallo in attesa o quando il disegno è troncato dal tetto marker (mostra `disegnati/totali`), rosso quando Overpass è irraggiungibile, quando non ci sono dati, o quando sei uscito dal cerchio scaricato. Si mostra anche con gli avvisi disattivati.
 - Copertura OSM non uniforme; solo autovelox fissi (no tutor/mobili/posti di blocco).
 - **Nota legale**: uso a tua discrezione e responsabilità.
+
+### Navigatore
+- **Turn-by-turn** con percorsi moto: indicazioni passo-passo, banner della manovra successiva, distanza che scala in tempo reale e **indicazioni vocali** in italiano (disattivabili).
+- Motore di routing **Valhalla** (istanza pubblica FOSSGIS `valhalla1.openstreetmap.de`, nessuna chiave), profilo `motorcycle`. Preferenze: **evita autostrade**, **evita pedaggi**, **evita traghetti** e **preferisci strade secondarie** (il parametro che Valhalla chiama "desiderio di avventura": non garantisce curve, spinge via dalle arterie principali).
+- Destinazione in quattro modi: **ricerca indirizzo** (Photon), **tap lungo sulla mappa**, **coordinate incollate** (anche link Google Maps) o **da un giro salvato**.
+- Il percorso **sopravvive alla perdita di rete**: una volta calcolato, manovre, distanze e voce continuano a funzionare col solo GPS; il ricalcolo è l'unica cosa che richiede la rete, e se manca l'app lo dice invece di tacere.
+- **Fuori percorso** con ricalcolo automatico ma con i freni: serve conferma su più fix GPS (un errore in galleria non conta), nessun ricalcolo da fermo al semaforo, backoff crescente e un tetto massimo prima di passare alla modalità manuale — per non tempestare il server (1 richiesta al secondo) e per non litigare con una deviazione voluta.
+- Il percorso attivo e la posizione lungo di esso sono salvati su IndexedDB: chiudendo l'app a metà giro, riaprendola puoi riprendere.
+- **Simulatore** (nel pannello Navigatore): percorre il percorso con posizioni finte e alimenta lo stesso codice dei fix veri, per provare avanzamento, banner e voce senza salire in moto.
+- Nota: Valhalla FOSSGIS è un server comunitario senza garanzie di uptime.
 
 ### Grafici
 - Andamento **ultimi 60 s** di velocità, piega e accelerazione laterale (canvas nativo, nessuna libreria).
@@ -357,7 +369,7 @@ Il file usa la virgola come separatore. Su Excel italiano potresti vedere tutto 
 ## Sicurezza e privacy
 
 - I dati (tracce, log, calibrazione) restano sul telefono: nessun server, nessuna telemetria in uscita.
-- Le uniche chiamate esterne sono le tile OpenStreetMap, Leaflet da unpkg e le query Overpass.
+- Le chiamate esterne sono le tile OpenStreetMap, Leaflet da unpkg, le query Overpass (autovelox), Valhalla (routing) e Photon (geocoding). Originare e destinare il navigatore sono inviate a un server terzo quando calcoli un percorso; il resto (traccia, autovelox, preferenze) resta in locale.
 - La pagina dichiara una **Content-Security-Policy** che limita gli host raggiungibili a quelli sopra.
 - Nomi e limiti degli autovelox (da OSM o da file importati) sono dati di terze parti e vengono inseriti nel DOM come **testo**, mai come HTML.
 - **Da fare**: Leaflet è caricato da CDN senza `integrity`. Per chiudere del tutto il rischio catena di fornitura conviene scaricare `leaflet.js` e `leaflet.css` nella repo e servirli in locale — a quel punto si può stringere la CSP a `script-src 'self'` e togliere `unpkg.com` dalla lista in `sw.js`.
