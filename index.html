@@ -1338,7 +1338,7 @@ function buildGauge() {
 function setPeaks(maxR, maxL) {
   if (!state._peakR) return;
   const place = (el, deg) => {
-    if (!(deg > 1)) { el.style.display = 'none'; return; }
+    if (!(Math.abs(deg) > 1)) { el.style.display = 'none'; return; }
     const ang = (90 - Math.max(-60, Math.min(60, deg))) * Math.PI / 180;
     el.setAttribute('cx', 130 + 96 * Math.cos(ang));
     el.setAttribute('cy', 130 - 96 * Math.sin(ang));
@@ -4011,6 +4011,15 @@ async function navRestore() {
   catch (e) { return; }
   // le manovre si riprendono dal record, non si ricostruiscono
   nv.man = r.man || [];
+  // I flag delle rotonde non sono persistiti: navBuild li ha calcolati da manovre
+  // vuote, quindi qui vanno ricostruiti da r.man, o il gate di heading torna attivo
+  // proprio dentro le rotonde (dove i bearing ruotano di 360°) e può far perdere
+  // l'aggancio dopo un riavvio.
+  for (let k = 0; k < nv.man.length; k++) {
+    if (nv.man[k].type === MAN_ROUNDABOUT_IN || nv.man[k].type === MAN_ROUNDABOUT_OUT) {
+      for (let i = Math.max(0, nv.man[k].beginIdx); i <= Math.min(nv.n - 1, nv.man[k].endIdx); i++) nv.flags[i] |= 1;
+    }
+  }
   const M = nv.man.length;
   nv.sMan = new Float64Array(M); nv.tEnd = new Float64Array(M);
   let acc = 0;
@@ -4177,7 +4186,9 @@ function snapshot() {
   lastSampleWall = wall;
   const m = takeLogAvg();
   return {
-    t, speedKmh: state.speedKph, speedMs: state.speedMs,
+    t,
+    speedKmh: (state.speedGpsMs != null) ? state.speedGpsMs * 3.6 : null,
+    speedMs: state.speedGpsMs,
     lean: m ? m.lean : state.lean,
     latG: m ? m.latG : state.latG,
     lonG: m ? m.lonG : state.lonG,
@@ -5128,6 +5139,7 @@ function tickDemo(now) {
   state.gyroYaw = state.yawUp * Math.cos(lean * Math.PI / 180);
   state.leanKin = lean;
   state.speedFusMs = state.speedMs;
+  state.speedGpsMs = state.speedMs; // la colonna CSV speed_ms resta "velocità GPS" anche in demo
   // valori di qualità sintetici, così il pannello diagnostica è leggibile anche in demo
   state.vibG = 0.05 + 0.04 * Math.abs(Math.sin(t * 3));
   state.vibHiG = state.vibG;
