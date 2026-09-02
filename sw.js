@@ -9,7 +9,7 @@
 
 'use strict';
 
-const CACHE_VERSION = 'v4';
+const CACHE_VERSION = 'v5';
 const SHELL_CACHE = 'cruscotto-shell-' + CACHE_VERSION;
 const LIB_CACHE   = 'cruscotto-lib-' + CACHE_VERSION;
 const TILE_CACHE  = 'cruscotto-tiles-' + CACHE_VERSION;
@@ -93,6 +93,7 @@ self.addEventListener('fetch', event => {
   if (url.hostname.endsWith('overpass-api.de') ||
       url.hostname.endsWith('overpass.kumi.systems') ||
       url.hostname.endsWith('valhalla1.openstreetmap.de') ||
+      url.hostname.endsWith('routing.openstreetmap.de') ||
       url.hostname.endsWith('photon.komoot.io')) return;
 
   if (req.mode === 'navigate') {

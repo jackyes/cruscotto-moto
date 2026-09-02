@@ -71,7 +71,8 @@ L'app è organizzata in 4 schede (barra in basso): **Dashboard · Mappa · Grafi
 
 ### Navigatore
 - **Turn-by-turn** con percorsi moto: indicazioni passo-passo, banner della manovra successiva, distanza che scala in tempo reale e **indicazioni vocali** in italiano (disattivabili).
-- Motore di routing **Valhalla** (istanza pubblica FOSSGIS `valhalla1.openstreetmap.de`, nessuna chiave), profilo `motorcycle`. Preferenze: **evita autostrade**, **evita pedaggi**, **evita traghetti** e **preferisci strade secondarie** (il parametro che Valhalla chiama "desiderio di avventura": non garantisce curve, spinge via dalle arterie principali).
+- Motore di routing **Valhalla** (istanza pubblica FOSSGIS, nessuna chiave), profilo `motorcycle`. Preferenze: **evita autostrade**, **evita pedaggi**, **evita traghetti** e **preferisci strade secondarie** (il parametro che Valhalla chiama "desiderio di avventura": non garantisce curve, spinge via dalle arterie principali).
+- **Fallback automatico su OSRM** (`routing.openstreetmap.de`) se Valhalla non risponde entro pochi secondi: il navigatore continua a funzionare, ma con profilo auto fisso e senza le preferenze moto. La riga di stato dice sempre quale motore ha risposto. Le istruzioni in italiano per OSRM sono generate dall'app a partire da tipo di manovra, direzione e nome della strada.
 - Destinazione in quattro modi: **ricerca indirizzo** (Photon), **tap lungo sulla mappa**, **coordinate incollate** (anche link Google Maps) o **da un giro salvato**.
 - Il percorso **sopravvive alla perdita di rete**: una volta calcolato, manovre, distanze e voce continuano a funzionare col solo GPS; il ricalcolo è l'unica cosa che richiede la rete, e se manca l'app lo dice invece di tacere.
 - **Fuori percorso** con ricalcolo automatico ma con i freni: serve conferma su più fix GPS (un errore in galleria non conta), nessun ricalcolo da fermo al semaforo, backoff crescente e un tetto massimo prima di passare alla modalità manuale — per non tempestare il server (1 richiesta al secondo) e per non litigare con una deviazione voluta.
@@ -369,7 +370,7 @@ Il file usa la virgola come separatore. Su Excel italiano potresti vedere tutto 
 ## Sicurezza e privacy
 
 - I dati (tracce, log, calibrazione) restano sul telefono: nessun server, nessuna telemetria in uscita.
-- Le chiamate esterne sono le tile OpenStreetMap, Leaflet da unpkg, le query Overpass (autovelox), Valhalla (routing) e Photon (geocoding). Originare e destinare il navigatore sono inviate a un server terzo quando calcoli un percorso; il resto (traccia, autovelox, preferenze) resta in locale.
+- Le chiamate esterne sono le tile OpenStreetMap, Leaflet da unpkg, le query Overpass (autovelox), Valhalla e OSRM (routing) e Photon (geocoding). Originare e destinare il navigatore sono inviate a un server terzo quando calcoli un percorso; il resto (traccia, autovelox, preferenze) resta in locale.
 - La pagina dichiara una **Content-Security-Policy** che limita gli host raggiungibili a quelli sopra.
 - Nomi e limiti degli autovelox (da OSM o da file importati) sono dati di terze parti e vengono inseriti nel DOM come **testo**, mai come HTML.
 - **Da fare**: Leaflet è caricato da CDN senza `integrity`. Per chiudere del tutto il rischio catena di fornitura conviene scaricare `leaflet.js` e `leaflet.css` nella repo e servirli in locale — a quel punto si può stringere la CSP a `script-src 'self'` e togliere `unpkg.com` dalla lista in `sw.js`.
