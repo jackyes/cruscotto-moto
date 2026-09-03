@@ -4647,6 +4647,7 @@ function cleanupVideoJob(job) {
     if (job.moto.renderer.domElement && job.moto.renderer.domElement.parentNode) job.moto.renderer.domElement.parentNode.removeChild(job.moto.renderer.domElement);
   }
   if (job.map && job.map.remove) { try { job.map.remove(); } catch (e) {} }
+  if (job.container && job.container.parentNode) job.container.parentNode.removeChild(job.container);
 }
 
 function videoLoop(now) {
@@ -4900,13 +4901,16 @@ function initVideoRender3D(pre) {
   els.videoStatus.textContent = 'Preparo mappa 3D…';
 
   // Canvas mappa WebGL con preserveDrawingBuffer (per drawImage nel master canvas).
+  const container = document.createElement('div');
+  container.style.cssText = 'position:fixed; left:-9999px; top:0; width:' + W + 'px; height:' + H + 'px;';
   const mapCanvas = document.createElement('canvas');
   mapCanvas.width = W; mapCanvas.height = H;
-  mapCanvas.style.cssText = 'position:fixed; left:-9999px; top:0;';
-  document.body.appendChild(mapCanvas);
+  container.appendChild(mapCanvas);
+  document.body.appendChild(container);
 
   const first = pre.mapPts.length ? pre.mapPts[0] : { lat: 42.5, lon: 12.5 };
   const map = new maplibregl.Map({
+    container: container,
     canvas: mapCanvas,
     center: [first.lon, first.lat],
     zoom: 15.5, pitch: 60, bearing: 0,
@@ -4921,7 +4925,7 @@ function initVideoRender3D(pre) {
 
   const job = {
     mode: '3d', running: true, cancelled: false, canvas, ctx,
-    map, mapCanvas, mapReady: false, moto,
+    map, mapCanvas, container, mapReady: false, moto,
     rows: pre.rows, track: pre.track, mapPts: pre.mapPts, spark: pre.spark,
     dist: pre.dist, tEnd: pre.tEnd, mult: pre.mult, speedMax: pre.speedMax,
     tSim: pre.rows.length ? pre.rows[0].t : 0, lastRaf: 0,
