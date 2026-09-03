@@ -4641,7 +4641,6 @@ function beginVideoCapture(job, canvas, mime) {
 function cleanupVideoJob(job) {
   if (job.raf) { cancelAnimationFrame(job.raf); job.raf = 0; }
   if (job.canvas && job.canvas.parentNode) job.canvas.parentNode.removeChild(job.canvas);
-  if (job.mapCanvas && job.mapCanvas.parentNode) job.mapCanvas.parentNode.removeChild(job.mapCanvas);
   if (job.moto && job.moto.renderer) {
     try { job.moto.renderer.dispose(); } catch (e) {}
     if (job.moto.renderer.domElement && job.moto.renderer.domElement.parentNode) job.moto.renderer.domElement.parentNode.removeChild(job.moto.renderer.domElement);
@@ -4903,15 +4902,11 @@ function initVideoRender3D(pre) {
   // Canvas mappa WebGL con preserveDrawingBuffer (per drawImage nel master canvas).
   const container = document.createElement('div');
   container.style.cssText = 'position:fixed; left:-9999px; top:0; width:' + W + 'px; height:' + H + 'px;';
-  const mapCanvas = document.createElement('canvas');
-  mapCanvas.width = W; mapCanvas.height = H;
-  container.appendChild(mapCanvas);
   document.body.appendChild(container);
 
   const first = pre.mapPts.length ? pre.mapPts[0] : { lat: 42.5, lon: 12.5 };
   const map = new maplibregl.Map({
     container: container,
-    canvas: mapCanvas,
     center: [first.lon, first.lat],
     zoom: 15.5, pitch: 60, bearing: 0,
     style: 'https://tiles.openfreemap.org/styles/liberty',
@@ -4925,7 +4920,7 @@ function initVideoRender3D(pre) {
 
   const job = {
     mode: '3d', running: true, cancelled: false, canvas, ctx,
-    map, mapCanvas, container, mapReady: false, moto,
+    map, container, mapReady: false, moto,
     rows: pre.rows, track: pre.track, mapPts: pre.mapPts, spark: pre.spark,
     dist: pre.dist, tEnd: pre.tEnd, mult: pre.mult, speedMax: pre.speedMax,
     tSim: pre.rows.length ? pre.rows[0].t : 0, lastRaf: 0,
@@ -5110,7 +5105,7 @@ function initVideoMoto3D(THREE, W, H) {
 }
 
 function drawVideoFrame3D(job) {
-  const { ctx, map, mapCanvas, moto, rows, mapPts, keyframes, dist, speedMax, tSim } = job;
+  const { ctx, map, moto, rows, mapPts, keyframes, dist, speedMax, tSim } = job;
   const W = job.canvas.width, H = job.canvas.height;
   const i = Math.max(0, findRowAt(rows, tSim));
   const r = rows[i] || {};
@@ -5133,7 +5128,8 @@ function drawVideoFrame3D(job) {
 
   // Composizione: mappa + moto + HUD.
   ctx.clearRect(0, 0, W, H);
-  ctx.drawImage(mapCanvas, 0, 0, W, H);
+  const mc = map.getCanvas();
+  if (mc) ctx.drawImage(mc, 0, 0, W, H);
   ctx.drawImage(moto.renderer.domElement, 0, 0, W, H);
   drawVideoHUD3D(ctx, job, r, tSim, dist[i] || 0, speedMax);
 }
