@@ -548,6 +548,12 @@
           <option value="4">4×</option>
         </select>
       </div>
+      <div class="m-row"><span>Tipo</span>
+        <select id="videoType">
+          <option value="3d" selected>3D (mappa + moto)</option>
+          <option value="2d">2D (cruscotto)</option>
+        </select>
+      </div>
       <div class="m-progress"><div id="videoProg"></div></div>
       <div class="m-status" id="videoStatus">Pronto.</div>
       <div class="m-btns">
@@ -1242,7 +1248,7 @@ const els = {
   navVoice: $('navVoice'), navNoHw: $('navNoHw'), navNoToll: $('navNoToll'),
   navBackroads: $('navBackroads'), navNoFerry: $('navNoFerry'),
   btnImportCam: $('btnImportCam'), camFile: $('camFile'), btnViewer: $('btnViewer'),
-  videoModal: $('videoModal'), videoRes: $('videoRes'), videoSpeed: $('videoSpeed'),
+  videoModal: $('videoModal'), videoRes: $('videoRes'), videoSpeed: $('videoSpeed'), videoType: $('videoType'),
   videoProg: $('videoProg'), videoStatus: $('videoStatus'),
   videoStart: $('videoStart'), videoCancel: $('videoCancel'),
   btnCenter: $('btnCenter'), btnFollow: $('btnFollow'), btnTrackUp: $('btnTrackUp'), btnNavMute: $('btnNavMute'), compassOffsetSel: $('compassOffset'),
@@ -4506,7 +4512,9 @@ function videoColor(name) {
 let videoJob = null;
 
 function pickVideoMime() {
-  const cand = ['video/webm;codecs=vp9', 'video/webm;codecs=vp8', 'video/webm'];
+  // vp8 prima: su molti Android l'encoder hardware vp9 non è disponibile pur
+  // essendo dichiarato supportato, e MediaRecorder fallisce senza dati.
+  const cand = ['video/webm;codecs=vp8', 'video/webm;codecs=vp9', 'video/webm'];
   for (const m of cand) if (MediaRecorder.isTypeSupported(m)) return m;
   return '';
 }
@@ -4541,9 +4549,6 @@ function startVideoRender(s) {
 
   const res = els.videoRes.value === '1080' ? [1920, 1080] : [1280, 720];
   const mult = Number(els.videoSpeed.value) || 1;
-  const canvas = document.createElement('canvas');
-  canvas.width = res[0]; canvas.height = res[1];
-  const ctx = canvas.getContext('2d');
 
   // Distanza cumulativa per riga (km), riusando haversine dell'app.
   const dist = new Float64Array(rows.length);
@@ -4573,31 +4578,74 @@ function startVideoRender(s) {
   else for (const r of rows) if (r.speedKmh > speedMax) speedMax = r.speedKmh;
   speedMax = Math.ceil(speedMax / 20) * 20;
 
-  const job = {
-    running: true, cancelled: false, canvas, ctx, rows, track, mapPts, spark,
-    dist, tEnd, mult, speedMax,
-    tSim: rows.length ? rows[0].t : 0, lastRaf: 0, chunks: [], rec: null, stream: null, raf: 0,
-  };
+  const pre = { mime, res, mult, rows, track, mapPts, spark, dist, tEnd, speedMax };
+  const mode = (els.videoType && els.videoType.value === '2d') ? '2d' : '3d';
+  if (mode === '3d') { startVideoRender3D(pre); return; }
+  startVideoRender2D(pre);
+}
 
+/* Canvas offscreen (nel DOM ma fuori schermo): captureStream su un canvas mai
+   inserito nel DOM può non produrre frame su Chrome/Android. */
+function makeVideoCanvas(res) {
+  const c = document.createElement('canvas');
+  c.width = res[0]; c.height = res[1];
+  c.style.cssText = 'position:fixed; left:-9999px; top:0;';
+  document.body.appendChild(c);
+  return c;
+}
+
+function startVideoRender2D(pre) {
+  const canvas = makeVideoCanvas(pre.res);
+  const ctx = canvas.getContext('2d');
+  const job = {
+    mode: '2d', running: true, cancelled: false, canvas, ctx,
+    rows: pre.rows, track: pre.track, mapPts: pre.mapPts, spark: pre.spark,
+    dist: pre.dist, tEnd: pre.tEnd, mult: pre.mult, speedMax: pre.speedMax,
+    tSim: pre.rows.length ? pre.rows[0].t : 0, lastRaf: 0,
+    chunks: [], rec: null, stream: null, raf: 0, recErr: false,
+  };
+  beginVideoCapture(job, canvas, pre.mime);
+}
+
+/* Registrazione + loop condivisi da 2D e 3D. */
+function beginVideoCapture(job, canvas, mime) {
+  if (job.cancelled) return;
   job.stream = canvas.captureStream(30);
-  job.rec = new MediaRecorder(job.stream, { mimeType: mime, videoBitsPerSecond: 8_000_000 });
+  job.rec = new MediaRecorder(job.stream, { mimeType: mime, videoBitsPerSecond: 5_000_000 });
+  job.rec.onerror = () => {
+    job.recErr = true;
+    toast('Errore encoder video: prova 720p o un browser desktop.', 'err', 6000);
+  };
   job.rec.ondataavailable = e => { if (e.data && e.data.size) job.chunks.push(e.data); };
   job.rec.onstop = () => {
-    if (!job.cancelled) {
+    if (!job.cancelled && !job.recErr && job.chunks.length) {
       const blob = new Blob(job.chunks, { type: mime });
       downloadBlob('cruscotto_video_' + stamp() + '.webm', blob, mime);
       toast('Video esportato.', 'ok');
+    } else if (!job.cancelled) {
+      toast('Registrazione vuota: codec/encoder non disponibile su questo dispositivo.', 'err', 6000);
     }
+    cleanupVideoJob(job);
     if (videoJob === job) videoJob = null;
     closeVideoModal();
   };
   job.rec.start(250);
   videoJob = job;
-
   els.videoStart.disabled = true;
   els.videoStatus.textContent = 'Render in corso…';
   job.lastRaf = performance.now();
   job.raf = requestAnimationFrame(videoLoop);
+}
+
+function cleanupVideoJob(job) {
+  if (job.raf) { cancelAnimationFrame(job.raf); job.raf = 0; }
+  if (job.canvas && job.canvas.parentNode) job.canvas.parentNode.removeChild(job.canvas);
+  if (job.mapCanvas && job.mapCanvas.parentNode) job.mapCanvas.parentNode.removeChild(job.mapCanvas);
+  if (job.moto && job.moto.renderer) {
+    try { job.moto.renderer.dispose(); } catch (e) {}
+    if (job.moto.renderer.domElement && job.moto.renderer.domElement.parentNode) job.moto.renderer.domElement.parentNode.removeChild(job.moto.renderer.domElement);
+  }
+  if (job.map && job.map.remove) { try { job.map.remove(); } catch (e) {} }
 }
 
 function videoLoop(now) {
@@ -4625,12 +4673,14 @@ function stopVideoRender() {
   job.running = false;
   job.cancelled = true;
   if (job.raf) cancelAnimationFrame(job.raf);
-  try { job.rec.stop(); } catch (e) {}
-  try { job.stream.getTracks().forEach(t => t.stop()); } catch (e) {}
+  try { if (job.rec) job.rec.stop(); } catch (e) {}
+  try { if (job.stream) job.stream.getTracks().forEach(t => t.stop()); } catch (e) {}
+  cleanupVideoJob(job);
   videoJob = null;
+  closeVideoModal();
 }
 
-function drawVideoFrame(job) {
+function drawVideoFrame2D(job) {
   const { canvas, ctx, rows, tSim, dist, speedMax } = job;
   const W = canvas.width, H = canvas.height;
   const bg = videoColor('c-bg'), grid = videoColor('c-grid'), axis = videoColor('c-axis');
@@ -4772,6 +4822,251 @@ function drawVideoSpark(ctx, job, x, y, w, h, tSim, accent, grid) {
   const cxx = X(tSim);
   ctx.strokeStyle = grid; ctx.lineWidth = 2;
   ctx.beginPath(); ctx.moveTo(cxx, y + 4); ctx.lineTo(cxx, y + h - 4); ctx.stroke();
+}
+
+/* Dispatch frame: 2D o 3D in base alla modalità. */
+function drawVideoFrame(job) {
+  if (job.mode === '3d') drawVideoFrame3D(job);
+  else drawVideoFrame2D(job);
+}
+
+/* ============================== Render 3D (MapLibre + moto) ============================== */
+
+function loadVideo3DScript(url, onload, onerror) {
+  const sc = document.createElement('script');
+  sc.src = url; sc.crossOrigin = 'anonymous';
+  sc.onload = onload; sc.onerror = onerror;
+  document.head.appendChild(sc);
+}
+
+function startVideoRender3D(pre) {
+  if (window.maplibregl && window.THREE) { initVideoRender3D(pre); return; }
+  els.videoStatus.textContent = 'Carico motore 3D…';
+  const css = document.createElement('link');
+  css.rel = 'stylesheet'; css.href = 'https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css';
+  document.head.appendChild(css);
+  const missing = [];
+  if (!window.maplibregl) missing.push('https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js');
+  if (!window.THREE) missing.push('https://unpkg.com/three@0.160.0/build/three.min.js');
+  let done = 0;
+  const settle = () => {
+    if (++done < missing.length) return;
+    if (window.maplibregl && window.THREE) initVideoRender3D(pre);
+    else { toast('Mappa 3D non disponibile, uso il render 2D.', 'err'); startVideoRender2D(pre); }
+  };
+  for (const url of missing) loadVideo3DScript(url, settle, settle);
+}
+
+function initVideoRender3D(pre) {
+  const maplibregl = window.maplibregl, THREE = window.THREE;
+  const W = pre.res[0], H = pre.res[1];
+
+  // Canvas mappa WebGL con preserveDrawingBuffer (per drawImage nel master canvas).
+  const mapCanvas = document.createElement('canvas');
+  mapCanvas.width = W; mapCanvas.height = H;
+  mapCanvas.style.cssText = 'position:fixed; left:-9999px; top:0;';
+  document.body.appendChild(mapCanvas);
+  const gl = mapCanvas.getContext('webgl2', { preserveDrawingBuffer: true, antialias: true })
+          || mapCanvas.getContext('webgl', { preserveDrawingBuffer: true, antialias: true });
+  if (!gl) { mapCanvas.remove(); toast('WebGL non disponibile, uso il render 2D.', 'err'); startVideoRender2D(pre); return; }
+
+  const first = pre.mapPts.length ? pre.mapPts[0] : { lat: 42.5, lon: 12.5 };
+  const map = new maplibregl.Map({
+    canvas: mapCanvas,
+    center: [first.lon, first.lat],
+    zoom: 15.5, pitch: 60, bearing: 0,
+    style: 'https://tiles.openfreemap.org/styles/liberty',
+    attributionControl: false,
+  });
+
+  const canvas = makeVideoCanvas(pre.res);
+  const ctx = canvas.getContext('2d');
+  const moto = initVideoMoto3D(THREE, W, H);
+
+  const job = {
+    mode: '3d', running: true, cancelled: false, canvas, ctx,
+    map, mapCanvas, mapReady: false, moto,
+    rows: pre.rows, track: pre.track, mapPts: pre.mapPts, spark: pre.spark,
+    dist: pre.dist, tEnd: pre.tEnd, mult: pre.mult, speedMax: pre.speedMax,
+    tSim: pre.rows.length ? pre.rows[0].t : 0, lastRaf: 0,
+    chunks: [], rec: null, stream: null, raf: 0, recErr: false,
+    keyframes: buildCameraKeyframes(pre.mapPts),
+  };
+  videoJob = job; // così "Annulla" funziona anche durante il caricamento
+
+  map.on('load', () => {
+    if (job.cancelled) return;
+    try {
+      map.addSource('dem', {
+        type: 'raster-dem',
+        url: 'https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png',
+        encoding: 'terrarium', tileSize: 256, maxzoom: 15,
+      });
+      map.setTerrain({ source: 'dem', exaggeration: 1.5 });
+      map.addSource('hillshade', {
+        type: 'raster',
+        tiles: ['https://s3.amazonaws.com/elevation-tiles-prod/hillshade/{z}/{x}/{y}.png'],
+        tileSize: 256, maxzoom: 15,
+      });
+      map.addLayer({ id: 'video-hillshade', type: 'raster', source: 'hillshade', paint: { 'raster-opacity': 0.25 } });
+      job.mapReady = true;
+      beginVideoCapture(job, canvas, pre.mime);
+    } catch (e) {
+      toast('Terreno 3D non disponibile, uso il render 2D.', 'err');
+      cleanupVideoJob(job);
+      startVideoRender2D(pre);
+    }
+  });
+
+  // Fallback se lo stile non carica (offline / CDN bloccata).
+  setTimeout(() => {
+    if (!job.mapReady && videoJob === job && !job.cancelled) {
+      toast('Stile mappa non caricato, uso il render 2D.', 'err');
+      stopVideoRender();
+      startVideoRender2D(pre);
+    }
+  }, 12000);
+}
+
+function buildCameraKeyframes(mapPts) {
+  const n = mapPts.length;
+  if (!n) return [];
+  const raw = new Array(n);
+  for (let i = 0; i < n; i++) {
+    let brg = 0;
+    if (i > 0) brg = bearing(mapPts[i - 1], mapPts[i]);
+    else if (n > 1) brg = bearing(mapPts[0], mapPts[1]);
+    raw[i] = { lat: mapPts[i].lat, lon: mapPts[i].lon, brg };
+  }
+  // Media circolare su finestra di 5 per smussare lo jitter dell'heading GPS.
+  const out = new Array(n);
+  for (let i = 0; i < n; i++) {
+    let sx = 0, sy = 0, c = 0;
+    for (let j = Math.max(0, i - 2); j <= Math.min(n - 1, i + 2); j++) {
+      const a = raw[j].brg * Math.PI / 180;
+      sx += Math.sin(a); sy += Math.cos(a); c++;
+    }
+    out[i] = { lat: raw[i].lat, lon: raw[i].lon, brg: (Math.atan2(sx, sy) * 180 / Math.PI + 360) % 360 };
+  }
+  return out;
+}
+
+function initVideoMoto3D(THREE, W, H) {
+  const renderer = new THREE.WebGLRenderer({ alpha: true, antialias: true });
+  renderer.setSize(W, H);
+  renderer.setPixelRatio(1);
+  renderer.domElement.style.cssText = 'position:fixed; left:-9999px; top:0;';
+  document.body.appendChild(renderer.domElement);
+
+  const scene = new THREE.Scene();
+  const camera = new THREE.PerspectiveCamera(50, W / H, 0.1, 1000);
+  camera.position.set(0, 3.2, 6.5);
+  camera.lookAt(0, 0.4, 0);
+
+  scene.add(new THREE.AmbientLight(0xffffff, 0.9));
+  const dir = new THREE.DirectionalLight(0xffffff, 1.4);
+  dir.position.set(4, 8, 3);
+  scene.add(dir);
+
+  const moto = new THREE.Group();          // yaw: muso via dalla camera
+  moto.rotation.y = Math.PI;
+  const bike = new THREE.Group();          // roll: piega attorno all'asse di marcia
+  moto.add(bike);
+
+  const accent = new THREE.MeshStandardMaterial({ color: 0x0ea5e9, roughness: 0.35, metalness: 0.3 });
+  const dark = new THREE.MeshStandardMaterial({ color: 0x1a2330, roughness: 0.6, metalness: 0.2 });
+  const tire = new THREE.MeshStandardMaterial({ color: 0x0b0f14, roughness: 0.85 });
+
+  const wheelGeom = new THREE.CylinderGeometry(0.42, 0.42, 0.16, 24);
+  const wheels = [];
+  for (const x of [-0.62, 0.62]) {
+    const axle = new THREE.Group();
+    axle.position.set(x, 0.42, 0);
+    axle.rotation.z = Math.PI / 2;         // cilindro sdraiato: asse -> sinistra/destra
+    const w = new THREE.Mesh(wheelGeom, tire);
+    axle.add(w);
+    bike.add(axle);
+    wheels.push(w);                        // rotolamento = rotazione attorno all'asse del cilindro
+  }
+  const body = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.7, 1.6), accent);
+  body.position.set(0, 1.0, 0); bike.add(body);
+  const tank = new THREE.Mesh(new THREE.BoxGeometry(0.44, 0.35, 0.7), dark);
+  tank.position.set(0, 1.28, 0.35); bike.add(tank);
+  const bar = new THREE.Mesh(new THREE.BoxGeometry(0.7, 0.08, 0.08), dark);
+  bar.position.set(0, 1.42, 0.75); bike.add(bar);
+  const exh = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.09, 1.1, 12), dark);
+  exh.rotation.x = Math.PI / 2;
+  exh.position.set(0.25, 0.55, -0.5); bike.add(exh);
+
+  scene.add(moto);
+  return { renderer, scene, camera, bike, wheels };
+}
+
+function drawVideoFrame3D(job) {
+  const { ctx, map, mapCanvas, moto, rows, mapPts, keyframes, dist, speedMax, tSim } = job;
+  const W = job.canvas.width, H = job.canvas.height;
+  const i = Math.max(0, findRowAt(rows, tSim));
+  const r = rows[i] || {};
+
+  // Camera mappa: segue il tracciato, muso in avanti, pitch 60.
+  const kIdx = mapPts.length ? Math.min(mapPts.length - 1, Math.round((i / Math.max(1, rows.length - 1)) * (mapPts.length - 1))) : 0;
+  const kf = keyframes[kIdx];
+  if (kf && job.mapReady) {
+    map.jumpTo({ center: [kf.lon, kf.lat], bearing: kf.brg, pitch: 60, zoom: 15.5 });
+    map.triggerRepaint();
+  }
+
+  // Moto: piega + rotolamento ruote.
+  const leanRad = (r.lean || 0) * Math.PI / 180;
+  moto.bike.rotation.z = -leanRad;           // piega positiva (destra) = top verso destra
+  const spin = (r.speedKmh || 0) * 0.022;    // ω·Δt con r=0.42m a ~30fps
+  for (const w of moto.wheels) w.rotation.y += spin;
+
+  moto.renderer.render(moto.scene, moto.camera);
+
+  // Composizione: mappa + moto + HUD.
+  ctx.clearRect(0, 0, W, H);
+  ctx.drawImage(mapCanvas, 0, 0, W, H);
+  ctx.drawImage(moto.renderer.domElement, 0, 0, W, H);
+  drawVideoHUD3D(ctx, job, r, tSim, dist[i] || 0, speedMax);
+}
+
+function drawVideoHUD3D(ctx, job, r, tSim, distKm, speedMax) {
+  const W = job.canvas.width, H = job.canvas.height;
+  const accent = videoColor('accent'), txt = videoColor('text'), axis = videoColor('c-axis');
+  const good = videoColor('good'), bad = videoColor('bad');
+  const kmh = Math.round(r.speedKmh || 0);
+
+  ctx.textBaseline = 'alphabetic';
+  // Velocità (alto-sinistra)
+  ctx.fillStyle = 'rgba(0,0,0,.35)';
+  ctx.beginPath(); ctx.roundRect(16, 16, 220, 120, 16); ctx.fill();
+  ctx.textAlign = 'left';
+  ctx.fillStyle = accent; ctx.font = 'bold 64px system-ui';
+  ctx.fillText(String(kmh), 34, 96);
+  ctx.fillStyle = axis; ctx.font = 'bold 22px system-ui';
+  ctx.fillText('km/h', 34 + 64 * (kmh >= 100 ? 2.1 : 1.4), 96);
+
+  // Tempo + distanza (alto-destra)
+  const tr = fmtDur(tSim) + ' · ' + distKm.toFixed(2) + ' km';
+  ctx.textAlign = 'right';
+  ctx.fillStyle = 'rgba(0,0,0,.35)';
+  const tw = ctx.measureText(tr).width;
+  ctx.beginPath(); ctx.roundRect(W - 16 - tw - 28, 16, tw + 28, 44, 14); ctx.fill();
+  ctx.fillStyle = txt; ctx.font = 'bold 22px system-ui';
+  ctx.fillText(tr, W - 30, 47);
+
+  // Piega (basso-sinistra): arco piccolo
+  const cx = 90, cy = H - 96, gr = 56;
+  ctx.strokeStyle = axis; ctx.lineWidth = 9; ctx.lineCap = 'round';
+  const ang = a => (90 - a) * Math.PI / 180;
+  ctx.beginPath(); ctx.arc(cx, cy, gr, ang(-60), ang(60)); ctx.stroke();
+  const cl = Math.max(-60, Math.min(60, r.lean || 0));
+  const na = ang(cl);
+  ctx.strokeStyle = cl >= 0 ? good : bad; ctx.lineWidth = 5;
+  ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(cx + Math.cos(na) * gr * 0.82, cy - Math.sin(na) * gr * 0.82); ctx.stroke();
+  ctx.fillStyle = txt; ctx.textAlign = 'center'; ctx.font = 'bold 24px system-ui';
+  ctx.fillText(Math.round(cl) + '°', cx, cy + gr * 0.3);
 }
 
 /* ============================== IndexedDB (storico) ============================== */
