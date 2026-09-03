@@ -680,6 +680,7 @@
         </div>
         <div class="controls" style="margin-bottom:12px;">
           <button id="btnImportCam">📥 Importa autovelox</button>
+          <button id="btnViewer">📊 Viewer CSV</button>
         </div>
         <input type="file" id="camFile" accept=".json,.txt,.geojson,.csv" style="display:none;">
         <div class="hist-list" id="sessionList">
@@ -1240,7 +1241,7 @@ const els = {
   navSimSpeed: $('navSimSpeed'),
   navVoice: $('navVoice'), navNoHw: $('navNoHw'), navNoToll: $('navNoToll'),
   navBackroads: $('navBackroads'), navNoFerry: $('navNoFerry'),
-  btnImportCam: $('btnImportCam'), camFile: $('camFile'),
+  btnImportCam: $('btnImportCam'), camFile: $('camFile'), btnViewer: $('btnViewer'),
   videoModal: $('videoModal'), videoRes: $('videoRes'), videoSpeed: $('videoSpeed'),
   videoProg: $('videoProg'), videoStatus: $('videoStatus'),
   videoStart: $('videoStart'), videoCancel: $('videoCancel'),
@@ -5890,6 +5891,7 @@ function init() {
   els.btnBench.addEventListener('click', startBench);
 
   els.btnImportCam.addEventListener('click', () => els.camFile.click());
+  els.btnViewer.addEventListener('click', () => window.open('viewer.html', '_blank', 'noopener'));
   els.camFile.addEventListener('change', () => {
     if (els.camFile.files && els.camFile.files[0]) importCamerasFile(els.camFile.files[0]);
     els.camFile.value = '';
