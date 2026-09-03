@@ -546,6 +546,7 @@
           <option value="1">1×</option>
           <option value="2">2×</option>
           <option value="4">4×</option>
+          <option value="12">12×</option>
         </select>
       </div>
       <div class="m-row"><span>Tipo</span>
@@ -5019,7 +5020,7 @@ function drawVideoFrame3D(job) {
   // Moto: piega + rotolamento ruote.
   const leanRad = (r.lean || 0) * Math.PI / 180;
   moto.bike.rotation.z = -leanRad;           // piega positiva (destra) = top verso destra
-  const spin = (r.speedKmh || 0) * 0.022;    // ω·Δt con r=0.42m a ~30fps
+  const spin = (r.speedKmh || 0) * 0.022 * job.mult; // ω·Δt, scala con il moltiplicatore
   for (const w of moto.wheels) w.rotation.y += spin;
 
   moto.renderer.render(moto.scene, moto.camera);

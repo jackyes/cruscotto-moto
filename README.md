@@ -96,11 +96,11 @@ L'app è organizzata in 4 schede (barra in basso): **Dashboard · Mappa · Grafi
 ### Export video
 - Dal dettaglio di una sessione (Storico → tap) c'è **Export video**.
 - Render **postumo**, tutto lato client, catturato da canvas → **WebM** via MediaRecorder. Nessun server, nessun ffmpeg.
-- Opzioni: risoluzione (720p / 1080p), velocità (1× / 2× / 4×) e tipo:
+- Opzioni: risoluzione (720p / 1080p), velocità (1× / 2× / 4× / 12×) e tipo:
   - **3D (default)**: mappa 3D MapLibre (terreno AWS Terrain + stile OpenFreeMap, gratis senza chiave) con telecamera che segue il tracciato e una **moto 3D** stilizzata (primitive Three.js) che si inclina con la piega e ha le ruote in rotazione.
   - **2D**: cruscotto animato (velocità, piega, accelerazioni) + tracciato stilizzato.
 - Dipendenze 3D caricate **on demand** da CDN (MapLibre GL + Three.js, ~1,4 MB); senza rete si ripiega sul render 2D.
-- Limiti: solo **WebM** (MediaRecorder non produce MP4); il render avviene in tempo reale (10 min di giro = 10 min a 1×; 2×/4× accorciano). **Su iOS/Safari l'export video non è disponibile** (manca `canvas.captureStream` + codec WebM): serve Android/Chrome o desktop Chrome.
+- Limiti: solo **WebM** (MediaRecorder non produce MP4); il render avviene in tempo reale (10 min di giro = 10 min a 1×; 2×/4×/12× accorciano). **Su iOS/Safari l'export video non è disponibile** (manca `canvas.captureStream` + codec WebM): serve Android/Chrome o desktop Chrome.
 
 ## Angolo di piega — come funziona
 
