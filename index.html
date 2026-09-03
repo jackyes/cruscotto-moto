@@ -4939,16 +4939,10 @@ function initVideoRender3D(pre) {
     try {
       map.addSource('dem', {
         type: 'raster-dem',
-        url: 'https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png',
+        tiles: ['https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png'],
         encoding: 'terrarium', tileSize: 256, maxzoom: 15,
       });
       map.setTerrain({ source: 'dem', exaggeration: 1.5 });
-      map.addSource('hillshade', {
-        type: 'raster',
-        tiles: ['https://s3.amazonaws.com/elevation-tiles-prod/hillshade/{z}/{x}/{y}.png'],
-        tileSize: 256, maxzoom: 15,
-      });
-      map.addLayer({ id: 'video-hillshade', type: 'raster', source: 'hillshade', paint: { 'raster-opacity': 0.25 } });
       job.mapReady = true;
       beginVideoCapture(job, canvas, pre.mime);
     } catch (e) {
@@ -5001,10 +4995,11 @@ function initVideoMoto3D(THREE, W, H) {
 
   const scene = new THREE.Scene();
   const camera = new THREE.PerspectiveCamera(50, W / H, 0.1, 1000);
-  camera.position.set(0, 3.2, 6.5);
-  camera.lookAt(0, 0.4, 0);
+  camera.position.set(0, 3.0, 6.5);
+  camera.lookAt(0, 0.55, 0);
 
   scene.add(new THREE.AmbientLight(0xffffff, 0.9));
+  scene.add(new THREE.HemisphereLight(0xffffff, 0x223344, 0.4));
   const dir = new THREE.DirectionalLight(0xffffff, 1.4);
   dir.position.set(4, 8, 3);
   scene.add(dir);
@@ -5014,30 +5009,101 @@ function initVideoMoto3D(THREE, W, H) {
   const bike = new THREE.Group();          // roll: piega attorno all'asse di marcia
   moto.add(bike);
 
-  const accent = new THREE.MeshStandardMaterial({ color: 0x0ea5e9, roughness: 0.35, metalness: 0.3 });
-  const dark = new THREE.MeshStandardMaterial({ color: 0x1a2330, roughness: 0.6, metalness: 0.2 });
-  const tire = new THREE.MeshStandardMaterial({ color: 0x0b0f14, roughness: 0.85 });
+  const M = {
+    tire:    new THREE.MeshStandardMaterial({ color: 0x0b0f14, roughness: 0.9 }),
+    rim:     new THREE.MeshStandardMaterial({ color: 0xccd1d8, roughness: 0.25, metalness: 0.9 }),
+    chrome:  new THREE.MeshStandardMaterial({ color: 0xdfe3e8, roughness: 0.15, metalness: 1.0 }),
+    frame:   new THREE.MeshStandardMaterial({ color: 0x222831, roughness: 0.5, metalness: 0.6 }),
+    accent:  new THREE.MeshStandardMaterial({ color: 0x0ea5e9, roughness: 0.3, metalness: 0.35 }),
+    seat:    new THREE.MeshStandardMaterial({ color: 0x14181d, roughness: 0.95 }),
+    exhaust: new THREE.MeshStandardMaterial({ color: 0x9aa0a8, roughness: 0.35, metalness: 1.0 }),
+    head:    new THREE.MeshStandardMaterial({ color: 0xfff6d8, emissive: 0xfff2b0, emissiveIntensity: 1.2, roughness: 0.3 }),
+    tail:    new THREE.MeshStandardMaterial({ color: 0x300000, emissive: 0xff2222, emissiveIntensity: 1.5 }),
+    glass:   new THREE.MeshStandardMaterial({ color: 0x9fd4e8, roughness: 0.1, metalness: 0.1, transparent: true, opacity: 0.35 }),
+  };
 
-  const wheelGeom = new THREE.CylinderGeometry(0.42, 0.42, 0.16, 24);
+  const add = (geom, mat, x, y, z, rx = 0, ry = 0, rz = 0) => {
+    const m = new THREE.Mesh(geom, mat);
+    m.position.set(x, y, z);
+    if (rx) m.rotation.x = rx; if (ry) m.rotation.y = ry; if (rz) m.rotation.z = rz;
+    bike.add(m); return m;
+  };
+
   const wheels = [];
-  for (const x of [-0.62, 0.62]) {
+  function wheel(z) {
     const axle = new THREE.Group();
-    axle.position.set(x, 0.42, 0);
-    axle.rotation.z = Math.PI / 2;         // cilindro sdraiato: asse -> sinistra/destra
-    const w = new THREE.Mesh(wheelGeom, tire);
-    axle.add(w);
+    axle.position.set(0, 0.42, z);
+    axle.rotation.z = Math.PI / 2;          // cilindro sdraiato: asse lungo X
     bike.add(axle);
-    wheels.push(w);                        // rotolamento = rotazione attorno all'asse del cilindro
+    const spin = new THREE.Group();          // ruota intera rotola attorno all'asse
+    axle.add(spin);
+    wheels.push(spin);
+    spin.add(new THREE.Mesh(new THREE.CylinderGeometry(0.42, 0.42, 0.16, 32), M.tire));
+    spin.add(new THREE.Mesh(new THREE.CylinderGeometry(0.30, 0.30, 0.15, 32), M.rim));
+    spin.add(new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.07, 0.18, 16), M.chrome)); // mozzo
+    for (let i = 0; i < 6; i++) {            // raggi
+      const a = i / 6 * Math.PI * 2;
+      const g = new THREE.Group(); g.rotation.y = a;
+      const sp = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.012, 0.5, 6), M.chrome);
+      sp.rotation.z = Math.PI / 2; sp.position.x = 0.25;
+      g.add(sp); spin.add(g);
+    }
   }
-  const body = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.7, 1.6), accent);
-  body.position.set(0, 1.0, 0); bike.add(body);
-  const tank = new THREE.Mesh(new THREE.BoxGeometry(0.44, 0.35, 0.7), dark);
-  tank.position.set(0, 1.28, 0.35); bike.add(tank);
-  const bar = new THREE.Mesh(new THREE.BoxGeometry(0.7, 0.08, 0.08), dark);
-  bar.position.set(0, 1.42, 0.75); bike.add(bar);
-  const exh = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.09, 1.1, 12), dark);
-  exh.rotation.x = Math.PI / 2;
-  exh.position.set(0.25, 0.55, -0.5); bike.add(exh);
+  wheel(-0.70); wheel(+0.70);                // posteriore / anteriore
+
+  // forcellone + mono
+  add(new THREE.BoxGeometry(0.06, 0.10, 0.55), M.frame, 0, 0.72, -0.25, 0.12);
+  add(new THREE.CylinderGeometry(0.05, 0.05, 0.30, 12), M.chrome, 0.14, 0.85, -0.45);
+
+  // forcella
+  add(new THREE.CylinderGeometry(0.035, 0.035, 1.05, 12), M.chrome, -0.10, 0.95, 0.62, 0, 0, 0.06);
+  add(new THREE.CylinderGeometry(0.035, 0.035, 1.05, 12), M.chrome, 0.10, 0.95, 0.62, 0, 0, -0.06);
+  add(new THREE.BoxGeometry(0.24, 0.05, 0.12), M.frame, 0, 1.25, 0.60);
+  add(new THREE.BoxGeometry(0.24, 0.05, 0.12), M.frame, 0, 0.85, 0.58);
+
+  // manubrio + manopole
+  add(new THREE.CylinderGeometry(0.025, 0.025, 0.62, 12), M.chrome, 0, 1.32, 0.72, 0, 0, Math.PI / 2);
+  add(new THREE.CylinderGeometry(0.032, 0.032, 0.14, 12), M.tire, -0.26, 1.32, 0.72, 0, 0, Math.PI / 2);
+  add(new THREE.CylinderGeometry(0.032, 0.032, 0.14, 12), M.tire, 0.26, 1.32, 0.72, 0, 0, Math.PI / 2);
+
+  // telaio
+  add(new THREE.CylinderGeometry(0.03, 0.03, 0.9, 10), M.frame, -0.10, 1.02, 0.30, 0, 0, 0.35);
+  add(new THREE.CylinderGeometry(0.03, 0.03, 0.9, 10), M.frame, 0.10, 1.02, 0.30, 0, 0, -0.35);
+  add(new THREE.BoxGeometry(0.05, 0.6, 0.05), M.frame, -0.12, 0.75, 0.45);
+  add(new THREE.BoxGeometry(0.05, 0.6, 0.05), M.frame, 0.12, 0.75, 0.45);
+
+  // motore + alette di raffreddamento
+  add(new THREE.BoxGeometry(0.34, 0.28, 0.40), M.frame, 0, 0.62, 0.00);
+  for (let i = 0; i < 4; i++) add(new THREE.BoxGeometry(0.38, 0.03, 0.44), M.chrome, 0, 0.78 + i * 0.035, 0.0);
+
+  // serbatoio (ellissoide)
+  const tank = new THREE.Mesh(new THREE.SphereGeometry(0.32, 24, 18), M.accent);
+  tank.scale.set(0.22, 0.16, 0.34); tank.position.set(0, 1.08, 0.20); bike.add(tank);
+
+  // sella + codino
+  add(new THREE.BoxGeometry(0.40, 0.14, 0.55), M.seat, 0, 0.92, -0.32);
+  add(new THREE.BoxGeometry(0.32, 0.20, 0.35), M.accent, 0, 1.00, -0.60);
+
+  // carenatura / muso + parabrezza
+  add(new THREE.BoxGeometry(0.34, 0.50, 0.50), M.accent, 0, 1.00, 0.55, -0.18);
+  add(new THREE.BoxGeometry(0.30, 0.28, 0.02), M.glass, 0, 1.28, 0.62, -0.35);
+
+  // faro
+  add(new THREE.CylinderGeometry(0.10, 0.10, 0.06, 20), M.head, 0, 0.95, 0.85, Math.PI / 2);
+  add(new THREE.TorusGeometry(0.10, 0.02, 8, 20), M.chrome, 0, 0.95, 0.85, Math.PI / 2);
+
+  // parafango anteriore (mezza ciambella)
+  add(new THREE.TorusGeometry(0.46, 0.05, 12, 24, Math.PI), M.accent, 0, 0.72, 0.70, Math.PI / 2);
+
+  // scarico
+  add(new THREE.CylinderGeometry(0.05, 0.05, 0.8, 12), M.exhaust, 0.12, 0.55, -0.10, 0.4);
+  add(new THREE.CylinderGeometry(0.09, 0.09, 0.45, 16), M.exhaust, 0.12, 0.50, -0.55, Math.PI / 2);
+
+  // luce posteriore + targa + pedane
+  add(new THREE.BoxGeometry(0.14, 0.05, 0.03), M.tail, 0, 0.95, -0.78);
+  add(new THREE.BoxGeometry(0.16, 0.10, 0.02), M.frame, 0, 0.80, -0.78);
+  add(new THREE.CylinderGeometry(0.02, 0.02, 0.10, 8), M.frame, -0.20, 0.35, -0.05);
+  add(new THREE.CylinderGeometry(0.02, 0.02, 0.10, 8), M.frame, 0.20, 0.35, -0.05);
 
   scene.add(moto);
   return { renderer, scene, camera, bike, wheels };
@@ -5054,7 +5120,7 @@ function drawVideoFrame3D(job) {
   const kf = keyframes[kIdx];
   if (kf && job.mapReady) {
     map.jumpTo({ center: [kf.lon, kf.lat], bearing: kf.brg, pitch: 60, zoom: 15.5 });
-    map.triggerRepaint();
+    map.redraw();
   }
 
   // Moto: piega + rotolamento ruote.
