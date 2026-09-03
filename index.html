@@ -4853,25 +4853,51 @@ function fallbackTo2D(pre, msg, job) {
 
 function startVideoRender3D(pre) {
   if (window.maplibregl && window.THREE) { initVideoRender3D(pre); return; }
-  els.videoStatus.textContent = 'Carico motore 3D…';
+  els.videoStatus.textContent = 'Carico motore 3D';
   const css = document.createElement('link');
   css.rel = 'stylesheet'; css.href = 'https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css';
   document.head.appendChild(css);
   const missing = [];
   if (!window.maplibregl) missing.push('https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js');
-  if (!window.THREE) missing.push('https://unpkg.com/three@0.160.0/build/three.min.js');
-  let done = 0;
+  if (!window.THREE) missing.push('https://unpkg.com/three@0.149.0/build/three.min.js');
+
+  // Feedback: pallini animati, così si capisce che sta lavorando.
+  let dots = 1;
+  const tick = setInterval(() => {
+    dots = (dots % 3) + 1;
+    els.videoStatus.textContent = 'Carico motore 3D' + '.'.repeat(dots);
+  }, 400);
+
+  let done = 0, settled = false;
   const settle = () => {
+    if (settled) return;
     if (++done < missing.length) return;
-    if (window.maplibregl && window.THREE) initVideoRender3D(pre);
-    else fallbackTo2D(pre, 'Mappa 3D non disponibile, uso il render 2D.');
+    settled = true;
+    clearInterval(tick);
+    clearTimeout(timeout);
+    if (window.maplibregl && window.THREE) {
+      try { initVideoRender3D(pre); }
+      catch (e) { fallbackTo2D(pre, 'Errore motore 3D, uso il render 2D.'); }
+    } else {
+      fallbackTo2D(pre, 'Mappa 3D non disponibile, uso il render 2D.');
+    }
   };
+
+  // Rete lenta / CDN bloccata: niente attesa infinita.
+  const timeout = setTimeout(() => {
+    if (settled) return;
+    settled = true;
+    clearInterval(tick);
+    fallbackTo2D(pre, 'Dipendenze 3D non caricate (rete lenta?), uso il render 2D.');
+  }, 12000);
+
   for (const url of missing) loadVideo3DScript(url, settle, settle);
 }
 
 function initVideoRender3D(pre) {
   const maplibregl = window.maplibregl, THREE = window.THREE;
   const W = pre.res[0], H = pre.res[1];
+  els.videoStatus.textContent = 'Preparo mappa 3D…';
 
   // Canvas mappa WebGL con preserveDrawingBuffer (per drawImage nel master canvas).
   const mapCanvas = document.createElement('canvas');
@@ -4905,7 +4931,6 @@ function initVideoRender3D(pre) {
     keyframes: buildCameraKeyframes(pre.mapPts),
   };
   videoJob = job; // così "Annulla" funziona anche durante il caricamento
-  els.videoStatus.textContent = 'Preparo mappa 3D…';
 
   map.on('load', () => {
     if (job.cancelled) return;
