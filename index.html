@@ -303,6 +303,29 @@
   .dbtns { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-top: 10px; }
   .empty { color: var(--text-2); font-size: 14px; text-align: center; padding: 24px 0; }
 
+  /* ============ Modal render video ============ */
+  .modal-overlay {
+    position: fixed; inset: 0; background: rgba(0,0,0,.55);
+    display: flex; align-items: center; justify-content: center;
+    z-index: 400; padding: 16px;
+  }
+  .modal-overlay[hidden] { display: none; }
+  .modal {
+    background: var(--surface); color: var(--text); border: 1px solid var(--line);
+    border-radius: 18px; padding: 18px; width: 100%; max-width: 420px;
+    box-shadow: var(--shadow);
+  }
+  .modal h2 { font-size: 17px; font-weight: 800; margin-bottom: 14px; }
+  .modal .m-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; font-size: 14px; }
+  .modal select { background: var(--surface-2); color: var(--text); border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; font-size: 14px; min-height: 40px; }
+  .modal .m-progress { height: 8px; background: var(--surface-2); border-radius: 6px; overflow: hidden; margin: 6px 0 4px; }
+  .modal .m-progress > div { height: 100%; width: 0%; background: var(--accent); }
+  .modal .m-status { font-size: 12px; color: var(--text-2); margin-bottom: 12px; font-variant-numeric: tabular-nums; }
+  .modal .m-btns { display: flex; gap: 10px; justify-content: flex-end; }
+  .modal .m-btns button { padding: 10px 14px; min-height: 40px; border-radius: 11px; font-weight: 800; font-size: 14px; cursor: pointer; background: var(--surface-2); color: var(--text); border: 1px solid var(--line); }
+  .modal .m-btns button.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+  .modal .m-btns button:disabled { opacity: .5; cursor: default; }
+
   /* ============ Navigatore ============ */
   .nav-input {
     width: 100%; box-sizing: border-box; background: var(--surface-2); color: var(--text);
@@ -508,6 +531,31 @@
   <div id="camAlert" class="cam-alert" style="display:none;"></div>
   <div id="toasts" class="toast-wrap"></div>
   <div id="secWarn" class="warnbar" style="display:none;"></div>
+
+  <div id="videoModal" class="modal-overlay" hidden>
+    <div class="modal">
+      <h2>Export video</h2>
+      <div class="m-row"><span>Risoluzione</span>
+        <select id="videoRes">
+          <option value="720" selected>1280×720 (720p)</option>
+          <option value="1080">1920×1080 (1080p)</option>
+        </select>
+      </div>
+      <div class="m-row"><span>Velocità</span>
+        <select id="videoSpeed">
+          <option value="1">1×</option>
+          <option value="2">2×</option>
+          <option value="4">4×</option>
+        </select>
+      </div>
+      <div class="m-progress"><div id="videoProg"></div></div>
+      <div class="m-status" id="videoStatus">Pronto.</div>
+      <div class="m-btns">
+        <button id="videoCancel">Annulla</button>
+        <button id="videoStart" class="primary">Avvia render</button>
+      </div>
+    </div>
+  </div>
 
   <button id="permBtn" style="display:none; width:100%; background:var(--warn); color:var(--warn-ink); border-color:var(--warn);">
     Consenti sensori (motion/orientation)
@@ -1193,6 +1241,9 @@ const els = {
   navVoice: $('navVoice'), navNoHw: $('navNoHw'), navNoToll: $('navNoToll'),
   navBackroads: $('navBackroads'), navNoFerry: $('navNoFerry'),
   btnImportCam: $('btnImportCam'), camFile: $('camFile'),
+  videoModal: $('videoModal'), videoRes: $('videoRes'), videoSpeed: $('videoSpeed'),
+  videoProg: $('videoProg'), videoStatus: $('videoStatus'),
+  videoStart: $('videoStart'), videoCancel: $('videoCancel'),
   btnCenter: $('btnCenter'), btnFollow: $('btnFollow'), btnTrackUp: $('btnTrackUp'), btnNavMute: $('btnNavMute'), compassOffsetSel: $('compassOffset'),
   gyroFusion: $('gyroFusion'), camAheadChk: $('camAhead'),
   toasts: $('toasts'), secWarn: $('secWarn'), mapBox: document.querySelector('.map-box'),
@@ -4424,6 +4475,304 @@ function exportGpx(track, nameSuffix) {
   downloadBlob('cruscotto' + (nameSuffix ? '_' + nameSuffix : '') + '_' + stamp() + '.gpx', buildGpx(track), 'application/gpx+xml');
 }
 
+/* ============================== Export video (render da sessione) ==============================
+   Render postumo: si disegna il cruscotto su un canvas fuori schermo e lo si cattura
+   con canvas.captureStream + MediaRecorder → WebM. Niente server, niente ffmpeg.
+   MediaRecorder registra in tempo reale: un giro da 10 min richiede 10 min a 1×;
+   il moltiplicatore 2×/4× accorcia il render (il video risulta accelerato). */
+
+/* Indice della riga con t più vicino al target. rows è ordinata per t crescente. */
+function findRowAt(rows, t) {
+  if (!rows || !rows.length) return -1;
+  if (t <= rows[0].t) return 0;
+  if (t >= rows[rows.length - 1].t) return rows.length - 1;
+  let lo = 0, hi = rows.length - 1;
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    if (rows[mid].t < t) lo = mid + 1; else hi = mid;
+  }
+  const a = lo - 1 >= 0 ? rows[lo - 1] : rows[lo];
+  const b = rows[lo];
+  return (t - a.t <= b.t - t) ? lo - 1 : lo;
+}
+
+/* Colore dai CSS var del tema (--accent, --good, --c-bg, --acc-lat, …). */
+function videoColor(name) {
+  const v = getComputedStyle(document.documentElement).getPropertyValue('--' + name).trim();
+  return v || '#888';
+}
+
+let videoJob = null;
+
+function pickVideoMime() {
+  const cand = ['video/webm;codecs=vp9', 'video/webm;codecs=vp8', 'video/webm'];
+  for (const m of cand) if (MediaRecorder.isTypeSupported(m)) return m;
+  return '';
+}
+
+function openVideoModal(s) {
+  stopVideoRender();
+  els.videoModal._session = s;
+  els.videoStart.disabled = false;
+  els.videoProg.style.width = '0%';
+  els.videoStatus.textContent = 'Pronto.';
+  els.videoModal.hidden = false;
+}
+
+function closeVideoModal() {
+  els.videoModal.hidden = true;
+  els.videoModal._session = null;
+}
+
+function startVideoRender(s) {
+  if (typeof MediaRecorder === 'undefined' || !HTMLCanvasElement.prototype.captureStream) {
+    toast('Registrazione video non supportata su questo browser.', 'err');
+    return;
+  }
+  const mime = pickVideoMime();
+  if (!mime) { toast('Codec WebM non disponibile.', 'err'); return; }
+
+  const rows = s.rows || [];
+  const track = s.track || [];
+  if (!rows.length && !track.length) { toast('Nessun dato da renderizzare.', 'err'); return; }
+  const tEnd = rows.length ? rows[rows.length - 1].t : 0;
+  if (tEnd <= 0) { toast('Sessione troppo corta.', 'err'); return; }
+
+  const res = els.videoRes.value === '1080' ? [1920, 1080] : [1280, 720];
+  const mult = Number(els.videoSpeed.value) || 1;
+  const canvas = document.createElement('canvas');
+  canvas.width = res[0]; canvas.height = res[1];
+  const ctx = canvas.getContext('2d');
+
+  // Distanza cumulativa per riga (km), riusando haversine dell'app.
+  const dist = new Float64Array(rows.length);
+  for (let i = 1; i < rows.length; i++) {
+    const a = rows[i - 1], b = rows[i];
+    dist[i] = dist[i - 1] + ((a.lat != null && a.lon != null && b.lat != null && b.lon != null) ? haversine(a, b) : 0);
+  }
+
+  // Punti mappa validi (con lat/lon) prefiltrati una sola volta.
+  const mapPts = [];
+  const src = (track && track.length) ? track : rows;
+  for (const p of src) if (p.lat != null && p.lon != null) mapPts.push(p);
+
+  // Sparkline velocità: downsampling a ~400 punti, min/max precalcolati.
+  const spark = { pts: [], min: Infinity, max: -Infinity };
+  const step = Math.max(1, Math.floor(rows.length / 400));
+  for (let k = 0; k < rows.length; k += step) {
+    const v = rows[k].speedKmh || 0;
+    spark.pts.push({ t: rows[k].t, v });
+    if (v < spark.min) spark.min = v;
+    if (v > spark.max) spark.max = v;
+  }
+  if (!isFinite(spark.min)) { spark.min = 0; spark.max = 1; }
+
+  let speedMax = 60;
+  if (s.meta && s.meta.maxSpeed) speedMax = Math.max(speedMax, s.meta.maxSpeed);
+  else for (const r of rows) if (r.speedKmh > speedMax) speedMax = r.speedKmh;
+  speedMax = Math.ceil(speedMax / 20) * 20;
+
+  const job = {
+    running: true, cancelled: false, canvas, ctx, rows, track, mapPts, spark,
+    dist, tEnd, mult, speedMax,
+    tSim: rows.length ? rows[0].t : 0, lastRaf: 0, chunks: [], rec: null, stream: null, raf: 0,
+  };
+
+  job.stream = canvas.captureStream(30);
+  job.rec = new MediaRecorder(job.stream, { mimeType: mime, videoBitsPerSecond: 8_000_000 });
+  job.rec.ondataavailable = e => { if (e.data && e.data.size) job.chunks.push(e.data); };
+  job.rec.onstop = () => {
+    if (!job.cancelled) {
+      const blob = new Blob(job.chunks, { type: mime });
+      downloadBlob('cruscotto_video_' + stamp() + '.webm', blob, mime);
+      toast('Video esportato.', 'ok');
+    }
+    if (videoJob === job) videoJob = null;
+    closeVideoModal();
+  };
+  job.rec.start(250);
+  videoJob = job;
+
+  els.videoStart.disabled = true;
+  els.videoStatus.textContent = 'Render in corso…';
+  job.lastRaf = performance.now();
+  job.raf = requestAnimationFrame(videoLoop);
+}
+
+function videoLoop(now) {
+  const job = videoJob;
+  if (!job || !job.running) return;
+  const dt = job.lastRaf ? (now - job.lastRaf) / 1000 : 0;
+  job.lastRaf = now;
+  job.tSim += dt * job.mult;
+  if (job.tSim >= job.tEnd) {
+    job.tSim = job.tEnd;
+    drawVideoFrame(job);
+    job.running = false;
+    try { job.rec.stop(); } catch (e) {}
+    return;
+  }
+  drawVideoFrame(job);
+  els.videoProg.style.width = Math.round((job.tSim / job.tEnd) * 100) + '%';
+  els.videoStatus.textContent = fmtDur(job.tSim) + ' / ' + fmtDur(job.tEnd);
+  job.raf = requestAnimationFrame(videoLoop);
+}
+
+function stopVideoRender() {
+  const job = videoJob;
+  if (!job) return;
+  job.running = false;
+  job.cancelled = true;
+  if (job.raf) cancelAnimationFrame(job.raf);
+  try { job.rec.stop(); } catch (e) {}
+  try { job.stream.getTracks().forEach(t => t.stop()); } catch (e) {}
+  videoJob = null;
+}
+
+function drawVideoFrame(job) {
+  const { canvas, ctx, rows, tSim, dist, speedMax } = job;
+  const W = canvas.width, H = canvas.height;
+  const bg = videoColor('c-bg'), grid = videoColor('c-grid'), axis = videoColor('c-axis');
+  const accent = videoColor('accent'), good = videoColor('good'), bad = videoColor('bad');
+  const accLat = videoColor('acc-lat'), accLon = videoColor('acc-lon'), accVert = videoColor('acc-vert');
+  const txt = videoColor('text');
+
+  ctx.fillStyle = bg; ctx.fillRect(0, 0, W, H);
+
+  const i = Math.max(0, findRowAt(rows, tSim));
+  const r = rows[i] || {};
+  const SPARK = 96, mapW = Math.round(W * 0.56), topH = H - SPARK, dashX = mapW, dashW = W - mapW;
+
+  drawVideoMap(ctx, job, 0, 0, mapW, topH, i, r, grid, axis, accent, good, bad);
+  drawVideoDash(ctx, dashX, 0, dashW, topH, r, tSim, dist[i] || 0, speedMax, accent, axis, txt, good, bad, accLat, accLon, accVert);
+  drawVideoSpark(ctx, job, 0, topH, W, SPARK, tSim, accent, grid);
+}
+
+function drawVideoMap(ctx, job, x, y, w, h, rowIdx, r, grid, axis, accent, good, bad) {
+  const pts = job.mapPts;
+  ctx.save();
+  ctx.beginPath(); ctx.rect(x, y, w, h); ctx.clip();
+  ctx.fillStyle = videoColor('c-bg'); ctx.fillRect(x, y, w, h);
+  if (!pts.length) {
+    ctx.fillStyle = axis; ctx.font = '26px system-ui'; ctx.textAlign = 'center';
+    ctx.fillText('Nessun GPS', x + w / 2, y + h / 2);
+    ctx.restore(); return;
+  }
+  let minLat = Infinity, maxLat = -Infinity, minLon = Infinity, maxLon = -Infinity;
+  for (const p of pts) {
+    if (p.lat < minLat) minLat = p.lat; if (p.lat > maxLat) maxLat = p.lat;
+    if (p.lon < minLon) minLon = p.lon; if (p.lon > maxLon) maxLon = p.lon;
+  }
+  const spanLat = (maxLat - minLat) || 0.0001, spanLon = (maxLon - minLon) || 0.0001;
+  const pad = 40;
+  const scale = Math.min((w - 2 * pad) / spanLon, (h - 2 * pad) / spanLat);
+  const offX = x + (w - spanLon * scale) / 2, offY = y + (h - spanLat * scale) / 2;
+  const X = lon => offX + (lon - minLon) * scale;
+  const Y = lat => offY + (maxLat - lat) * scale;
+
+  const n = pts.length;
+  const ridden = Math.max(0, Math.min(n - 1, Math.round((rowIdx / Math.max(1, job.rows.length - 1)) * (n - 1))));
+
+  ctx.lineWidth = 5; ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+  // tracciato restante (grigio)
+  ctx.strokeStyle = grid;
+  ctx.beginPath();
+  for (let k = ridden; k < n; k++) { const px = X(pts[k].lon), py = Y(pts[k].lat); k === ridden ? ctx.moveTo(px, py) : ctx.lineTo(px, py); }
+  ctx.stroke();
+  // tratto percorso (accento)
+  ctx.strokeStyle = accent;
+  ctx.beginPath();
+  for (let k = 0; k <= ridden; k++) { const px = X(pts[k].lon), py = Y(pts[k].lat); k === 0 ? ctx.moveTo(px, py) : ctx.lineTo(px, py); }
+  ctx.stroke();
+
+  // inizio / fine
+  const s0 = pts[0], e0 = pts[n - 1];
+  ctx.fillStyle = good; ctx.beginPath(); ctx.arc(X(s0.lon), Y(s0.lat), 8, 0, 6.283); ctx.fill();
+  ctx.fillStyle = bad; ctx.beginPath(); ctx.arc(X(e0.lon), Y(e0.lat), 8, 0, 6.283); ctx.fill();
+
+  // posizione attuale (cade sul row se ha lat/lon, altrimenti sul punto percorso)
+  let clat = r.lat, clon = r.lon;
+  if (clat == null || clon == null) { clat = pts[ridden].lat; clon = pts[ridden].lon; }
+  const cxx = X(clon), cyy = Y(clat);
+  ctx.fillStyle = accent; ctx.beginPath(); ctx.arc(cxx, cyy, 12, 0, 6.283); ctx.fill();
+  ctx.strokeStyle = videoColor('c-bg'); ctx.lineWidth = 3; ctx.stroke();
+  ctx.restore();
+}
+
+function drawVideoDash(ctx, x, y, w, h, r, tSim, distKm, speedMax, accent, axis, txt, good, bad, accLat, accLon, accVert) {
+  const cx = x + w / 2;
+  const kmh = Math.round(r.speedKmh || 0);
+
+  ctx.textAlign = 'center';
+  ctx.fillStyle = accent;
+  ctx.font = 'bold ' + Math.round(h * 0.20) + 'px system-ui';
+  ctx.fillText(String(kmh), cx, y + h * 0.24);
+  ctx.fillStyle = axis;
+  ctx.font = 'bold ' + Math.round(h * 0.05) + 'px system-ui';
+  ctx.fillText('km/h', cx, y + h * 0.31);
+
+  // arco piega
+  const lean = r.lean || 0;
+  const gcy = y + h * 0.58, gr = Math.min(w * 0.30, h * 0.16);
+  drawLeanArc(ctx, cx, gcy, gr, lean, axis, good, bad, txt);
+
+  // barre accelerazioni
+  const bw = w * 0.80, bx = x + (w - bw) / 2, bh = Math.max(7, h * 0.035);
+  const barY = y + h * 0.72, gap = bh + 9;
+  drawAccBar(ctx, bx, barY, bw, bh, r.latG || 0, 1.2, accLat, 'LAT', axis, txt);
+  drawAccBar(ctx, bx, barY + gap, bw, bh, r.lonG || 0, 1.2, accLon, 'LON', axis, txt);
+  drawAccBar(ctx, bx, barY + 2 * gap, bw, bh, r.vertG || 0, 1.5, accVert, 'VERT', axis, txt);
+
+  // tempo + distanza
+  ctx.fillStyle = txt;
+  ctx.font = 'bold ' + Math.round(h * 0.042) + 'px system-ui';
+  ctx.fillText(fmtDur(tSim) + '  ·  ' + distKm.toFixed(2) + ' km', cx, y + h * 0.94);
+}
+
+function drawLeanArc(ctx, cx, cy, r, lean, axis, good, bad, txt) {
+  const a0 = -60, a1 = 60;
+  const ang = a => (90 - a) * Math.PI / 180; // 0° in alto, + a destra
+  ctx.lineCap = 'round';
+  ctx.strokeStyle = axis; ctx.lineWidth = Math.max(3, r * 0.14);
+  ctx.beginPath(); ctx.arc(cx, cy, r, ang(a0), ang(a1)); ctx.stroke();
+  const cl = Math.max(a0, Math.min(a1, lean));
+  const na = ang(cl);
+  ctx.strokeStyle = (cl >= 0) ? good : bad; ctx.lineWidth = Math.max(2, r * 0.10);
+  ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(cx + Math.cos(na) * r * 0.82, cy - Math.sin(na) * r * 0.82); ctx.stroke();
+  ctx.fillStyle = txt; ctx.font = 'bold ' + Math.round(r * 0.42) + 'px system-ui'; ctx.textAlign = 'center';
+  ctx.fillText(Math.round(cl) + '°', cx, cy + r * 0.22);
+}
+
+function drawAccBar(ctx, x, y, w, h, v, range, color, label, axis, txt) {
+  const cx = x + w / 2;
+  ctx.fillStyle = axis; ctx.globalAlpha = 0.5;
+  ctx.fillRect(cx - 1, y, 2, h); ctx.globalAlpha = 1;
+  const val = Math.max(-range, Math.min(range, v));
+  const bw = (val / range) * (w / 2);
+  ctx.fillStyle = color;
+  ctx.fillRect(Math.min(cx, cx + bw), y, Math.abs(bw), h);
+  ctx.fillStyle = txt; ctx.font = 'bold ' + Math.max(10, h) + 'px system-ui'; ctx.textAlign = 'left';
+  ctx.fillText(label, x, y + h - 1);
+}
+
+function drawVideoSpark(ctx, job, x, y, w, h, tSim, accent, grid) {
+  ctx.fillStyle = videoColor('c-bg'); ctx.fillRect(x, y, w, h);
+  const pts = job.spark.pts;
+  if (!pts.length) return;
+  const span = Math.max(1, job.spark.max - job.spark.min);
+  const t0 = job.rows[0].t, tspan = Math.max(1, job.tEnd - t0);
+  const pad = 12;
+  const X = t => x + pad + ((t - t0) / tspan) * (w - 2 * pad);
+  const Y = v => y + h - pad - ((v - job.spark.min) / span) * (h - 2 * pad);
+  ctx.strokeStyle = accent; ctx.lineWidth = 2; ctx.lineJoin = 'round';
+  ctx.beginPath();
+  pts.forEach((p, k) => { const px = X(p.t), py = Y(p.v); k ? ctx.lineTo(px, py) : ctx.moveTo(px, py); });
+  ctx.stroke();
+  const cxx = X(tSim);
+  ctx.strokeStyle = grid; ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.moveTo(cxx, y + 4); ctx.lineTo(cxx, y + h - 4); ctx.stroke();
+}
+
 /* ============================== IndexedDB (storico) ============================== */
 /* Schema v2:
    - sessions  : record pesante {id, track, rows}
@@ -4692,12 +5041,14 @@ function showSessionDetail(s) {
     '<div class="dbtns">' +
       '<button id="dCsv">Export CSV</button>' +
       '<button id="dGpx">Export GPX</button>' +
+      '<button id="dVideo">Export video</button>' +
       '<button id="dDel" style="color:var(--bad); border-color:var(--bad);">Elimina</button>' +
     '</div>';
   state._replayTrack = s.track || [];
   requestAnimationFrame(() => drawTrackOnCanvas($('replayCanvas'), state._replayTrack, { startEnd: true }));
   $('dCsv').addEventListener('click', () => exportCsv(s.rows, s.meta, 'storico'));
   $('dGpx').addEventListener('click', () => exportGpx(s.track, 'storico'));
+  $('dVideo').addEventListener('click', () => openVideoModal(s));
   $('dDel').addEventListener('click', async () => {
     if (!await confirmToast('Eliminare questo giro?')) return;
     try { await idb.del(s.id); } catch (e) { toast('Eliminazione fallita.', 'err'); return; }
@@ -5368,6 +5719,15 @@ function init() {
     if (!total) { toast('Nessun dato nelle sessioni.', 'err'); return; }
     downloadBlob('cruscotto_storico_tutti_' + stamp() + '.csv', parts, 'text/csv;charset=utf-8');
     toast('Esportate ' + total + ' righe.', 'ok');
+  });
+
+  els.videoStart.addEventListener('click', () => {
+    const s = els.videoModal._session;
+    if (s) startVideoRender(s);
+  });
+  els.videoCancel.addEventListener('click', () => {
+    stopVideoRender();
+    closeVideoModal();
   });
 
   els.btnFullscreen.addEventListener('click', toggleFullscreen);

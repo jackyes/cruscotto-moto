@@ -85,13 +85,19 @@ L'app è organizzata in 4 schede (barra in basso): **Dashboard · Mappa · Grafi
 
 ### Storico sessioni
 - A ogni **Stop Log** la sessione viene salvata in **IndexedDB** (dati 20 Hz + traccia GPS).
-- Elenco giri passati; tap → dettaglio (statistiche + replay traccia su mappa) + **Export CSV / GPX / Elimina**.
+- Elenco giri passati; tap → dettaglio (statistiche + replay traccia su mappa) + **Export CSV / GPX / video / Elimina**.
 - L'elenco legge solo i metadati: le righe di una sessione si caricano quando apri il dettaglio o esporti, così lo Storico resta leggero anche con molte ore registrate.
 - **Recupero sessione interrotta**: se l'app si chiude durante un log (crash, batteria, refresh), alla riapertura ti propone di recuperare i dati già scritti su disco.
 - `localStorage` resta per impostazioni e calibrazione. Log e archivio autovelox importato stanno su IndexedDB (localStorage ha un tetto di ~5 MB, che il log saturava dopo una ventina di minuti).
 
 ### Export GPX
 - Il percorso GPS si esporta in `.gpx` (compatibile Strava / Google Maps / Relive).
+
+### Export video
+- Dal dettaglio di una sessione (Storico → tap) c'è **Export video**.
+- Render **postumo**, tutto lato client: cruscotto animato (velocità, piega, accelerazioni) + tracciato stilizzato su mappa, catturati da un canvas → **WebM** via MediaRecorder. Nessun server, nessun ffmpeg.
+- Opzioni: risoluzione (720p / 1080p) e velocità (1× / 2× / 4×).
+- Limiti: solo **WebM** (MediaRecorder non produce MP4); il render avviene in tempo reale, quindi un giro da 10 min richiede 10 min a 1× (2×/4× accorciano). La mappa nel video è stilizzata, senza tile OSM: il caricamento asincrono delle tile renderebbe fragile la cattura.
 
 ## Angolo di piega — come funziona
 
@@ -354,6 +360,11 @@ Il file usa la virgola come separatore. Su Excel italiano potresti vedere tutto 
 
 - **Excel**: Dati → Da testo/CSV → delimitatore **virgola** → carica.
 - **Google Sheets**: File → Importa → delimitatore "Virgola".
+
+### Viewer web (CSV)
+- `viewer.html` (nella stessa cartella dell'app) apre il CSV esportato via **drag&drop** o click.
+- Mostra statistiche (durata, V max, piega D/S, distanza, campioni), grafici (velocità, piega, accelerazioni, quota) e il tracciato su mappa OpenStreetMap ricavato dalle colonne `lat`/`lon`.
+- Tutto in locale nel browser: nessun dato viene inviato altrove. Serve connessione solo per i tile della mappa.
 
 ## Sensori usati (API web standard)
 

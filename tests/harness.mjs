@@ -48,7 +48,7 @@ const exportLine = `
   decodePolyline6, navShapePlausible, navBuild, navSegNearest, navLowerBound, navProject,
   navPassed, navAdvance, navBandDist, navFmtDist, navFmtShort, navFmtTime,
   osrmType, osrmText, osrmIdxOf, navFromOsrm, navParseCoords,
-  csvMeta, num, csvRows, buildCsv, buildGpx, stamp, fmtDur, takeLogAvg, snapshot
+  csvMeta, num, csvRows, buildCsv, buildGpx, stamp, fmtDur, takeLogAvg, snapshot, findRowAt
 };
 `;
 

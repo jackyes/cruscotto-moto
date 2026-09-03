@@ -1,0 +1,264 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cruscotto Moto · Viewer CSV</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<style>
+  :root {
+    --bg: #0d131b; --surface: #121924; --surface-2: #1a2330;
+    --line: #263243; --text: #e6edf5; --text-2: #8a99aa;
+    --accent: #0ea5e9; --good: #34d399; --bad: #f87171; --warn: #fbbf24;
+    --acc-lat: #38bdf8; --acc-lon: #fbbf24; --acc-vert: #a78bfa;
+    --c-bg: #121924; --c-grid: #263243; --c-axis: #8a99aa;
+    color-scheme: dark;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: var(--bg); color: var(--text);
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
+    min-height: 100dvh; padding: 16px;
+  }
+  .wrap { max-width: 960px; margin: 0 auto; }
+  header { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; margin-bottom: 16px; }
+  header h1 { font-size: 18px; font-weight: 800; letter-spacing: .6px; }
+  header h1 span { color: var(--accent); font-size: 13px; font-weight: 600; }
+  .drop {
+    border: 2px dashed var(--line); border-radius: 14px; padding: 28px 16px;
+    text-align: center; color: var(--text-2); font-weight: 700; cursor: pointer;
+    transition: border-color .15s, background .15s; margin-bottom: 16px;
+  }
+  .drop.over { border-color: var(--accent); background: var(--surface); }
+  .drop b { color: var(--accent); }
+  #file { display: none; }
+  main[hidden] { display: none; }
+  .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px; margin-bottom: 14px; }
+  .stat { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 12px; text-align: center; }
+  .stat .v { font-size: 22px; font-weight: 800; font-variant-numeric: tabular-nums; }
+  .stat .k { font-size: 10px; color: var(--text-2); text-transform: uppercase; letter-spacing: .6px; }
+  #map { height: 320px; border-radius: 14px; border: 1px solid var(--line); margin-bottom: 14px; background: var(--surface); }
+  #map.hidden { display: none; }
+  .chart { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 12px 14px; margin-bottom: 12px; }
+  .chart .clbl { display: flex; justify-content: space-between; font-size: 12px; color: var(--text-2); font-weight: 700; margin-bottom: 6px; }
+  .chart canvas { width: 100%; height: 150px; display: block; border-radius: 8px; background: var(--c-bg); }
+  .hint { color: var(--text-2); font-size: 12px; text-align: center; margin-top: 16px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>CRUSCOTTO·MOTO <span>Viewer CSV</span></h1>
+  </header>
+
+  <div class="drop" id="drop">Trascina qui il file <b>.csv</b> esportato dall'app<br>
+    <span style="font-size:12px;">oppure clicca per sceglierlo</span></div>
+  <input type="file" id="file" accept=".csv">
+
+  <main id="main" hidden>
+    <div class="stats" id="stats"></div>
+    <div id="map" class="hidden"></div>
+    <div class="chart"><div class="clbl"><span>Velocità</span><span id="lblVmax"></span></div><canvas id="cSpeed"></canvas></div>
+    <div class="chart"><div class="clbl"><span>Piega</span><span>±60°</span></div><canvas id="cLean"></canvas></div>
+    <div class="chart"><div class="clbl"><span>Accelerazioni (G)</span><span>lat / lon / vert</span></div><canvas id="cAcc"></canvas></div>
+    <div class="chart"><div class="clbl"><span>Quota</span><span>m</span></div><canvas id="cAlt"></canvas></div>
+    <div class="hint">Grafici e statistiche generati localmente nel browser. Nessun dato inviato altrove.</div>
+  </main>
+</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+(function () {
+  'use strict';
+  const $ = id => document.getElementById(id);
+
+  const COLS = ['t','speed_kmh','lean_deg','lat_accel_g','lon_accel_g','vert_accel_g','alt_m','lat','lon'];
+
+  // --- parser CSV: salta i commenti '#', header per nome colonna, campi vuoti -> null
+  function parseCsv(text) {
+    const lines = text.split(/\r?\n/).filter(l => l.trim().length);
+    let headerIdx = -1, cols = null;
+    const rows = [];
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+      if (line[0] === '#') continue;
+      const f = line.split(',');
+      if (cols === null) {
+        cols = {};
+        f.forEach((name, j) => { cols[name.trim()] = j; });
+        continue;
+      }
+      const r = {};
+      for (const c of COLS) {
+        const j = cols[c];
+        if (j == null) { r[c] = null; continue; }
+        const raw = f[j];
+        r[c] = (raw == null || raw === '') ? null : Number(raw);
+      }
+      if (r.t == null || !isFinite(r.t)) continue;
+      rows.push(r);
+    }
+    return rows;
+  }
+
+  function haversineKm(a, b) {
+    const R = 6371;
+    const dLat = (b.lat - a.lat) * Math.PI / 180;
+    const dLon = (b.lon - a.lon) * Math.PI / 180;
+    const la1 = a.lat * Math.PI / 180, la2 = b.lat * Math.PI / 180;
+    const h = Math.sin(dLat/2)**2 + Math.cos(la1)*Math.cos(la2)*Math.sin(dLon/2)**2;
+    return 2 * R * Math.asin(Math.sqrt(h));
+  }
+
+  function downsample(rows, maxPts) {
+    if (rows.length <= maxPts) return rows;
+    const step = Math.ceil(rows.length / maxPts);
+    const out = [];
+    for (let i = 0; i < rows.length; i += step) out.push(rows[i]);
+    if (out[out.length - 1] !== rows[rows.length - 1]) out.push(rows[rows.length - 1]);
+    return out;
+  }
+
+  // --- grafico lineare su canvas ---
+  function drawLine(canvas, rows, getY, opts) {
+    const dpr = window.devicePixelRatio || 1;
+    const w = canvas.clientWidth || 600, h = canvas.clientHeight || 150;
+    canvas.width = w * dpr; canvas.height = h * dpr;
+    const ctx = canvas.getContext('2d');
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.fillStyle = getCss('--c-bg'); ctx.fillRect(0, 0, w, h);
+    if (!rows.length) return;
+
+    const ds = downsample(rows, 2000);
+    const t0 = rows[0].t, t1 = rows[rows.length - 1].t;
+    const tspan = Math.max(1, t1 - t0);
+    const min = opts.min, max = opts.max;
+    const pad = 8;
+    const X = t => ((t - t0) / tspan) * w;
+    const Y = v => h - pad - ((v - min) / (max - min)) * (h - 2 * pad);
+
+    // zero line
+    ctx.strokeStyle = getCss('--c-grid'); ctx.lineWidth = 1;
+    if (min < 0 && max > 0) {
+      const y0 = Y(0);
+      ctx.beginPath(); ctx.moveTo(0, y0); ctx.lineTo(w, y0); ctx.stroke();
+    }
+
+    for (const series of opts.series) {
+      ctx.strokeStyle = series.color; ctx.lineWidth = 1.5; ctx.lineJoin = 'round';
+      ctx.beginPath();
+      let started = false;
+      for (const r of ds) {
+        const v = getY(r, series.key);
+        if (v == null || !isFinite(v)) { started = false; continue; }
+        const px = X(r.t), py = Y(v);
+        started ? ctx.lineTo(px, py) : ctx.moveTo(px, py);
+        started = true;
+      }
+      ctx.stroke();
+    }
+  }
+
+  function getCss(name) {
+    return getComputedStyle(document.documentElement).getPropertyValue(name).trim() || '#888';
+  }
+
+  // --- mappa Leaflet ---
+  let map = null, polyline = null;
+  function renderMap(trackPts) {
+    if (!trackPts.length) { $('map').classList.add('hidden'); return; }
+    $('map').classList.remove('hidden');
+    if (!map) {
+      map = L.map('map');
+      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        maxZoom: 19, attribution: '© OpenStreetMap'
+      }).addTo(map);
+    }
+    if (polyline) map.removeLayer(polyline);
+    polyline = L.polyline(trackPts, { color: '#0ea5e9', weight: 3 }).addTo(map);
+    map.fitBounds(polyline.getBounds(), { padding: [30, 30] });
+    setTimeout(() => map.invalidateSize(), 50);
+  }
+
+  function render(rows) {
+    const n = rows.length;
+    if (!n) { alert('Nessuna riga valida nel CSV.'); return; }
+
+    // statistiche
+    let vmax = 0, leanR = 0, leanL = 0;
+    let dist = 0, prev = null;
+    const trackPts = [];
+    for (const r of rows) {
+      if (r.speed_kmh != null && r.speed_kmh > vmax) vmax = r.speed_kmh;
+      if (r.lean_deg != null) {
+        if (r.lean_deg > leanR) leanR = r.lean_deg;
+        if (r.lean_deg < leanL) leanL = r.lean_deg;
+      }
+      if (r.lat != null && r.lon != null) {
+        trackPts.push([r.lat, r.lon]);
+        if (prev) dist += haversineKm(prev, { lat: r.lat, lon: r.lon });
+        prev = { lat: r.lat, lon: r.lon };
+      } else { prev = null; }
+    }
+    const dur = rows[rows.length - 1].t;
+
+    const stat = (v, k) => '<div class="stat"><div class="v">' + v + '</div><div class="k">' + k + '</div></div>';
+    $('stats').innerHTML =
+      stat(fmtDur(dur), 'durata') +
+      stat(Math.round(vmax), 'km/h max') +
+      stat(Math.abs(leanR).toFixed(0) + '°', 'piega D') +
+      stat(Math.abs(leanL).toFixed(0) + '°', 'piega S') +
+      stat(dist.toFixed(2), 'km') +
+      stat(n, 'campioni');
+    $('lblVmax').textContent = Math.round(vmax) + ' km/h';
+
+    // grafici
+    const maxV = Math.ceil(vmax / 20) * 20 + 20;
+    drawLine($('cSpeed'), rows, (r, k) => r.speed_kmh, { min: 0, max: maxV, series: [{ key: 'speed_kmh', color: getCss('--accent') }] });
+    drawLine($('cLean'), rows, (r, k) => r.lean_deg, { min: -60, max: 60, series: [{ key: 'lean_deg', color: getCss('--good') }] });
+    drawLine($('cAcc'), rows, (r, k) => r[k], {
+      min: -1.5, max: 1.5,
+      series: [
+        { key: 'lat_accel_g', color: getCss('--acc-lat') },
+        { key: 'lon_accel_g', color: getCss('--acc-lon') },
+        { key: 'vert_accel_g', color: getCss('--acc-vert') }
+      ]
+    });
+    let altMin = Infinity, altMax = -Infinity;
+    for (const r of rows) { if (r.alt_m != null) { if (r.alt_m < altMin) altMin = r.alt_m; if (r.alt_m > altMax) altMax = r.alt_m; } }
+    if (!isFinite(altMin)) { altMin = 0; altMax = 1; }
+    if (altMax - altMin < 5) { altMax = altMin + 5; }
+    drawLine($('cAlt'), rows, (r, k) => r.alt_m, { min: altMin, max: altMax, series: [{ key: 'alt_m', color: getCss('--acc-vert') }] });
+
+    renderMap(trackPts);
+    $('main').hidden = false;
+  }
+
+  function fmtDur(sec) {
+    const mm = String(Math.floor(sec / 60)).padStart(2, '0');
+    const ss = String(Math.floor(sec % 60)).padStart(2, '0');
+    return mm + ':' + ss;
+  }
+
+  function handleFile(file) {
+    const reader = new FileReader();
+    reader.onload = () => {
+      try { render(parseCsv(String(reader.result))); }
+      catch (e) { alert('Errore di lettura: ' + e.message); }
+    };
+    reader.readAsText(file);
+  }
+
+  const drop = $('drop');
+  drop.addEventListener('click', () => $('file').click());
+  $('file').addEventListener('change', e => { if (e.target.files[0]) handleFile(e.target.files[0]); });
+  drop.addEventListener('dragover', e => { e.preventDefault(); drop.classList.add('over'); });
+  drop.addEventListener('dragleave', () => drop.classList.remove('over'));
+  drop.addEventListener('drop', e => {
+    e.preventDefault(); drop.classList.remove('over');
+    if (e.dataTransfer.files[0]) handleFile(e.dataTransfer.files[0]);
+  });
+})();
+</script>
+</body>
+</html>
