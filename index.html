@@ -4877,7 +4877,7 @@ function startVideoRender3D(pre) {
     clearTimeout(timeout);
     if (window.maplibregl && window.THREE) {
       try { initVideoRender3D(pre); }
-      catch (e) { fallbackTo2D(pre, 'Errore motore 3D, uso il render 2D.'); }
+      catch (e) { fallbackTo2D(pre, 'Errore motore 3D: ' + (e && e.message ? e.message : e) + '. Uso il render 2D.'); }
     } else {
       fallbackTo2D(pre, 'Mappa 3D non disponibile, uso il render 2D.');
     }
@@ -4904,9 +4904,6 @@ function initVideoRender3D(pre) {
   mapCanvas.width = W; mapCanvas.height = H;
   mapCanvas.style.cssText = 'position:fixed; left:-9999px; top:0;';
   document.body.appendChild(mapCanvas);
-  const gl = mapCanvas.getContext('webgl2', { preserveDrawingBuffer: true, antialias: true })
-          || mapCanvas.getContext('webgl', { preserveDrawingBuffer: true, antialias: true });
-  if (!gl) { mapCanvas.remove(); toast('WebGL non disponibile, uso il render 2D.', 'err'); startVideoRender2D(pre); return; }
 
   const first = pre.mapPts.length ? pre.mapPts[0] : { lat: 42.5, lon: 12.5 };
   const map = new maplibregl.Map({
@@ -4915,6 +4912,7 @@ function initVideoRender3D(pre) {
     zoom: 15.5, pitch: 60, bearing: 0,
     style: 'https://tiles.openfreemap.org/styles/liberty',
     attributionControl: false,
+    preserveDrawingBuffer: true, // serve a drawImage nel master canvas
   });
 
   const canvas = makeVideoCanvas(pre.res);
@@ -4991,7 +4989,7 @@ function buildCameraKeyframes(mapPts) {
 }
 
 function initVideoMoto3D(THREE, W, H) {
-  const renderer = new THREE.WebGLRenderer({ alpha: true, antialias: true });
+  const renderer = new THREE.WebGLRenderer({ alpha: true, antialias: true, preserveDrawingBuffer: true });
   renderer.setSize(W, H);
   renderer.setPixelRatio(1);
   renderer.domElement.style.cssText = 'position:fixed; left:-9999px; top:0;';
