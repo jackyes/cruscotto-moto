@@ -12,10 +12,10 @@
   script-src 'self' 'unsafe-inline' https://unpkg.com;
   style-src 'self' 'unsafe-inline' https://unpkg.com;
   img-src 'self' data: blob: https://*.tile.openstreetmap.org https://unpkg.com;
-  connect-src 'self' https://overpass-api.de https://overpass.kumi.systems https://valhalla1.openstreetmap.de https://routing.openstreetmap.de https://photon.komoot.io;
+  connect-src 'self' https://overpass-api.de https://overpass.kumi.systems https://valhalla1.openstreetmap.de https://routing.openstreetmap.de https://photon.komoot.io https://tiles.openfreemap.org https://s3.amazonaws.com;
   font-src 'self';
   manifest-src 'self';
-  worker-src 'self';
+  worker-src 'self' blob:;
   base-uri 'none';
   form-action 'none';
   object-src 'none'">
@@ -4840,6 +4840,17 @@ function loadVideo3DScript(url, onload, onerror) {
   document.head.appendChild(sc);
 }
 
+function fallbackTo2D(pre, msg, job) {
+  if (job) {
+    if (job._fellBack) return;
+    job._fellBack = true;
+    cleanupVideoJob(job);
+  }
+  if (videoJob === job) videoJob = null;
+  toast(msg, 'err', 6000);
+  startVideoRender2D(pre);
+}
+
 function startVideoRender3D(pre) {
   if (window.maplibregl && window.THREE) { initVideoRender3D(pre); return; }
   els.videoStatus.textContent = 'Carico motore 3D…';
@@ -4853,7 +4864,7 @@ function startVideoRender3D(pre) {
   const settle = () => {
     if (++done < missing.length) return;
     if (window.maplibregl && window.THREE) initVideoRender3D(pre);
-    else { toast('Mappa 3D non disponibile, uso il render 2D.', 'err'); startVideoRender2D(pre); }
+    else fallbackTo2D(pre, 'Mappa 3D non disponibile, uso il render 2D.');
   };
   for (const url of missing) loadVideo3DScript(url, settle, settle);
 }
@@ -4894,6 +4905,7 @@ function initVideoRender3D(pre) {
     keyframes: buildCameraKeyframes(pre.mapPts),
   };
   videoJob = job; // così "Annulla" funziona anche durante il caricamento
+  els.videoStatus.textContent = 'Preparo mappa 3D…';
 
   map.on('load', () => {
     if (job.cancelled) return;
@@ -4913,20 +4925,21 @@ function initVideoRender3D(pre) {
       job.mapReady = true;
       beginVideoCapture(job, canvas, pre.mime);
     } catch (e) {
-      toast('Terreno 3D non disponibile, uso il render 2D.', 'err');
-      cleanupVideoJob(job);
-      startVideoRender2D(pre);
+      fallbackTo2D(pre, 'Terreno 3D non disponibile, uso il render 2D.', job);
     }
   });
 
-  // Fallback se lo stile non carica (offline / CDN bloccata).
+  // Stile/worker non caricati (CSP, offline, CDN bloccata) → fallback immediato.
+  map.on('error', () => {
+    if (!job.mapReady && !job.cancelled) fallbackTo2D(pre, 'Mappa 3D non disponibile, uso il render 2D.', job);
+  });
+
+  // Rete di sicurezza: se lo stile non carica in tempo.
   setTimeout(() => {
     if (!job.mapReady && videoJob === job && !job.cancelled) {
-      toast('Stile mappa non caricato, uso il render 2D.', 'err');
-      stopVideoRender();
-      startVideoRender2D(pre);
+      fallbackTo2D(pre, 'Stile mappa non caricato, uso il render 2D.', job);
     }
-  }, 12000);
+  }, 15000);
 }
 
 function buildCameraKeyframes(mapPts) {
