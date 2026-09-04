@@ -80,3 +80,34 @@ test('camLabel: unisce nome e limite', () => {
   assert.equal(camLabel({maxspeed:'50'}), '50');
   assert.equal(camLabel({}), '');
 });
+
+test('camKey: toFixed 4', () => {
+  assert.equal(api.camKey({ lat: 45.123456, lon: 9.987654 }), '45.1235,9.9877');
+  assert.equal(api.camKey({ lat: 45, lon: 9 }), '45.0000,9.0000');
+});
+
+test('camMarkerRadius / camMoveThreshold: fattori su camRadius', () => {
+  resetState();
+  api.state.camRadius = 1000;
+  assert.equal(api.camMarkerRadius(), 1500);
+  assert.equal(api.camMoveThreshold(), 500);
+  assert.equal(api.CAM_MARKER_FACTOR, 1.5);
+  assert.equal(api.CAM_MOVE_FACTOR, 0.5);
+});
+
+test('allCameras: concatena importate', () => {
+  resetState();
+  api.state.cameras = [{ lat: 45, lon: 9 }];
+  api.state.importedCameras = [{ lat: 46, lon: 10 }];
+  assert.equal(api.allCameras().length, 2);
+  api.state.importedCameras = null;
+  assert.equal(api.allCameras().length, 1);
+});
+
+test('distM: haversine in metri', () => {
+  const a = { lat: 45, lon: 9 };
+  const b = { lat: 45.001, lon: 9 };
+  assert.ok(Math.abs(api.distM(a, b) - api.haversine(a, b) * 1000) < 1e-6);
+  assert.ok(Math.abs(api.distM(a, b) - 111.19) < 0.5);
+  assert.equal(api.distM(a, a), 0);
+});
