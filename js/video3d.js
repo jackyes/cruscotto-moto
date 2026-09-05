@@ -21,6 +21,9 @@ const VIDEO3D_CONF = {
   // Cielo nativo maplibre (sopra l'orizzonte il canvas è trasparente, e nel
   // WebM l'alpha diventa nero: serve un colore vero). Solo chiavi spec 4.7.1.
   sky: { 'sky-color': '#88c6fc', 'sky-horizon-blend': 0.5, 'horizon-color': '#f8f4f0', 'horizon-fog-blend': 0.5, 'fog-color': '#dfe9f2', 'fog-ground-blend': 0.6 },
+  // Traccia del giro: linea drappeggiata sul terreno (line/fill/raster/hillshade
+  // sono gli unici layer drappeggiabili in 4.7.1). Scia = ultimi N punti.
+  trail: { color: '#38bdf8', done: '#1d4ed8', width: 5, trailN: 40, quantStep: 60 },
 };
 
 /* Pura: opzioni costruttore Map (testabile senza DOM né maplibre). */
@@ -55,6 +58,69 @@ function videoSkyVisible(pitchDeg) {
   if (!isFinite(pitchDeg)) return false;
   const h = 0.5 + Math.tan((90 - pitchDeg) * Math.PI / 180) * 1.4993 * 0.85;
   return h < 1;
+}
+
+/* Aggiunge la traccia una volta sola: percorso intero smorzato + scia vuota
+   che verrà riempita per frame. beforeId = primo symbol (non spezza lo stack). */
+function videoTrackAddToMap(map, mapPts) {
+  if (!mapPts || !mapPts.length) return;
+  const T = VIDEO3D_CONF.trail;
+  map.addSource('giro', { type: 'geojson', data: videoTrackGeoJson(mapPts, 0, mapPts.length) });
+  let beforeId = null;
+  try {
+    const layers = map.getStyle ? map.getStyle().layers : null;
+    if (layers) { const s = layers.find(l => l.type === 'symbol'); if (s) beforeId = s.id; }
+  } catch (e) {}
+  map.addSource('giro', { type: 'geojson', data: videoTrackGeoJson(mapPts, 0, mapPts.length) });
+  map.addLayer({ id: 'giro-rest', type: 'line', source: 'giro',
+    paint: { 'line-color': T.color, 'line-width': T.width, 'line-opacity': 0.35 } }, beforeId);
+  map.addSource('giro-fatto', { type: 'geojson', data: videoTrackGeoJson([], 0, 0) });
+  map.addLayer({ id: 'giro-done', type: 'line', source: 'giro-fatto',
+    paint: { 'line-color': T.done, 'line-width': T.width, 'line-opacity': 0.9 } }, beforeId);
+  map.addSource('scia', { type: 'geojson', data: videoTrackGeoJson([], 0, 0) });
+  map.addLayer({ id: 'giro-scia', type: 'line', source: 'scia',
+    paint: { 'line-color': T.done, 'line-width': T.width + 1, 'line-opacity': 1 } }, beforeId);
+}
+
+/* Avanza percorso fatto + scia. setData solo quando kIdx cambia (a 1x ~1/s);
+   il percorso fatto avanza a scatti quantizzati (niente round-trip worker per frame). */
+function videoTrackAdvance(map, job, kIdx) {
+  const T = VIDEO3D_CONF.trail;
+  const n = job.mapPts ? job.mapPts.length : 0;
+  if (!n || kIdx === job._trailIdx) return;
+  job._trailIdx = kIdx;
+  try {
+    const [from, to] = videoTrailRange(kIdx, n, T.trailN);
+    map.getSource('scia').setData(videoTrackGeoJson(job.mapPts, from, to));
+    const q = Math.floor(kIdx / T.quantStep);
+    if (q !== job._trailQuant) {
+      job._trailQuant = q;
+      map.getSource('giro-fatto').setData(videoTrackGeoJson(job.mapPts, 0, kIdx + 1));
+    }
+  } catch (e) {}
+}
+
+/* Pura: GeoJSON LineString dai punti (coordinate maplibre = [lon,lat]).
+   Slice semiaperto [from,to): serve a separare percorso fatto / scia / resto. */
+function videoTrackGeoJson(pts, from, to) {
+  const n = pts ? pts.length : 0;
+  if (!n) return { type: 'Feature', geometry: { type: 'LineString', coordinates: [] }, properties: {} };
+  const a = Math.max(0, Math.min(n, from == null ? 0 : from));
+  const b = Math.max(0, Math.min(n, to == null ? n : to));
+  const coords = [];
+  for (let k = a; k < b; k++) {
+    if (pts[k] && pts[k].lat != null && pts[k].lon != null) coords.push([pts[k].lon, pts[k].lat]);
+  }
+  return { type: 'Feature', geometry: { type: 'LineString', coordinates: coords }, properties: {} };
+}
+
+/* Pura: finestra scia [from,to] semiaperto attorno a kIdx (clampata, mai NaN). */
+function videoTrailRange(kIdx, trackLen, trailN) {
+  if (!isFinite(kIdx) || !isFinite(trackLen) || trackLen <= 0) return [0, 0];
+  if (!isFinite(trailN) || trailN <= 0) return [0, 0];
+  const ki = Math.max(0, Math.min(trackLen - 1, Math.round(kIdx)));
+  const to = Math.min(trackLen, ki + 1);
+  return [Math.max(0, to - Math.max(1, Math.round(trailN))), to];
 }
 
 function loadVideo3DScript(url, onload, onerror, integrity) {
@@ -177,6 +243,7 @@ function initVideoRender3D(pre) {
     tSim: pre.rows.length ? pre.rows[0].t : 0, lastRaf: 0,
     chunks: [], rec: null, stream: null, raf: 0, recErr: false,
     keyframes: buildCameraKeyframes(pre.mapPts),
+    _trailIdx: -1, _trailQuant: -1,
   };
   videoJob = job; // così "Annulla" funziona anche durante il caricamento
 
@@ -192,6 +259,9 @@ function initVideoRender3D(pre) {
       // Cielo sopra l'orizzonte (chiave fuori spec = ErrorEvent, mai throw:
       // la guardia typeof evita di buttare in 2D un render sano).
       if (typeof map.setSky === 'function') { try { map.setSky(videoSkyOptions()); } catch (e) {} }
+      // Traccia del giro: layer decorativo in try/catch dedicato (un id mancante
+      // nello stile remoto non deve buttare in 2D un render sano).
+      try { videoTrackAddToMap(map, pre.mapPts); } catch (e) {}
       job.mapReady = true;
       beginVideoCapture(job, canvas, pre.mime);
     } catch (e) {
@@ -553,6 +623,8 @@ function drawVideoFrame3D(job, dt) {
     job._cam = c;
     map.jumpTo({ center: [c.lon, c.lat], bearing: c.brg, pitch: c.pitch, zoom: c.zoom });
     if (typeof map.redraw === 'function') map.redraw(); else if (typeof map.triggerRepaint === 'function') map.triggerRepaint();
+    // Scia: kIdx intero già calcolato? qui serve l'indice traccia, non keyframe.
+    videoTrackAdvance(map, job, videoTrackIndexForRow(i, rows.length, mapPts.length));
   }
 
   // Moto: piega + rotolamento ruote (dt reale, non per-frame).

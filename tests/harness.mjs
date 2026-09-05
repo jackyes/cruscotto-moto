@@ -68,7 +68,8 @@ const exportLine = `
   drawVideoHUD3D, videoColorKey, canvasTheme, videoColor, resetVideoColors, HUD3D_COLORS,
   videoBearingSeries, videoSmoothBearings, videoPathSampleAt, videoTrackPosForRow,
   videoDamp, videoDampAngle,
-  videoMapOptions, videoMapPixelRatio, videoSkyOptions, videoSkyVisible
+  videoMapOptions, videoMapPixelRatio, videoSkyOptions, videoSkyVisible,
+  videoTrackGeoJson, videoTrailRange
 };
 `;
 
