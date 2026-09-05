@@ -4,7 +4,8 @@ import assert from 'node:assert';
 import { api } from './harness.mjs';
 
 const { videoLeanColor, videoLeanColorExpr, videoTrackSegGeoJson, videoSegLeansFor,
-  videoMapBounds, videoLeanBin, VIDEO3D_CONF } = api;
+  videoMapBounds, videoLeanBin, videoMapProj, videoLeanAtPoint,
+  videoMapBgKey, VIDEO3D_CONF } = api;
 
 test('videoLeanColor: 0 teal, 52 rosso, interpola in mezzo', () => {
   assert.equal(videoLeanColor(0), 'rgb(46,111,106)');
@@ -63,4 +64,33 @@ test('videoLeanBin: 26 bin, 0→0, 52→25, clamp', () => {
   assert.equal(videoLeanBin(-52), 25);
   assert.equal(videoLeanBin(999), 25);
   assert.ok(videoLeanBin(26) >= 12 && videoLeanBin(26) <= 13);
+});
+
+test('videoMapProj: una tantum, scala fit, formula X/Y', () => {
+  const bb = { minLat: 44, maxLat: 45, minLon: 10, maxLon: 12 };
+  const p = videoMapProj(bb, 0, 100, 400, 300, 40);
+  assert.ok(p.scale > 0);
+  // spanLon=2 → (400-80)/2=160; spanLat=1 → (300-80)/1=220: vince 160.
+  assert.equal(p.scale, 160);
+  const X = lon => p.x + p.ox + (lon - p.minLon) * p.scale;
+  const Y = lat => p.y + p.oy + (p.maxLat - lat) * p.scale;
+  assert.equal(X(10), p.x + p.ox);
+  assert.equal(Y(45), p.y + p.oy);
+  assert.ok(X(12) <= p.x + 400);
+});
+
+test('videoLeanAtPoint: mapping proporzionale, NaN→0', () => {
+  const job = { rows: [{ lean: 5 }, { lean: -40 }, { lean: NaN }] };
+  assert.equal(videoLeanAtPoint(job, 0, 5), 5);
+  assert.equal(videoLeanAtPoint(job, 4, 5), 0); // NaN→0
+  assert.equal(videoLeanAtPoint({ rows: [] }, 2, 5), 0);
+  assert.equal(videoLeanAtPoint(job, 2, 5), -40);
+});
+
+test('videoMapBgKey: cambia con geometria o tema', () => {
+  const bb = { minLat: 44, maxLat: 45, minLon: 10, maxLon: 12 };
+  const a = videoMapBgKey(bb, 0, 0, 400, 300, '#g', '#b');
+  assert.equal(videoMapBgKey(bb, 0, 0, 400, 300, '#g', '#b'), a);
+  assert.notEqual(videoMapBgKey(bb, 0, 0, 401, 300, '#g', '#b'), a);
+  assert.notEqual(videoMapBgKey(bb, 0, 0, 400, 300, '#g2', '#b'), a);
 });

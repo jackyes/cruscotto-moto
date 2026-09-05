@@ -441,70 +441,126 @@ function videoLeanBin(leanDeg, bins) {
   return Math.max(0, Math.min(B - 1, Math.floor((a / 52) * B)));
 }
 
+/* Pura: proiezione traccia→pixel relativa al pannello (una tantum: dipende
+   solo da bbox e dimensioni, mai dal frame). X(lon)=x+ox+(lon-minLon)*scale. */
+function videoMapProj(bb, x, y, w, h, pad) {
+  const p = isFinite(pad) ? pad : 40;
+  const spanLat = ((bb.maxLat - bb.minLat) || 0.0001), spanLon = ((bb.maxLon - bb.minLon) || 0.0001);
+  const scale = Math.min((w - 2 * p) / spanLon, (h - 2 * p) / spanLat);
+  return { scale, ox: (w - spanLon * scale) / 2, oy: (h - spanLat * scale) / 2, x, y,
+    minLon: bb.minLon, maxLat: bb.maxLat };
+}
+
+/* Pura: lean della riga corrispondente al punto percorso k (stesso mapping
+   proporzionale del resto del modulo). */
+function videoLeanAtPoint(job, k, n) {
+  if (!job.rows || !job.rows.length) return 0;
+  const nr = job.rows.length;
+  const ri = Math.max(0, Math.min(nr - 1, Math.round((k / Math.max(1, n - 1)) * (nr - 1))));
+  const l = (job.rows[ri] || {}).lean;
+  return isFinite(l) ? l : 0;
+}
+
+/* Chiave fondo: tutto ciò da cui dipende il disegno statico (geometria
+   pannello + bbox + colori tema). Se cambia si ricostruisce fondo e bin. */
+function videoMapBgKey(bb, x, y, w, h, grid, bg) {
+  return [x, y, w, h, bb.minLat, bb.maxLat, bb.minLon, bb.maxLon, grid, bg].join('|');
+}
+
+/* Fondo offscreen (riempimento + tracciato intero grigio + capi): torna il
+   canvas o null se il 2d non è disponibile (allora draw diretto legacy). */
+function videoMapBgBuild(proj, pts, w, h, grid, bg, good, bad) {
+  let bgc = null;
+  try {
+    bgc = document.createElement('canvas');
+    bgc.width = Math.max(1, Math.round(w)); bgc.height = Math.max(1, Math.round(h));
+  } catch (e) { return null; }
+  const c = bgc.getContext ? bgc.getContext('2d') : null;
+  if (!c) return null;
+  const X = lon => proj.ox + (lon - proj.minLon) * proj.scale;
+  const Y = lat => proj.oy + (proj.maxLat - lat) * proj.scale;
+  c.fillStyle = bg; c.fillRect(0, 0, bgc.width, bgc.height);
+  const n = pts.length;
+  c.strokeStyle = grid; c.lineWidth = 5; c.lineJoin = 'round'; c.lineCap = 'round';
+  c.beginPath();
+  for (let k = 0; k < n; k++) { const px = X(pts[k].lon), py = Y(pts[k].lat); k ? c.lineTo(px, py) : c.moveTo(px, py); }
+  c.stroke();
+  c.fillStyle = good; c.beginPath(); c.arc(X(pts[0].lon), Y(pts[0].lat), 8, 0, 6.283); c.fill();
+  c.fillStyle = bad; c.beginPath(); c.arc(X(pts[n - 1].lon), Y(pts[n - 1].lat), 8, 0, 6.283); c.fill();
+  return bgc;
+}
+
 function drawVideoMap(ctx, job, x, y, w, h, rowIdx, r, grid, axis, accent, good, bad, ox, oy) {
   const pts = job.mapPts;
   // Offset shake (default 0: chiamanti vecchi invariati).
   const shx = isFinite(ox) ? ox : 0, shy = isFinite(oy) ? oy : 0;
+  const bgCol = videoColor('c-bg');
   ctx.save();
   ctx.beginPath(); ctx.rect(x, y, w, h); ctx.clip();
-  ctx.fillStyle = videoColor('c-bg'); ctx.fillRect(x, y, w, h);
+  ctx.fillStyle = bgCol; ctx.fillRect(x, y, w, h);
   if (!pts.length) {
     ctx.fillStyle = axis; ctx.font = '26px system-ui'; ctx.textAlign = 'center';
     ctx.fillText('Nessun GPS', x + w / 2, y + h / 2);
     ctx.restore(); return;
   }
-  // BBox cachata nel job (una tantum): prima ricalcolata O(n) ogni frame.
+  // BBox + proiezione cachate nel job (una tantum, mai per frame).
   if (!job._mapBounds) job._mapBounds = videoMapBounds(pts);
   const bb = job._mapBounds || { minLat: 0, maxLat: 0.0001, minLon: 0, maxLon: 0.0001 };
-  const spanLat = (bb.maxLat - bb.minLat) || 0.0001, spanLon = (bb.maxLon - bb.minLon) || 0.0001;
-  const pad = 40;
-  const scale = Math.min((w - 2 * pad) / spanLon, (h - 2 * pad) / spanLat);
-  const offX = x + (w - spanLon * scale) / 2 + shx, offY = y + (h - spanLat * scale) / 2 + shy;
-  const X = lon => offX + (lon - bb.minLon) * scale;
-  const Y = lat => offY + (bb.maxLat - lat) * scale;
+  const proj = videoMapProj(bb, x, y, w, h, 40);
+  const X = lon => proj.x + proj.ox + (lon - proj.minLon) * proj.scale;
+  const Y = lat => proj.y + proj.oy + (proj.maxLat - lat) * proj.scale;
 
   const n = pts.length;
   const ridden = Math.max(0, Math.min(n - 1, Math.round((rowIdx / Math.max(1, job.rows.length - 1)) * (n - 1))));
 
-  ctx.lineWidth = 5; ctx.lineJoin = 'round'; ctx.lineCap = 'round';
-  // tracciato restante (grigio)
-  ctx.strokeStyle = grid;
-  ctx.beginPath();
-  for (let k = ridden; k < n; k++) { const px = X(pts[k].lon), py = Y(pts[k].lat); k === ridden ? ctx.moveTo(px, py) : ctx.lineTo(px, py); }
-  ctx.stroke();
-  // tratto percorso colorato per piega (stessa rampa del 3D): un Path2D per
-  // bin invece di cambiare strokeStyle a ogni segmento (§4 doc: 37 ms/36k).
-  const BINS = 26;
-  const paths = new Array(BINS);
-  const hasPath2D = typeof Path2D !== 'undefined';
-  for (let k = 1; k <= ridden; k++) {
-    const lean = job.rows && job.rows.length
-      ? (job.rows[Math.max(0, Math.min(job.rows.length - 1, Math.round((k / Math.max(1, n - 1)) * (job.rows.length - 1))))] || {}).lean
-      : 0;
-    const b = videoLeanBin(lean, BINS);
-    if (!paths[b]) paths[b] = hasPath2D ? new Path2D() : [];
-    const px0 = X(pts[k - 1].lon), py0 = Y(pts[k - 1].lat), px1 = X(pts[k].lon), py1 = Y(pts[k].lat);
-    if (hasPath2D) { paths[b].moveTo(px0, py0); paths[b].lineTo(px1, py1); }
-    else paths[b].push([px0, py0, px1, py1]);
+  // Fondo: rebuild solo se cambia la chiave (geometria o tema), altrimenti blit.
+  const key = videoMapBgKey(bb, x, y, w, h, grid, bgCol);
+  if (job._mapBgKey !== key) {
+    job._mapBgKey = key;
+    job._mapBg = videoMapBgBuild(proj, pts, w, h, grid, bgCol, good, bad);
+    job._mapBins = null; job._mapBuilt = 0;
   }
-  for (let b = 0; b < BINS; b++) {
-    if (!paths[b]) continue;
-    ctx.strokeStyle = (typeof videoLeanColor === 'function') ? videoLeanColor((b + 0.5) / BINS * 52) : accent;
-    if (hasPath2D) ctx.stroke(paths[b]);
-    else { ctx.beginPath(); for (const s of paths[b]) { ctx.moveTo(s[0], s[1]); ctx.lineTo(s[2], s[3]); } ctx.stroke(); }
+  if (job._mapBg) {
+    try { ctx.drawImage(job._mapBg, x + shx, y + shy, w, h); }
+    catch (e) { ctx.fillStyle = bgCol; ctx.fillRect(x, y, w, h); }
+  } else {
+    // Fallback senza offscreen: tracciato grigio diretto (come prima).
+    ctx.strokeStyle = grid; ctx.lineWidth = 5; ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+    ctx.beginPath();
+    for (let k = ridden; k < n; k++) { const px = X(pts[k].lon), py = Y(pts[k].lat); k === ridden ? ctx.moveTo(px, py) : ctx.lineTo(px, py); }
+    ctx.stroke();
   }
 
-  // inizio / fine
-  const s0 = pts[0], e0 = pts[n - 1];
-  ctx.fillStyle = good; ctx.beginPath(); ctx.arc(X(s0.lon), Y(s0.lat), 8, 0, 6.283); ctx.fill();
-  ctx.fillStyle = bad; ctx.beginPath(); ctx.arc(X(e0.lon), Y(e0.lat), 8, 0, 6.283); ctx.fill();
+  // Percorso fatto incrementale (§4 doc): i bin vivono nel job e si estendono
+  // solo dei segmenti nuovi; mai ricostruiti (salvo rewind o chiave cambiata).
+  const BINS = 26;
+  const hasPath2D = typeof Path2D !== 'undefined';
+  if (!job._mapBins || ridden < job._mapBuilt) { job._mapBins = new Array(BINS); job._mapBuilt = 0; }
+  for (let k = job._mapBuilt + 1; k <= ridden; k++) {
+    const b = videoLeanBin(videoLeanAtPoint(job, k, n), BINS);
+    if (!job._mapBins[b]) job._mapBins[b] = hasPath2D ? new Path2D() : [];
+    const px0 = X(pts[k - 1].lon), py0 = Y(pts[k - 1].lat), px1 = X(pts[k].lon), py1 = Y(pts[k].lat);
+    if (hasPath2D) { job._mapBins[b].moveTo(px0, py0); job._mapBins[b].lineTo(px1, py1); }
+    else job._mapBins[b].push([px0, py0, px1, py1]);
+  }
+  job._mapBuilt = Math.max(job._mapBuilt, ridden);
+  ctx.lineWidth = 5; ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+  ctx.save();
+  if (shx || shy) ctx.translate(shx, shy);
+  for (let b = 0; b < BINS; b++) {
+    if (!job._mapBins[b]) continue;
+    ctx.strokeStyle = (typeof videoLeanColor === 'function') ? videoLeanColor((b + 0.5) / BINS * 52) : accent;
+    if (hasPath2D) ctx.stroke(job._mapBins[b]);
+    else { ctx.beginPath(); for (const s of job._mapBins[b]) { ctx.moveTo(s[0], s[1]); ctx.lineTo(s[2], s[3]); } ctx.stroke(); }
+  }
+  ctx.restore();
 
   // posizione attuale (cade sul row se ha lat/lon, altrimenti sul punto percorso)
   let clat = r.lat, clon = r.lon;
   if (clat == null || clon == null) { clat = pts[ridden].lat; clon = pts[ridden].lon; }
-  const cxx = X(clon), cyy = Y(clat);
+  const cxx = X(clon) + shx, cyy = Y(clat) + shy;
   ctx.fillStyle = accent; ctx.beginPath(); ctx.arc(cxx, cyy, 12, 0, 6.283); ctx.fill();
-  ctx.strokeStyle = videoColor('c-bg'); ctx.lineWidth = 3; ctx.stroke();
+  ctx.strokeStyle = bgCol; ctx.lineWidth = 3; ctx.stroke();
   ctx.restore();
 }
 
