@@ -151,6 +151,12 @@ self.addEventListener('fetch', event => {
     return;
   }
 
+  // Satellite opzionale video 3D: tile Esri pesanti ma cacheabili (tetto OFM).
+  if (url.hostname === 'server.arcgisonline.com') {
+    event.respondWith(cacheFirst(req, OFM_CACHE, { max: OFM_MAX }).catch(() => Response.error()));
+    return;
+  }
+
   if (url.hostname === 'tiles.openfreemap.org' ||
       (url.hostname === 's3.amazonaws.com' && url.pathname.startsWith('/elevation-tiles-prod/'))) {
     event.respondWith(cacheFirst(req, OFM_CACHE, { max: OFM_MAX }).catch(() => Response.error()));

@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import assert from 'node:assert';
 import { api } from './harness.mjs';
 
-const { videoCamHeightFor, videoZoomForHeight, VIDEO3D_CONF } = api;
+const { videoCamHeightFor, videoZoomForHeight, videoSatProbe, VIDEO3D_CONF } = api;
 
 test('videoCamHeightFor: formula doc §6.5, valori reali', () => {
   // mpp=156543*cos44/2^17.4≈0.65, d=1.5*760=1140, h=1140*0.65*cos72≈230.
@@ -40,4 +40,30 @@ test('conf maplibre 5 con fallback 4.7.1', () => {
   assert.ok(lib.fallback && lib.fallback.url.includes('4.7.1'));
   assert.ok(VIDEO3D_CONF.css.includes('@5.'));
   assert.ok(VIDEO3D_CONF.cssFallback.includes('4.7.1'));
+});
+
+test('videoSatProbe: onload→true, onerror→false, timeout→false', async () => {
+  // videoSatProbe gira nella sandbox vm: Image si mocka lì, non su globalThis.
+  const { vmSandbox } = await import('./harness.mjs');
+  const orig = vmSandbox.Image;
+  const mockSrc = impl => { vmSandbox.Image = function () { return { set src(u) { impl.call(this, u); } }; }; };
+  const probeP = (url, ms) => new Promise(res => videoSatProbe(url, ms, res));
+  mockSrc(function () { const self = this; setTimeout(() => self.onload && self.onload(), 0); });
+  assert.equal(await probeP('https://x/y', 5000), true);
+  mockSrc(function () { const self = this; setTimeout(() => self.onerror && self.onerror(), 0); });
+  assert.equal(await probeP('https://x/y', 5000), false);
+  mockSrc(() => {}); // mai né load né error → timeout
+  assert.equal(await probeP('https://x/y', 30), false);
+  let seen = '';
+  mockSrc(u => { seen = u; });
+  videoSatProbe('https://x/tile/1/2/3', 5000, () => {});
+  assert.ok(seen.includes('?p=') || seen.includes('&p='), seen);
+  if (orig === undefined) delete vmSandbox.Image; else vmSandbox.Image = orig;
+});
+
+test('conf satellite: tile z/y/x Esri, attribution presente', () => {
+  assert.ok(VIDEO3D_CONF.satTiles[0].includes('{z}/{y}/{x}'), VIDEO3D_CONF.satTiles[0]);
+  assert.ok(VIDEO3D_CONF.satTiles[0].includes('arcgisonline'));
+  assert.ok(VIDEO3D_CONF.satAttr.length > 0);
+  assert.ok(VIDEO3D_CONF.demAttr.length > 0);
 });

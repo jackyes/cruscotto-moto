@@ -132,6 +132,15 @@ function videoMp4SetupMap(job, pre) {
         job.map.setTerrain({ source: 'dem', exaggeration: 1.5 });
         try { job.map.jumpTo({ center: [first.lon, first.lat], zoom: VIDEO3D_CONF.camera.zoom, pitch: VIDEO3D_CONF.camera.pitch, bearing: 0 }); } catch (e) {}
         if (typeof job.map.setSky === 'function') { try { job.map.setSky(videoSkyOptions()); } catch (e) {} }
+        // Satellite opzionale: raster Esri sotto tutto (stesso ramo del realtime).
+        if (pre.sat) {
+          try {
+            job.map.addSource('video-sat', { type: 'raster', tileSize: 256, maxzoom: 19,
+              tiles: VIDEO3D_CONF.satTiles, attribution: VIDEO3D_CONF.satAttr });
+            job.map.addLayer({ id: 'video-sat', type: 'raster', source: 'video-sat',
+              paint: { 'raster-opacity': 1 } });
+          } catch (e) {}
+        }
         let beforeId = null;
         try {
           const layers = job.map.getStyle ? job.map.getStyle().layers : null;

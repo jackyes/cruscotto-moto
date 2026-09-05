@@ -222,8 +222,12 @@ function startVideoRender(s) {
     mime = pickVideoMime();
     if (!mime) { toast('Codec WebM non disponibile.', 'err'); return; }
   }
+  // Stile 3D: satellite solo se chiesto (default mappa leggera). Probe con
+  // Image+cache-buster prima del render: eventi maplibre non segnalano tile
+  // fallite (§6.4 doc). Se ko → liberty + avviso, mai render appeso.
+  const wantSat = !!(els.videoStyle && els.videoStyle.value === 'sat');
   const pre = { mime, res, mult, rows, track, mapPts, spark, dist, tEnd, speedMax,
-    slow: buildSlowZones(rows, mult) };
+    slow: buildSlowZones(rows, mult), sat: false };
   // Giro senza GPS (solo IMU, es. rulli): la mappa 3D centrerebbe l'Italia
   // di default e centrerebbe il nulla. Forza 2D e spiega perché.
   if (!videoHasGps(pre)) {
@@ -233,16 +237,31 @@ function startVideoRender(s) {
     return;
   }
   const mode = (els.videoType && els.videoType.value === '2d') ? '2d' : '3d';
-  // Formato MP4 (WebCodecs + muxer vendored, offline): se richiesto e
-  // supportato va al loop MP4, altrimenti cade sul WebM realtime.
-  const wantMp4 = !!(els.videoFormat && els.videoFormat.value === 'mp4');
-  if (wantMp4 && typeof videoMp4Supported === 'function' && videoMp4Supported()) {
-    startVideoRenderMp4(pre, mode);
+  const go = () => {
+    // Formato MP4 (WebCodecs + muxer vendored, offline): se richiesto e
+    // supportato va al loop MP4, altrimenti cade sul WebM realtime.
+    const wantMp4 = !!(els.videoFormat && els.videoFormat.value === 'mp4');
+    if (wantMp4 && typeof videoMp4Supported === 'function' && videoMp4Supported()) {
+      startVideoRenderMp4(pre, mode);
+      return;
+    }
+    if (wantMp4) toast('MP4 non supportato qui, uso WebM.', 'err', 6000);
+    if (mode === '3d') { startVideoRender3D(pre); return; }
+    startVideoRender2D(pre);
+  };
+  if (wantSat && mode === '3d' && typeof videoSatProbe === 'function') {
+    els.videoStatus.textContent = 'Provo satellite…';
+    const tiles = (typeof VIDEO3D_CONF !== 'undefined' && VIDEO3D_CONF.satTiles) || [];
+    const probe = String(tiles[0] || '').replace('{z}', '12').replace('{y}', '1436').replace('{x}', '2204');
+    videoSatProbe(probe, 9000, ok => {
+      pre.sat = !!ok;
+      if (!ok) toast('Satellite non raggiungibile, uso la mappa.', 'err', 6000);
+      go();
+    });
     return;
   }
-  if (wantMp4) toast('MP4 non supportato qui, uso WebM.', 'err', 6000);
-  if (mode === '3d') { startVideoRender3D(pre); return; }
-  startVideoRender2D(pre);
+  if (wantSat && mode === '2d') toast('Satellite solo in 3D: uso la mappa 2D.', 'err', 4000);
+  go();
 }
 
 function makeVideoCanvas(res) {
