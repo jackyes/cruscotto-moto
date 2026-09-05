@@ -189,11 +189,9 @@ async function videoMp4Loop(job, W, H) {
     } catch (e) {}
     try { frame.close(); } catch (e) {}
     job.mp4.frame++;
-    // Audio segue la velocità del frame corrente (skip se invariata).
-    if (ag) {
-      const v = r.speedKmh || 0;
-      if (v !== job.mp4._lastV) { videoAudioUpdate(ag, v); job.mp4._lastV = v; }
-    }
+    void ag;
+    // Nota: l'audio MP4 si sintetizza dopo in videoMp4MuxAudio (niente graph
+    // live durante l'encode: suonerebbe dalle casse senza finire nel file).
     // UI viva: yield ogni 15 frame + progress (loop da migliaia di frame).
     if (job.mp4.frame % 15 === 0) {
       els.videoProg.style.width = Math.round((k / Math.max(1, total - 1)) * 100) + '%';

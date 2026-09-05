@@ -903,10 +903,17 @@ function drawVideoHUD3D(ctx, job, r, tSim, distKm, speedMax) {
     hudFont('bold', 22 * s), axis, 3 * s);
 
   // Tempo + distanza (alto-destra): box auto-larghezza dal testo misurato.
+  // measureText cachata per stringa (prima 1/frame: dominante con 3 pannelli).
   const tr = fmtDur(tSim) + ' · ' + (isFinite(distKm) ? distKm.toFixed(2) : '0.00') + ' km';
   ctx.textAlign = 'right';
   ctx.font = hudFont('bold', 22 * s);
-  const tw = ctx.measureText ? ctx.measureText(tr).width : 200 * s;
+  const twCache = job._twCache || (job._twCache = {});
+  let tw = twCache[tr];
+  if (tw == null) {
+    tw = ctx.measureText ? ctx.measureText(tr).width : 200 * s;
+    if (Object.keys(twCache).length > 60) job._twCache = {};
+    job._twCache[tr] = tw;
+  }
   const tx = L.vert ? L.time.x : W - 16 * s - tw - 28 * s;
   hudPanel(ctx, tx, L.time.y, tw + 28 * s, 44 * s, 14 * s, P0, P1);
   hudText(ctx, tr, tx + tw + 14 * s, L.time.y + 31 * s, hudFont('bold', 22 * s), txt, 3 * s);
@@ -957,7 +964,14 @@ function drawVideoHUD3D(ctx, job, r, tSim, distKm, speedMax) {
   const br = 'Vmax ' + vmax + ' · piega ' + Math.round(Math.max(Math.abs(exV.tickR), Math.abs(exV.tickL))) + '°';
   ctx.textAlign = 'right';
   ctx.font = hudFont('bold', 22 * s);
-  const bw = ctx.measureText ? ctx.measureText(br).width : 260 * s;
+  // Stessa cache del box tempo (Vmax cambia solo al superamento record).
+  const twCache2 = job._twCache || (job._twCache = {});
+  let bw = twCache2[br];
+  if (bw == null) {
+    bw = ctx.measureText ? ctx.measureText(br).width : 260 * s;
+    if (Object.keys(twCache2).length > 60) job._twCache = {};
+    job._twCache[br] = bw;
+  }
   const bx = L.vert ? L.vmax.x : W - 16 * s - bw - 28 * s;
   hudPanel(ctx, bx, L.vmax.y, L.vert ? L.vmax.w : bw + 28 * s, L.vmax.h, 14 * s, P0, P1);
   const bxx = L.vert ? L.vmax.x + L.vmax.w - 14 * s : bx + bw + 14 * s;
