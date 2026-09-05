@@ -117,6 +117,7 @@ function showSessionDetail(s) {
       '<button id="dCsv">Export CSV</button>' +
       '<button id="dGpx">Export GPX</button>' +
       '<button id="dVideo">Export video</button>' +
+      '<button id="dCard">Card PNG</button>' +
       '<button id="dDel" style="color:var(--bad); border-color:var(--bad);">Elimina</button>' +
     '</div>';
   state._replayTrack = s.track || [];
@@ -124,6 +125,17 @@ function showSessionDetail(s) {
   $('dCsv').addEventListener('click', () => exportCsv(s.rows, s.meta, 'storico'));
   $('dGpx').addEventListener('click', () => exportGpx(s.track, 'storico'));
   $('dVideo').addEventListener('click', () => openVideoModal(s));
+  // Card statica: non c'entra con risoluzione/velocità del render video.
+  $('dCard').addEventListener('click', () => {
+    makeShareCard(s, (url, blob) => {
+      if (!url) { toast('Card non generata: nessun dato.', 'err'); return; }
+      const a = document.createElement('a');
+      a.href = url; a.download = 'cruscotto_card_' + stamp() + '.png';
+      document.body.appendChild(a); a.click(); document.body.removeChild(a);
+      setTimeout(() => URL.revokeObjectURL(url), 5000);
+      toast('Card PNG scaricata.', 'ok');
+    });
+  });
   $('dDel').addEventListener('click', async () => {
     if (!await confirmToast('Eliminare questo giro?')) return;
     try { await idb.del(s.id); } catch (e) { toast('Eliminazione fallita.', 'err'); return; }

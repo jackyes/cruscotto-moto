@@ -337,7 +337,7 @@
   .modal .m-progress { height: 8px; background: var(--surface-2); border-radius: 6px; overflow: hidden; margin: 6px 0 4px; }
   .modal .m-progress > div { height: 100%; width: 0%; background: var(--accent); }
   .modal .m-status { font-size: 12px; color: var(--text-2); margin-bottom: 12px; font-variant-numeric: tabular-nums; }
-  .modal .m-btns { display: flex; gap: 10px; justify-content: flex-end; }
+  .modal .m-btns { display: flex; gap: 10px; justify-content: flex-end; flex-wrap: wrap; }
   .modal .m-btns button { padding: 10px 14px; min-height: 40px; border-radius: 11px; font-weight: 800; font-size: 14px; cursor: pointer; background: var(--surface-2); color: var(--text); border: 1px solid var(--line); }
   .modal .m-btns button.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
   .modal .m-btns button:disabled { opacity: .5; cursor: default; }
@@ -575,7 +575,15 @@
       <div class="m-status" id="videoStatus">Pronto.</div>
       <div class="m-btns">
         <button id="videoCancel">Annulla</button>
+        <button id="videoCard">Card PNG</button>
         <button id="videoStart" class="primary">Avvia render</button>
+      </div>
+      <div class="m-status" id="videoCardPrevWrap" hidden>
+        <img id="videoCardPrev" alt="Anteprima card" style="width:100%; border-radius:11px; border:1px solid var(--line);">
+        <div class="m-btns" style="justify-content:flex-start; margin-top:8px;">
+          <button id="videoCardShare">Condividi</button>
+          <button id="videoCardDl">Scarica PNG</button>
+        </div>
       </div>
     </div>
   </div>
@@ -962,6 +970,7 @@
   <script src="js/nav-map.js"></script>
   <script src="js/log-session.js"></script>
   <script src="js/video3d.js"></script>
+  <script src="js/share.js"></script>
   <script src="js/map.js"></script>
   <script src="js/diag.js"></script>
   <script src="js/ui-core.js"></script>
@@ -1009,6 +1018,9 @@ const els = {
   videoModal: $('videoModal'), videoRes: $('videoRes'), videoSpeed: $('videoSpeed'), videoType: $('videoType'),
   videoProg: $('videoProg'), videoStatus: $('videoStatus'),
   videoStart: $('videoStart'), videoCancel: $('videoCancel'),
+  videoCard: $('videoCard'), videoCardPrevWrap: $('videoCardPrevWrap'),
+  videoCardPrev: $('videoCardPrev'), videoCardShare: $('videoCardShare'),
+  videoCardDl: $('videoCardDl'),
   btnCenter: $('btnCenter'), btnFollow: $('btnFollow'), btnTrackUp: $('btnTrackUp'), btnNavMute: $('btnNavMute'), compassOffsetSel: $('compassOffset'),
   gyroFusion: $('gyroFusion'), camAheadChk: $('camAhead'),
   toasts: $('toasts'), secWarn: $('secWarn'), mapBox: document.querySelector('.map-box'),
@@ -1570,6 +1582,32 @@ function init() {
   els.videoCancel.addEventListener('click', () => {
     stopVideoRender();
     closeVideoModal();
+  });
+  // Card PNG: anteprima <img blob:> (la CSP accetta img blob:), poi share/download.
+  els.videoCard.addEventListener('click', () => {
+    const s = els.videoModal._session;
+    if (!s) return;
+    makeShareCard(s, (url, blob) => {
+      if (!url) { toast('Card non generata: nessun dato.', 'err'); return; }
+      els.videoCardPrev.src = url;
+      els.videoCardPrevWrap.hidden = false;
+      els.videoCardPrevWrap._blob = blob;
+    });
+  });
+  els.videoCardDl.addEventListener('click', () => {
+    const b = els.videoCardPrevWrap._blob;
+    if (b) downloadBlob('cruscotto_card_' + stamp() + '.png', b, 'image/png');
+  });
+  els.videoCardShare.addEventListener('click', async () => {
+    const b = els.videoCardPrevWrap._blob;
+    if (!b) return;
+    const f = new File([b], 'cruscotto_card.png', { type: 'image/png' });
+    if (navigator.share && navigator.canShare && navigator.canShare({ files: [f] })) {
+      try { await navigator.share({ files: [f], title: 'Cruscotto Moto' }); } catch (e) {}
+    } else {
+      downloadBlob('cruscotto_card_' + stamp() + '.png', b, 'image/png');
+      toast('Condivisione non supportata: PNG scaricato.', 'err');
+    }
   });
 
   els.btnFullscreen.addEventListener('click', toggleFullscreen);

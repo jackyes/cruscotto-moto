@@ -71,7 +71,9 @@ const exportLine = `
   videoMapOptions, videoMapPixelRatio, videoSkyOptions, videoSkyVisible,
   videoTrackGeoJson, videoTrailRange, videoExtremesForJob,
   hudFont, hudCang, runningExtremes, leanScaleFor, leanGaugeModel,
-  hudGdot, rectsOverlap, hudMotoBox, hudLayout, hudPanel, hudText
+  hudGdot, rectsOverlap, hudMotoBox, hudLayout, hudPanel, hudText,
+  fmtDurH, climbMeters, countCurves, leanHistogram, posterStats, projectTrackXY,
+  posterMoments, posterLayout, buildPosterModel, posterTrackXY
 };
 `;
 

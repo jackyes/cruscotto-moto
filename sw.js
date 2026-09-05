@@ -49,6 +49,7 @@ const SHELL = [
   './js/display.js',
   './js/net-base.js',
   './js/draw.js',
+  './js/share.js',
   './viewer.html',
   './manifest.webmanifest',
 ];
