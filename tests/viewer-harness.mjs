@@ -20,8 +20,8 @@ function extractViewerScript(html) {
   return script + `
 ;globalThis.__viewer = {
   COLS, parseCsv, haversineKm, downsample, drawLine, getCss,
-  renderMap, render, fmtDur, handleFile,
-  stripBom, toNumOrNull, splitCsvLine,
+  renderMap, render, renderRows, fmtDur, handleFile, handleFiles,
+  stripBom, toNumOrNull, splitCsvLine, showError, sessionDur, hasLeaflet,
 };`;
 }
 
@@ -61,9 +61,15 @@ export function loadViewer() {
   const sandbox = {
     console, document: documentMock, window: windowMock,
     getComputedStyle: () => ({ getPropertyValue: () => '#888' }),
-    FileReader: function () {}, alert: () => {}, requestAnimationFrame: fn => fn(),
+    FileReader: function () { sandbox.__lastReader = this; },
+    alert: (msg) => { sandbox.__alerts = sandbox.__alerts || []; sandbox.__alerts.push(String(msg)); },
+    requestAnimationFrame: fn => fn(),
     setTimeout: (fn) => 0, clearTimeout: () => {},
-    L: { map: () => ({ removeLayer: () => {}, addLayer: () => {} }), tileLayer: () => ({ addTo: () => {} }), polyline: () => ({ addTo: () => ({ getBounds: () => ({}) }) }) },
+    L: {
+      map: () => ({ removeLayer: () => {}, fitBounds: () => {}, invalidateSize: () => {} }),
+      tileLayer: () => ({ addTo: () => {} }),
+      polyline: () => ({ addTo: () => ({ getBounds: () => ({}) }) }),
+    },
   };
   sandbox.globalThis = sandbox;
   vm.createContext(sandbox);

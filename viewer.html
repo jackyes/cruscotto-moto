@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Cruscotto Moto · Viewer CSV</title>
-<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha384-sHL9NAb7lN7rfvG5lfHpm643Xkcjzp4jFvuavGOndn6pjVqS6ny56CAt3nsEVT4H" crossorigin="anonymous">
 <style>
   :root {
     --bg: #0d131b; --surface: #121924; --surface-2: #1a2330;
@@ -33,6 +33,8 @@
   .drop b { color: var(--accent); }
   #file { position: absolute; width: 1px; height: 1px; opacity: 0; overflow: hidden; }
   main[hidden] { display: none; }
+  .err { background: #3a1620; border: 1px solid var(--bad); color: #fecaca; border-radius: 12px; padding: 12px 14px; margin-bottom: 14px; font-size: 14px; font-weight: 600; }
+  .err[hidden] { display: none; }
   .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px; margin-bottom: 14px; }
   .stat { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 12px; text-align: center; }
   .stat .v { font-size: 22px; font-weight: 800; font-variant-numeric: tabular-nums; }
@@ -55,6 +57,8 @@
     <span style="font-size:12px;">oppure tocca per sceglierlo</span></label>
   <input type="file" id="file" accept=".csv">
 
+  <div class="err" id="err" hidden role="alert"></div>
+
   <main id="main" hidden>
     <div class="stats" id="stats"></div>
     <div id="map" class="hidden"></div>
@@ -66,7 +70,7 @@
   </main>
 </div>
 
-<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha384-cxOPjt7s7Iz04uaHJceBmS+qpjv2JkIHNVcuOrM+YHwZOmJGBXI00mdUXEq65HTH" crossorigin="anonymous"></script>
 <script>
 (function () {
   'use strict';
@@ -191,11 +195,22 @@
     return getComputedStyle(document.documentElement).getPropertyValue(name).trim() || '#888';
   }
 
+  // --- banner errore inline (niente alert: non bloccano, restano leggibili) ---
+  function showError(msg) {
+    const el = $('err');
+    if (!msg) { el.hidden = true; el.textContent = ''; return; }
+    el.textContent = msg;
+    el.hidden = false;
+  }
+
   // --- mappa Leaflet ---
   let map = null, polyline = null;
+  function hasLeaflet() { return typeof L !== 'undefined' && L && typeof L.map === 'function'; }
   function renderMap(trackPts) {
     if (!trackPts.length) { $('map').classList.add('hidden'); return; }
     $('map').classList.remove('hidden');
+    // CDN bloccata/offline: statistiche+grafici restano, solo la mappa manca.
+    if (!hasLeaflet()) return;
     if (!map) {
       map = L.map('map');
       L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
@@ -205,12 +220,19 @@
     if (polyline) map.removeLayer(polyline);
     polyline = L.polyline(trackPts, { color: '#0ea5e9', weight: 3 }).addTo(map);
     map.fitBounds(polyline.getBounds(), { padding: [30, 30] });
-    setTimeout(() => map.invalidateSize(), 50);
+    setTimeout(() => { try { map.invalidateSize(); } catch (e) {} }, 50);
   }
 
-  function render(rows) {
+  // Durata sessione: ultimo t meno primo t (t è tempo dall'avvio, non assoluto).
+  function sessionDur(rows) {
+    if (!rows.length) return 0;
+    return Math.max(0, rows[rows.length - 1].t - rows[0].t);
+  }
+
+  function renderRows(rows) {
     const n = rows.length;
-    if (!n) { alert('Nessuna riga valida nel CSV.'); return; }
+    if (!n) { showError('Nessuna riga valida nel CSV.'); return; }
+    showError(null);
 
     // statistiche
     let vmax = 0, leanR = 0, leanL = 0;
@@ -228,7 +250,7 @@
         prev = { lat: r.lat, lon: r.lon };
       } else { prev = null; }
     }
-    const dur = rows[rows.length - 1].t;
+    const dur = sessionDur(rows);
 
     const stat = (v, k) => '<div class="stat"><div class="v">' + v + '</div><div class="k">' + k + '</div></div>';
     $('stats').innerHTML =
@@ -240,26 +262,38 @@
       stat(n, 'campioni');
     $('lblVmax').textContent = Math.round(vmax) + ' km/h';
 
-    // grafici
-    const maxV = Math.ceil(vmax / 20) * 20 + 20;
-    drawLine($('cSpeed'), rows, (r, k) => r.speed_kmh, { min: 0, max: maxV, series: [{ key: 'speed_kmh', color: getCss('--accent') }] });
-    drawLine($('cLean'), rows, (r, k) => r.lean_deg, { min: -60, max: 60, series: [{ key: 'lean_deg', color: getCss('--good') }] });
-    drawLine($('cAcc'), rows, (r, k) => r[k], {
-      min: -1.5, max: 1.5,
-      series: [
-        { key: 'lat_accel_g', color: getCss('--acc-lat') },
-        { key: 'lon_accel_g', color: getCss('--acc-lon') },
-        { key: 'vert_accel_g', color: getCss('--acc-vert') }
-      ]
-    });
     let altMin = Infinity, altMax = -Infinity;
     for (const r of rows) { if (r.alt_m != null) { if (r.alt_m < altMin) altMin = r.alt_m; if (r.alt_m > altMax) altMax = r.alt_m; } }
     if (!isFinite(altMin)) { altMin = 0; altMax = 1; }
     if (altMax - altMin < 5) { altMax = altMin + 5; }
-    drawLine($('cAlt'), rows, (r, k) => r.alt_m, { min: altMin, max: altMax, series: [{ key: 'alt_m', color: getCss('--acc-vert') }] });
 
-    renderMap(trackPts);
+    // Unhide PRIMA di disegnare + rAF: con main hidden i canvas hanno
+    // clientWidth 0 e i grafici uscivano vuoti al primo render.
     $('main').hidden = false;
+    const paint = () => {
+      const maxV = Math.ceil(vmax / 20) * 20 + 20;
+      drawLine($('cSpeed'), rows, (r, k) => r.speed_kmh, { min: 0, max: maxV, series: [{ key: 'speed_kmh', color: getCss('--accent') }] });
+      drawLine($('cLean'), rows, (r, k) => r.lean_deg, { min: -60, max: 60, series: [{ key: 'lean_deg', color: getCss('--good') }] });
+      drawLine($('cAcc'), rows, (r, k) => r[k], {
+        min: -1.5, max: 1.5,
+        series: [
+          { key: 'lat_accel_g', color: getCss('--acc-lat') },
+          { key: 'lon_accel_g', color: getCss('--acc-lon') },
+          { key: 'vert_accel_g', color: getCss('--acc-vert') }
+        ]
+      });
+      drawLine($('cAlt'), rows, (r, k) => r.alt_m, { min: altMin, max: altMax, series: [{ key: 'alt_m', color: getCss('--acc-vert') }] });
+      renderMap(trackPts);
+    };
+    if (typeof requestAnimationFrame === 'function') requestAnimationFrame(paint);
+    else paint();
+  }
+
+  // Wrapper retrocompatibile: i test e handleFile chiamano render().
+  function render(rows) {
+    $('main').hidden = false;
+    if (typeof requestAnimationFrame === 'function') requestAnimationFrame(() => renderRows(rows));
+    else renderRows(rows);
   }
 
   function fmtDur(sec) {
@@ -270,28 +304,41 @@
 
   function handleFile(file) {
     if (!file) return;
-    if (!/\.csv$/i.test(file.name || '')) { alert('Seleziona un file .csv.'); return; }
-    if (file.size > 50 * 1024 * 1024) { alert('File troppo grande (max 50MB).'); return; }
+    if (!/\.csv$/i.test(file.name || '')) { showError('Seleziona un file .csv.'); return; }
+    if (file.size > 50 * 1024 * 1024) { showError('File troppo grande (max 50MB).'); return; }
     const reader = new FileReader();
-    reader.onerror = () => { alert('Errore di lettura del file.'); };
+    reader.onerror = () => { showError('Errore di lettura del file.'); };
     reader.onload = () => {
       try { render(parseCsv(String(reader.result))); }
-      catch (e) { alert('Errore di lettura: ' + e.message); }
+      catch (e) { showError('Errore di lettura: ' + e.message); }
     };
     reader.readAsText(file, 'utf-8');
   }
 
+  // Prende tutti i .csv dalla lista (input multiplo o drop multiplo):
+  // il primo si visualizza, gli altri si accodano in overlay (vedi B4).
+  function handleFiles(files) {
+    const list = (files ? Array.from(files) : []).filter(f => /\.csv$/i.test(f.name || ''));
+    if (!list.length) { showError('Seleziona un file .csv.'); return; }
+    handleFile(list[0]);
+    return list;
+  }
+
   const drop = $('drop');
   const fileInput = $('file');
-  fileInput.addEventListener('change', e => { const f = e.target.files && e.target.files[0]; if (f) handleFile(f); e.target.value = ''; });
-  window.addEventListener('dragover', e => { e.preventDefault(); });
-  window.addEventListener('drop', e => { e.preventDefault(); });
+  fileInput.addEventListener('change', e => { if (e.target.files) handleFiles(e.target.files); e.target.value = ''; });
+  // Drop su tutta la finestra (non solo la label): altrove il browser
+  // navigherebbe via al file trascinato. La label evidenzia comunque l'over.
+  window.addEventListener('dragover', e => { e.preventDefault(); if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy'; });
+  window.addEventListener('drop', e => {
+    e.preventDefault(); drop.classList.remove('over');
+    if (e.dataTransfer && e.dataTransfer.files) handleFiles(e.dataTransfer.files);
+  });
   drop.addEventListener('dragover', e => { e.preventDefault(); if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy'; drop.classList.add('over'); });
   drop.addEventListener('dragleave', () => drop.classList.remove('over'));
   drop.addEventListener('drop', e => {
     e.preventDefault(); drop.classList.remove('over');
-    const f = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
-    if (f) handleFile(f);
+    if (e.dataTransfer && e.dataTransfer.files) handleFiles(e.dataTransfer.files);
   });
 })();
 </script>
