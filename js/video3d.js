@@ -463,6 +463,13 @@ function initVideoRender3D(pre) {
         const layers = map.getStyle ? map.getStyle().layers : null;
         if (layers) { const s = layers.find(l => l.type === 'symbol'); if (s) beforeId = s.id; }
       } catch (e) {}
+      // Sottofondo terra (§6.7 doc): sotto il raster, i buchi tile leggono
+      // come terreno lontano invece che voragini. Fallisce silenzioso se
+      // lo stile non accetta background custom.
+      try {
+        map.addLayer({ id: 'video-ground', type: 'background',
+          paint: { 'background-color': VIDEO3D_CONF.ground } });
+      } catch (e) {}
       try { videoTrackAddToMap(map, pre.mapPts, job.segLeans); } catch (e) {}
       // Rilievo ombreggiato + tinta edifici (stesso beforeId: la scia resta sopra).
       videoSceneAddToMap(map, beforeId);
