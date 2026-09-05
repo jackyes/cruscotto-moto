@@ -26,9 +26,15 @@ function exportGpx(track, nameSuffix) {
   downloadBlob('cruscotto' + (nameSuffix ? '_' + nameSuffix : '') + '_' + stamp() + '.gpx', buildGpx(track), 'application/gpx+xml');
 }
 
+// 'text' si chiama 'c-txt' nel tema (non 'c-text'): la mappa evita il grigio #888.
+function videoColorKey(name) {
+  if (name === 'text' || name === 'c-text') return 'c-txt';
+  if (name.indexOf('c-') === 0) return name;
+  return 'c-' + name;
+}
+
 function videoColor(name) {
-  const key = (name.indexOf('c-') === 0) ? name : ('c-' + name);
-  return canvasTheme.get(key);
+  return canvasTheme.get(videoColorKey(name));
 }
 
 function resetVideoColors() { canvasTheme.reset(); }

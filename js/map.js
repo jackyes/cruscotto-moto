@@ -346,7 +346,9 @@ const canvasTheme = {
     if (!canvasTheme._c) {
       const cs = getComputedStyle(document.documentElement);
       canvasTheme._c = {};
-      for (const n of ['c-bg', 'c-grid', 'c-axis', 'c-accent', 'c-good', 'c-bad', 'c-warn', 'c-txt', 'c-route']) {
+      // I nomi --c-* devono esistere in entrambi i :root di index.html:
+      // se una var manca, get() torna '#888' e il video esce grigio (bug #888).
+      for (const n of ['c-bg', 'c-grid', 'c-axis', 'c-accent', 'c-good', 'c-bad', 'c-warn', 'c-txt', 'c-route', 'c-acc-lat', 'c-acc-lon', 'c-acc-vert']) {
         canvasTheme._c[n] = (cs.getPropertyValue('--' + n) || '').trim();
       }
     }

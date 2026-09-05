@@ -173,27 +173,93 @@ function initVideoRender3D(pre) {
   }, VIDEO3D_CONF.timeouts.styleMs));
 }
 
-function buildCameraKeyframes(mapPts) {
-  const n = mapPts.length;
+/* Pura: bearing per ogni punto con carry-forward. bearing() torna null su punti
+   coincidenti (moto ferma, o fix GPS ripetuto a 20 Hz nelle rows): invece di
+   collassare a 0 (= NORD) si tiene l'ultimo valido; il prefisso iniziale si
+   retro-riempie col primo valido. ok:false = nessun bearing reale qui. */
+function videoBearingSeries(mapPts) {
+  const n = mapPts ? mapPts.length : 0;
   if (!n) return [];
-  const raw = new Array(n);
+  const out = new Array(n);
+  let last = null, firstValid = null;
   for (let i = 0; i < n; i++) {
-    let brg = 0;
-    if (i > 0) brg = bearing(mapPts[i - 1], mapPts[i]) ?? 0;
-    else if (n > 1) brg = bearing(mapPts[0], mapPts[1]) ?? 0;
-    raw[i] = { lat: mapPts[i].lat, lon: mapPts[i].lon, brg };
+    const b = i > 0 ? bearing(mapPts[i - 1], mapPts[i])
+      : (n > 1 ? bearing(mapPts[0], mapPts[1]) : null);
+    if (b != null && isFinite(b)) { last = b; if (firstValid == null) firstValid = b; }
+    out[i] = { lat: mapPts[i].lat, lon: mapPts[i].lon, brg: last, ok: last != null };
   }
-  // Media circolare su finestra di 5 per smussare lo jitter dell'heading GPS.
+  const seed = firstValid != null ? firstValid : 0;
+  for (let i = 0; i < n; i++) if (out[i].brg == null) out[i].brg = seed;
+  return out;
+}
+
+/* Pura: media circolare con kernel triangolare (il vicino pesa più del lontano),
+   saltando i campioni ok:false (carry copiati, non misure reali). */
+function videoSmoothBearings(series, win) {
+  const n = series ? series.length : 0;
+  if (!n) return [];
+  const w = win || 5, half = Math.floor(w / 2);
   const out = new Array(n);
   for (let i = 0; i < n; i++) {
-    let sx = 0, sy = 0, c = 0;
-    for (let j = Math.max(0, i - 2); j <= Math.min(n - 1, i + 2); j++) {
-      const a = raw[j].brg * Math.PI / 180;
-      sx += Math.sin(a); sy += Math.cos(a); c++;
+    let sx = 0, sy = 0;
+    for (let j = Math.max(0, i - half); j <= Math.min(n - 1, i + half); j++) {
+      if (!series[j].ok && series[j].brg !== series[i].brg) continue;
+      const wt = half + 1 - Math.abs(j - i);
+      const a = series[j].brg * Math.PI / 180;
+      sx += Math.sin(a) * wt; sy += Math.cos(a) * wt;
     }
-    out[i] = { lat: raw[i].lat, lon: raw[i].lon, brg: (Math.atan2(sx, sy) * 180 / Math.PI + 360) % 360 };
+    out[i] = {
+      lat: series[i].lat, lon: series[i].lon,
+      brg: (sx || sy) ? (Math.atan2(sx, sy) * 180 / Math.PI + 360) % 360 : series[i].brg,
+    };
   }
   return out;
+}
+
+function buildCameraKeyframes(mapPts) {
+  return videoSmoothBearings(videoBearingSeries(mapPts), 5);
+}
+
+/* Pura: campiona il percorso a posizione frazionaria (lerp equirettangolare:
+   a 1 punto/s l'errore vs geodetica è sotto il mm; bearing sull'arco corto). */
+function videoPathSampleAt(kf, u) {
+  const n = kf ? kf.length : 0;
+  if (!n || !isFinite(u)) return null;
+  const c = Math.max(0, Math.min(n - 1, u));
+  const i0 = Math.min(n - 1, Math.floor(c)), i1 = Math.min(n - 1, i0 + 1);
+  const f = c - i0, a = kf[i0], b = kf[i1];
+  const d = ((b.brg - a.brg + 540) % 360) - 180;
+  return {
+    lat: a.lat + (b.lat - a.lat) * f,
+    lon: a.lon + (b.lon - a.lon) * f,
+    brg: (a.brg + d * f + 360) % 360,
+  };
+}
+
+/* Pura: posizione frazionaria sulla traccia per indice riga (niente Math.round:
+   quello congelava la camera ~30 frame e poi scattava). */
+function videoTrackPosForRow(rowIdx, rowsLen, trackLen) {
+  if (!trackLen || trackLen <= 0) return 0;
+  if (!rowsLen || rowsLen <= 1) return 0;
+  const i = Math.max(0, Math.min(rowsLen - 1, rowIdx));
+  return Math.max(0, Math.min(trackLen - 1, (i / (rowsLen - 1)) * (trackLen - 1)));
+}
+
+/* Pura: smorzamento esponenziale indipendente dal frame rate (EMA esatta).
+   tau in secondi SIMULATI: il chiamante passa dt*mult, non dt reale. */
+function videoDamp(cur, target, dtSim, tau) {
+  if (!isFinite(cur) || !isFinite(target) || !isFinite(dtSim) || dtSim <= 0) return target;
+  if (!isFinite(tau) || tau <= 0) return target;
+  const a = 1 - Math.exp(-dtSim / tau);
+  return cur + (target - cur) * a;
+}
+
+/* Pura: stessa EMA sull'angolo, arco corto (350→10 passa per 0, non per 180). */
+function videoDampAngle(curDeg, targetDeg, dtSim, tau) {
+  if (!isFinite(curDeg)) return targetDeg;
+  if (!isFinite(targetDeg)) return curDeg;
+  const d = ((targetDeg - curDeg + 540) % 360) - 180;
+  return (curDeg + d * (1 - Math.exp(-Math.max(0, dtSim) / Math.max(1e-3, tau))) + 360) % 360;
 }
 
 /* Pura: contro-piega busto rider (30% della piega, clamp ±60°).
@@ -427,13 +493,27 @@ function drawVideoFrame3D(job, dt) {
   const i = Math.max(0, findRowAt(rows, tSim));
   const r = rows[i] || {};
 
-  // Camera mappa: segue il tracciato, muso in avanti, zoom/pitch dinamici.
-  const kIdx = videoTrackIndexForRow(i, rows.length, mapPts.length);
-  const kf = keyframes[kIdx];
-  if (kf && job.mapReady) {
+  // Camera mappa: scorre continua sul tracciato (niente scatti a 1 Hz),
+  // guarda ~2 s avanti sul percorso, zoom/pitch smorzati (niente pompaggio GPS).
+  const u = videoTrackPosForRow(i, rows.length, keyframes.length);
+  const p = videoPathSampleAt(keyframes, u);
+  if (p && job.mapReady) {
     const cam = videoCameraFor(r.speedKmh || 0, r.lean || 0);
-    map.jumpTo({ center: [kf.lon, kf.lat], bearing: kf.brg, pitch: cam.pitch, zoom: cam.zoom });
-    if (typeof map.triggerRepaint === 'function') map.triggerRepaint(); else if (typeof map.redraw === 'function') map.redraw();
+    const dtSim = (dt == null ? 1 / 30 : Math.max(0, dt)) * (job.mult || 1);
+    const ahead = videoPathSampleAt(keyframes, Math.min(keyframes.length - 1, u + 2 * keyframes.length / Math.max(1, job.tEnd - (rows[0] ? rows[0].t : 0))));
+    const brgT = ahead ? ahead.brg : p.brg;
+    const c = job._cam || { lat: p.lat, lon: p.lon, brg: brgT, zoom: cam.zoom, pitch: cam.pitch };
+    // Soglie anti-deriva: a regime il centro resta sul GPS (niente moto fuori strada).
+    c.lat = videoDamp(c.lat, p.lat, dtSim, 0.18);
+    c.lon = videoDamp(c.lon, p.lon, dtSim, 0.18);
+    if (Math.abs(c.lat - p.lat) > 0.0001) c.lat = p.lat;
+    if (Math.abs(c.lon - p.lon) > 0.0001) c.lon = p.lon;
+    c.brg = videoDampAngle(c.brg, brgT, dtSim, 0.55);
+    c.zoom = videoDamp(c.zoom, cam.zoom, dtSim, 0.4);
+    c.pitch = videoDamp(c.pitch, cam.pitch, dtSim, 0.4);
+    job._cam = c;
+    map.jumpTo({ center: [c.lon, c.lat], bearing: c.brg, pitch: c.pitch, zoom: c.zoom });
+    if (typeof map.redraw === 'function') map.redraw(); else if (typeof map.triggerRepaint === 'function') map.triggerRepaint();
   }
 
   // Moto: piega + rotolamento ruote (dt reale, non per-frame).
@@ -453,10 +533,19 @@ function drawVideoFrame3D(job, dt) {
   drawVideoHUD3D(ctx, job, r, tSim, dist[i] || 0, speedMax);
 }
 
+// L'HUD 3D sta su pannelli neri sopra una basemap sempre chiara (stile liberty):
+// usa una palette scura fissa, non il tema app (in tema chiaro --text è quasi
+// nero e diventerebbe illeggibile sul pannello). Il cruscotto 2D invece segue
+// il tema via videoColor perché dipinge il fondo con --c-bg.
+const HUD3D_COLORS = {
+  accent: '#38bdf8', txt: '#f4f8fc', axis: '#a8b8c8',
+  good: '#34d399', bad: '#f87171',
+};
+
 function drawVideoHUD3D(ctx, job, r, tSim, distKm, speedMax) {
   const W = job.canvas.width, H = job.canvas.height;
-  const accent = videoColor('accent'), txt = videoColor('text'), axis = videoColor('c-axis');
-  const good = videoColor('good'), bad = videoColor('bad');
+  const accent = HUD3D_COLORS.accent, txt = HUD3D_COLORS.txt, axis = HUD3D_COLORS.axis;
+  const good = HUD3D_COLORS.good, bad = HUD3D_COLORS.bad;
   const kmh = Math.round(r.speedKmh || 0);
 
   ctx.textBaseline = 'alphabetic';

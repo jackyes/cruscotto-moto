@@ -65,7 +65,9 @@ const exportLine = `
   buildCameraKeyframes, disposeVideoMoto3D, videoWheelSpin, videoTrackIndexForRow,
   requestVideoFallback, clearVideoTimers, trackVideoTimer,
   VIDEO3D_CONF, loadVideo3DScript, initVideoMoto3D, videoRiderLean, videoCameraFor,
-  drawVideoHUD3D
+  drawVideoHUD3D, videoColorKey, canvasTheme, videoColor, resetVideoColors, HUD3D_COLORS,
+  videoBearingSeries, videoSmoothBearings, videoPathSampleAt, videoTrackPosForRow,
+  videoDamp, videoDampAngle
 };
 `;
 
