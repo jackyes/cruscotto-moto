@@ -19,7 +19,8 @@ function extractViewerScript(html) {
   script = script.replace(/\}\)\(\);?\s*$/, '');
   return script + `
 ;globalThis.__viewer = {
-  COLS, parseCsv, haversineKm, downsample, drawLine, getCss,
+  COLS, parseCsv, haversineKm, downsample, downsampleMinMax, chartGeom, chartTicks,
+  drawLine, getCss,
   renderMap, render, renderRows, fmtDur, handleFile, handleFiles,
   stripBom, toNumOrNull, splitCsvLine, showError, sessionDur, hasLeaflet,
   viewerStats, splitLaps, buildFilteredCsv, exportFilteredCsv, renderRows, renderLapTable,

@@ -175,44 +175,111 @@
     return out;
   }
 
+  // Pura: min-max per bucket (lo stride semplice perde i picchi G/vib:
+  // ogni bucket contribuisce riga min e riga max, picchi sempre visibili).
+  function downsampleMinMax(rows, maxPts, getY) {
+    if (!rows || rows.length <= maxPts || maxPts < 4) return rows ? rows.slice() : [];
+    const per = Math.ceil(rows.length / Math.max(1, Math.floor(maxPts / 2)));
+    const out = [];
+    for (let b = 0; b < rows.length; b += per) {
+      const bucket = rows.slice(b, b + per);
+      let mn = null, mx = null, mnV = Infinity, mxV = -Infinity;
+      for (const r of bucket) {
+        const v = getY(r);
+        if (v == null || !isFinite(v)) continue;
+        if (v < mnV) { mnV = v; mn = r; }
+        if (v > mxV) { mxV = v; mx = r; }
+      }
+      // Ordine temporale dentro il bucket (evita zigzag di disegno).
+      if (mn && mx) out.push(mn.t <= mx.t ? mn : mx, mn.t <= mx.t ? mx : mn);
+      else if (mn) out.push(mn);
+      else if (bucket.length) out.push(bucket[0]);
+    }
+    const last = rows[rows.length - 1];
+    if (out[out.length - 1] !== last) out.push(last);
+    return out;
+  }
+
+  // Pura: geometria grafico (mapping t->x, v->y) testabile senza canvas.
+  function chartGeom(w, h, t0, t1, min, max, pad) {
+    const p = pad == null ? 8 : pad;
+    const tspan = Math.max(1e-9, t1 - t0), vspan = Math.max(1e-9, max - min);
+    return {
+      X: t => ((t - t0) / tspan) * w,
+      Y: v => h - p - ((v - min) / vspan) * (h - 2 * p),
+      w, h,
+    };
+  }
+
+  // Pura: tick "belli" 1/2/5x10^k per le griglie orizzontali.
+  function chartTicks(min, max, n) {
+    const count = Math.max(2, n || 4);
+    if (!isFinite(min) || !isFinite(max) || max <= min) return [min];
+    const raw = (max - min) / (count - 1);
+    const mag = Math.pow(10, Math.floor(Math.log10(raw)));
+    const norm = raw / mag;
+    const step = (norm > 5 ? 10 : norm > 2 ? 5 : norm > 1 ? 2 : 1) * mag;
+    const out = [];
+    for (let v = Math.ceil(min / step) * step; v <= max + 1e-9; v += step) {
+      const r = Math.round(v * 1e9) / 1e9;
+      out.push(r === 0 ? 0 : r); // -0 esce "−0" nelle label: normalizza a 0
+    }
+    return out.length ? out : [min];
+  }
+
   // --- grafico lineare su canvas ---
+  // opts: min/max, series, datasets (altri dataset stesso dominio x, es.
+  // overlay 2° file: una sola fillRect, prima veniva cancellato dal 2° drawLine),
+  // t0/t1 (dominio x condiviso, default dai rows), grid (default true), pad.
   function drawLine(canvas, rows, getY, opts) {
+    const o = opts || {};
     const dpr = window.devicePixelRatio || 1;
     const w = canvas.clientWidth || 600, h = canvas.clientHeight || 150;
     canvas.width = w * dpr; canvas.height = h * dpr;
     const ctx = canvas.getContext('2d');
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.fillStyle = getCss('--c-bg'); ctx.fillRect(0, 0, w, h);
-    if (!rows.length) return;
+    if (!rows.length && !(o.datasets || []).length) return;
 
-    const ds = downsample(rows, 2000);
-    const t0 = rows[0].t, t1 = rows[rows.length - 1].t;
-    const tspan = Math.max(1, t1 - t0);
-    const min = opts.min, max = opts.max;
-    const pad = 8;
-    const X = t => ((t - t0) / tspan) * w;
-    const Y = v => h - pad - ((v - min) / (max - min)) * (h - 2 * pad);
+    const t0 = o.t0 != null ? o.t0 : (rows.length ? rows[0].t : 0);
+    const t1 = o.t1 != null ? o.t1 : (rows.length ? rows[rows.length - 1].t : 1);
+    const g = chartGeom(w, h, t0, t1, o.min, o.max, o.pad);
 
-    // zero line
-    ctx.strokeStyle = getCss('--c-grid'); ctx.lineWidth = 1;
-    if (min < 0 && max > 0) {
-      const y0 = Y(0);
+    // Griglia orizzontale + zero line (prima solo zero: senza scala i G illeggibili).
+    if (o.grid !== false) {
+      ctx.strokeStyle = getCss('--c-grid'); ctx.lineWidth = 1;
+      ctx.fillStyle = getCss('--c-axis'); ctx.font = '10px system-ui'; ctx.textAlign = 'left';
+      for (const tv of chartTicks(o.min, o.max, 4)) {
+        const y = g.Y(tv);
+        ctx.beginPath(); ctx.moveTo(28, y); ctx.lineTo(w, y); ctx.stroke();
+        ctx.fillText(String(tv), 2, y - 2);
+      }
+    } else if (o.min < 0 && o.max > 0) {
+      ctx.strokeStyle = getCss('--c-grid'); ctx.lineWidth = 1;
+      const y0 = g.Y(0);
       ctx.beginPath(); ctx.moveTo(0, y0); ctx.lineTo(w, y0); ctx.stroke();
     }
 
-    for (const series of opts.series) {
-      ctx.strokeStyle = series.color; ctx.lineWidth = 1.5; ctx.lineJoin = 'round';
-      ctx.beginPath();
-      let started = false;
-      for (const r of ds) {
-        const v = getY(r, series.key);
-        if (v == null || !isFinite(v)) { started = false; continue; }
-        const px = X(r.t), py = Y(v);
-        started ? ctx.lineTo(px, py) : ctx.moveTo(px, py);
-        started = true;
+    const paintRows = (rs, gy, series) => {
+      for (const s of series) {
+        ctx.strokeStyle = s.color; ctx.lineWidth = 1.5; ctx.lineJoin = 'round';
+        ctx.setLineDash(s.dash || []);
+        ctx.beginPath();
+        let started = false;
+        const ds = downsampleMinMax(rs, 2000, r => gy(r, s.key));
+        for (const r of ds) {
+          const v = gy(r, s.key);
+          if (v == null || !isFinite(v)) { started = false; continue; }
+          const px = g.X(r.t), py = g.Y(v);
+          started ? ctx.lineTo(px, py) : ctx.moveTo(px, py);
+          started = true;
+        }
+        ctx.stroke();
+        ctx.setLineDash([]);
       }
-      ctx.stroke();
-    }
+    };
+    paintRows(rows, getY, o.series || []);
+    for (const d of (o.datasets || [])) paintRows(d.rows || [], d.getY || getY, d.series || []);
   }
 
   function getCss(name) {
@@ -312,13 +379,30 @@
     $('main').hidden = false;
     const paint = () => {
       const maxV = Math.ceil(vmax / 20) * 20 + 20;
-      const speedSeries = [{ key: 'speed_kmh', color: getCss('--accent') }];
-      // Overlay 2° file: velocità tratteggiata in grigio per confronto visivo.
+      // Un solo drawLine: overlay come dataset (doppio drawLine cancellava
+      // il primo col fillRect). Dominio x condiviso t0..t1 dei due file.
+      let speedT0 = rows.length ? rows[0].t : 0, speedT1 = rows.length ? rows[rows.length - 1].t : 1;
       if (overlayRows && overlayRows.length) {
-        drawLine($('cSpeed'), overlayRows, (r, k) => r.speed_kmh, { min: 0, max: maxV, series: [{ key: 'speed_kmh', color: getCss('--c-axis') }] });
+        speedT0 = Math.min(speedT0, overlayRows[0].t);
+        speedT1 = Math.max(speedT1, overlayRows[overlayRows.length - 1].t);
       }
-      drawLine($('cSpeed'), rows, (r, k) => r.speed_kmh, { min: 0, max: maxV, series: speedSeries });
-      drawLine($('cLean'), rows, (r, k) => r.lean_deg, { min: -60, max: 60, series: [{ key: 'lean_deg', color: getCss('--good') }] });
+      drawLine($('cSpeed'), rows, (r, k) => r.speed_kmh, {
+        min: 0, max: maxV, t0: speedT0, t1: speedT1,
+        series: [{ key: 'speed_kmh', color: getCss('--accent') }],
+        datasets: (overlayRows && overlayRows.length) ? [{
+          rows: overlayRows, getY: (r, k) => r.speed_kmh,
+          series: [{ key: 'speed_kmh', color: getCss('--c-axis'), dash: [5, 4] }],
+        }] : [],
+      });
+      // Riferimento piega cinematica (colonna lean_ref, default ricalcolo live:
+      // nei CSV veniva ignorata, ora la curva si confronta con la misura).
+      drawLine($('cLean'), rows, (r, k) => (k === 'lean_ref' ? r.lean_ref : r.lean_deg), {
+        min: -60, max: 60,
+        series: [
+          { key: 'lean_deg', color: getCss('--good') },
+          { key: 'lean_ref', color: getCss('--c-axis'), dash: [5, 4] },
+        ],
+      });
       drawLine($('cAcc'), rows, (r, k) => r[k], {
         min: -1.5, max: 1.5,
         series: [
@@ -480,8 +564,18 @@
   drop.addEventListener('dragover', e => { e.preventDefault(); if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy'; drop.classList.add('over'); });
   drop.addEventListener('dragleave', () => drop.classList.remove('over'));
   drop.addEventListener('drop', e => {
-    e.preventDefault(); drop.classList.remove('over');
+    // Il window-drop sopra gestirebbe lo stesso file due volte: stoppa qui.
+    e.preventDefault(); e.stopPropagation(); drop.classList.remove('over');
     if (e.dataTransfer && e.dataTransfer.files) handleFiles(e.dataTransfer.files);
+  });
+  // Grafici ridisegnati al resize (debounce 150 ms): senza, dopo rotazione
+  // telefono restavano larghi come prima. Guard: niente rows = niente loop.
+  let resizeT = 0;
+  window.addEventListener('resize', () => {
+    if (!currentRows.length) return;
+    if (typeof requestAnimationFrame !== 'function') { renderRows(currentRows); return; }
+    clearTimeout(resizeT);
+    resizeT = setTimeout(() => renderRows(currentRows), 150);
   });
 })();
 </script>
