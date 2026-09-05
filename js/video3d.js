@@ -23,7 +23,12 @@ const VIDEO3D_CONF = {
   sky: { 'sky-color': '#88c6fc', 'sky-horizon-blend': 0.5, 'horizon-color': '#f8f4f0', 'horizon-fog-blend': 0.5, 'fog-color': '#dfe9f2', 'fog-ground-blend': 0.6 },
   // Traccia del giro: linea drappeggiata sul terreno (line/fill/raster/hillshade
   // sono gli unici layer drappeggiabili in 4.7.1). Scia = ultimi N punti.
-  trail: { color: '#38bdf8', done: '#1d4ed8', width: 5, trailN: 40, quantStep: 60 },
+  trail: { color: '#38bdf8', done: '#1d4ed8', width: 5, trailN: 40, quantStep: 60,
+    cometHead: '#1d4ed8', cometMid: 'rgba(56,189,248,0.55)' },
+  // Rilievo ombreggiato sul DEM già scaricato per il terrain (zero tile extra).
+  hill: { exaggeration: 0.35, shadow: '#334155', highlight: '#ffffff', accent: '#f8f4f0' },
+  // Edifici liberty già nello style (building-3d fill-extrusion z14+): solo tinta.
+  buildings: { color: '#cfd8e3', opacity: 0.9 },
 };
 
 /* Pura: opzioni costruttore Map (testabile senza DOM né maplibre). */
@@ -52,6 +57,24 @@ function videoMapPixelRatio(dpr, W, H) {
 /* Pura: oggetto sky per map.setSky (solo chiavi renderizzate da 4.7.1). */
 function videoSkyOptions() { return Object.assign({}, VIDEO3D_CONF.sky); }
 
+/* Pura: paint scia-cometa (testa opaca → coda trasparente). Stop statici:
+   la finestra scorre ma la testa resta sempre a progress=1. */
+function videoCometPaint() {
+  const T = VIDEO3D_CONF.trail;
+  return { 'line-width': T.width + 1, 'line-opacity': 1,
+    'line-gradient': ['interpolate', ['linear'], ['line-progress'],
+      0, 'rgba(29,78,216,0)', 0.6, T.cometMid, 1, T.cometHead] };
+}
+
+/* Pura: paint hillshade dal conf (riusa DEM del terrain, niente tile extra). */
+function videoHillPaint() {
+  const H = VIDEO3D_CONF.hill;
+  return { 'hillshade-exaggeration': H.exaggeration,
+    'hillshade-shadow-color': H.shadow,
+    'hillshade-highlight-color': H.highlight,
+    'hillshade-accent-color': H.accent };
+}
+
 /* Pura: a quale pitch l'orizzonte entra nel frame (formula dal bundle 4.7.1:
    h = 0.5 + tan(90-pitch)*1.4993*0.85; visibile se h < 1). */
 function videoSkyVisible(pitchDeg) {
@@ -77,9 +100,31 @@ function videoTrackAddToMap(map, mapPts) {
   map.addSource('giro-fatto', { type: 'geojson', data: videoTrackGeoJson([], 0, 0) });
   map.addLayer({ id: 'giro-done', type: 'line', source: 'giro-fatto',
     paint: { 'line-color': T.done, 'line-width': T.width, 'line-opacity': 0.9 } }, beforeId);
-  map.addSource('scia', { type: 'geojson', data: videoTrackGeoJson([], 0, 0) });
-  map.addLayer({ id: 'giro-scia', type: 'line', source: 'scia',
-    paint: { 'line-color': T.done, 'line-width': T.width + 1, 'line-opacity': 1 } }, beforeId);
+  // Scia-cometa con lineMetrics (gradiente testa→coda): se il gradiente non
+  // è supportato, catch → tinta solida storica (stesso layer, niente duplicati).
+  map.addSource('scia', { type: 'geojson', lineMetrics: true, data: videoTrackGeoJson([], 0, 0) });
+  try {
+    map.addLayer({ id: 'giro-scia', type: 'line', source: 'scia', paint: videoCometPaint() }, beforeId);
+  } catch (e) {
+    map.addLayer({ id: 'giro-scia', type: 'line', source: 'scia',
+      paint: { 'line-color': T.done, 'line-width': T.width + 1, 'line-opacity': 1 } }, beforeId);
+  }
+}
+
+/* Rilievo + edifici dopo il terrain (try/catch dedicati: un id mancante nello
+   stile remoto non deve buttare in 2D un render sano). */
+function videoSceneAddToMap(map, beforeId) {
+  const B = VIDEO3D_CONF.buildings;
+  try {
+    map.addLayer({ id: 'rilievo-ombreggiato', type: 'hillshade',
+      source: 'dem', paint: videoHillPaint() }, beforeId);
+  } catch (e) {}
+  try {
+    if (map.getLayer && map.getLayer('building-3d')) {
+      map.setPaintProperty('building-3d', 'fill-extrusion-color', B.color);
+      map.setPaintProperty('building-3d', 'fill-extrusion-opacity', B.opacity);
+    }
+  } catch (e) {}
 }
 
 /* Avanza percorso fatto + scia. setData solo quando kIdx cambia (a 1x ~1/s);
@@ -263,7 +308,14 @@ function initVideoRender3D(pre) {
       if (typeof map.setSky === 'function') { try { map.setSky(videoSkyOptions()); } catch (e) {} }
       // Traccia del giro: layer decorativo in try/catch dedicato (un id mancante
       // nello stile remoto non deve buttare in 2D un render sano).
+      let beforeId = null;
+      try {
+        const layers = map.getStyle ? map.getStyle().layers : null;
+        if (layers) { const s = layers.find(l => l.type === 'symbol'); if (s) beforeId = s.id; }
+      } catch (e) {}
       try { videoTrackAddToMap(map, pre.mapPts); } catch (e) {}
+      // Rilievo ombreggiato + tinta edifici (stesso beforeId: la scia resta sopra).
+      videoSceneAddToMap(map, beforeId);
       job.mapReady = true;
       beginVideoCapture(job, canvas, pre.mime);
     } catch (e) {

@@ -71,7 +71,7 @@ const exportLine = `
   videoBearingSeries, videoSmoothBearings, videoPathSampleAt, videoTrackPosForRow,
   videoDamp, videoDampAngle,
   videoMapOptions, videoMapPixelRatio, videoSkyOptions, videoSkyVisible,
-  videoTrackGeoJson, videoTrailRange, videoExtremesForJob,
+  videoTrackGeoJson, videoTrailRange, videoExtremesForJob, videoCometPaint, videoHillPaint,
   hudFont, hudCang, runningExtremes, leanScaleFor, leanGaugeModel,
   hudGdot, rectsOverlap, hudMotoBox, hudLayout, hudPanel, hudText,
   fmtDurH, climbMeters, countCurves, leanHistogram, posterStats, projectTrackXY,
