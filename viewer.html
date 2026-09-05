@@ -64,7 +64,7 @@
 
   <label class="drop" id="drop" for="file">Trascina qui il file <b>.csv</b> esportato dall'app<br>
     <span style="font-size:12px;">oppure tocca per sceglierlo</span></label>
-  <input type="file" id="file" accept=".csv">
+  <input type="file" id="file" accept=".csv,text/csv,text/plain">
 
   <div class="err" id="err" hidden role="alert"></div>
 
@@ -84,7 +84,7 @@
       <button class="btn" id="btnOverlay" type="button">Confronta 2° file…</button>
       <button class="btn" id="btnExport" type="button">Esporta CSV filtrato</button>
     </div>
-    <input type="file" id="file2" accept=".csv" hidden>
+    <input type="file" id="file2" accept=".csv,text/csv,text/plain" hidden>
     <div class="hint">Grafici e statistiche generati localmente nel browser. Nessun dato inviato altrove.</div>
   </main>
 </div>
