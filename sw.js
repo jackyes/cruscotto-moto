@@ -22,6 +22,7 @@ const SHELL = [
   './js/core.js',
   './js/geo.js',
   './js/csv.js',
+  './js/osrm-text.js',
   './viewer.html',
   './manifest.webmanifest',
 ];
