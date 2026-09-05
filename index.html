@@ -1156,21 +1156,14 @@ const els = {
 /* js/sensor-src.js: checkSecureContext */
 
 /* ============================== Traccia GPS ============================== */
-function appendTrackPoint(lat, lon, alt) {
-  const now = performance.now();
-  if (now - lastTrackT < 1000) return;
-  lastTrackT = now;
-  state.track.push({ lat, lon, alt: alt || 0, t: now, ts: Date.now() });
-  if (state.track.length > TRACK_MAX) state.track.splice(0, state.track.length - TRACK_MAX);
-  updateMap();
-}
+/* js/cam-map.js: appendTrackPoint */
 
 /* ============================== Avvisi autovelox (OSM/Overpass) ============================== */
 /* js/geo.js: camKey, cellKey, camPrecompute (allCameras/camMarkerRadius/camMoveThreshold restano inline: leggono state) */
 /* js/cam-map.js: allCameras */
 
 /* Raggi derivati da state.camRadius: letti da quattro punti diversi, quindi vivono in
-   una funzione sola per non poter divergere. *//* js/cam-map.js: ? *//* js/cam-map.js: ? *//* js/cam-map.js: ? */
+   una funzione sola per non poter divergere. *//* js/cam-map.js: camMarkerRadius *//* js/cam-map.js: camMoveThreshold *//* js/cam-map.js: rebuildCamGrid */
 /* js/cam-map.js: camsNear */
 
 /* js/geo.js: bearing, angleDiff */
@@ -1180,29 +1173,29 @@ function appendTrackPoint(lat, lon, alt) {
 /* Mirror gia' autorizzati sia dalla CSP sia dal service worker. */
 /* js/cam-map.js: renderCams-block */
 
-/* js/cam-map.js: ? */
-
-/* js/cam-map.js: ? */
-
-/* js/cam-map.js: ? */
-
-/* js/cam-map.js: ? */
-
-/* js/cam-map.js: renderCams-block */
+/* js/cam-map.js: renderCameras */
 
 /* js/cam-map.js: trackUpHeading */
 
-/* js/cam-map.js: ? */
+/* js/cam-map.js: setFollow */
 
-/* js/cam-map.js: ? */
+/* js/cam-map.js: applyMapRotation */
 
-/* js/cam-map.js: ? */
+/* js/cam-map.js: setTrackUp */
 
-/* js/cam-map.js: ? */
+/* js/cam-map.js: centerMap */
 
-/* js/cam-map.js: ? */
+/* js/cam-map.js: pruneCamCooldown */
 
-/* js/cam-map.js: ? */
+/* js/cam-map.js: camAlertTimer */
+
+/* js/cam-map.js: alertCamera */
+
+/* js/cam-map.js: audioCtx */
+
+/* js/cam-map.js: ensureAudio */
+
+/* js/cam-map.js: beep */
 
 /* js/cam-map.js: importCamerasFile */
 /* Migrazione: le camere importate in localStorage passano a IndexedDB. */
