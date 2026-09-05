@@ -2058,7 +2058,24 @@ setInterval(() => {
 function navSetStatus(t) { if (els.navStatusTxt) els.navStatusTxt.textContent = t; }
 
 /* js/nav-ui.js: NAV_ICON */
-/* js/nav-ui.js: navIcon */) L.polyline(seg, { color: '#f0abfc', weight: 7 }).addTo(state.navLayer);
+/* ---- disegno su mappa ----
+   Layer separato: updateLeaflet tocca solo mapPoly/mapPos per nome e renderCameras
+   fa clearLayers() solo su camLayer, quindi questo non viene mai toccato da nessuno. */
+function navDrawRoute() {
+  if (state.mapType === 'leaflet' && state.map) {
+    if (!state.navLayer) state.navLayer = L.layerGroup().addTo(state.map);
+    state.navLayer.clearLayers();
+    const nv = state.nav;
+    if (nv && nv.n) {
+      const pts = [];
+      for (let i = 0; i < nv.n; i++) pts.push([nv.lat[i], nv.lon[i]]);
+      L.polyline(pts, { color: '#a78bfa', weight: 6, opacity: 0.85 }).addTo(state.navLayer);
+      const k = nv.nextMan;
+      if (k < nv.man.length) {
+        const a = Math.max(0, nv.man[k].beginIdx), b = Math.min(nv.n - 1, nv.man[k].endIdx);
+        const seg = [];
+        for (let i = a; i <= b; i++) seg.push([nv.lat[i], nv.lon[i]]);
+        if (seg.length > 1) L.polyline(seg, { color: '#f0abfc', weight: 7 }).addTo(state.navLayer);
       }
     }
     const d = (state.nav && state.nav.dest) || state.navDest;
