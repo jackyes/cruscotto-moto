@@ -26,6 +26,7 @@ const SHELL = [
   './js/parse.js',
   './js/sensors-core.js',
   './js/storage.js',
+  './js/calib.js',
   './js/net-base.js',
   './js/draw.js',
   './viewer.html',
