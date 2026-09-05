@@ -29,6 +29,12 @@ const VIDEO3D_CONF = {
     cometHead: '#1d4ed8', cometMid: 'rgba(56,189,248,0.55)' },
   // Rilievo ombreggiato sul DEM già scaricato per il terrain (zero tile extra).
   hill: { exaggeration: 0.35, shadow: '#334155', highlight: '#ffffff', accent: '#f8f4f0' },
+  // Rampa unica |lean| → colore (teal dritto → rosso piega max, §3 doc replay):
+  // stesso dato in 2D (bin Path2D) e 3D (expression interpolate). Stop [deg, rgb].
+  leanRamp: [[0, [46, 111, 106]], [12, [79, 168, 140]], [22, [180, 192, 100]],
+    [32, [224, 179, 65]], [42, [222, 122, 53]], [52, [212, 64, 47]]],
+  // Terra sotto il raster (§6.7 doc): buchi tile = terreno lontano, non voragini.
+  ground: '#2F3A30',
   // Edifici liberty già nello style (building-3d fill-extrusion z14+): solo tinta.
   buildings: { color: '#cfd8e3', opacity: 0.9 },
 };
@@ -68,6 +74,32 @@ function videoCometPaint() {
       0, 'rgba(29,78,216,0)', 0.6, T.cometMid, 1, T.cometHead] };
 }
 
+/* Pura: colore rampa lean (interpolazione lineare fra stop, come MapLibre
+   interpolate linear). lean negativo = |.| (destra/sinistra stesso dato). */
+function videoLeanColor(leanDeg) {
+  const stops = VIDEO3D_CONF.leanRamp;
+  const a = isFinite(leanDeg) ? Math.min(60, Math.abs(leanDeg)) : 0;
+  if (a <= stops[0][0]) return 'rgb(' + stops[0][1].join(',') + ')';
+  for (let k = 1; k < stops.length; k++) {
+    if (a <= stops[k][0]) {
+      const [d0, c0] = stops[k - 1], [d1, c1] = stops[k];
+      const t = (a - d0) / Math.max(1e-9, d1 - d0);
+      const c = [0, 1, 2].map(j => Math.round(c0[j] + (c1[j] - c0[j]) * t));
+      return 'rgb(' + c.join(',') + ')';
+    }
+  }
+  const last = stops[stops.length - 1][1];
+  return 'rgb(' + last.join(',') + ')';
+}
+
+/* Pura: expression MapLibre per la stessa rampa (traccia 3D colorata per
+   piega: ['get','lean'] su segmenti con k/lean, §5.3 doc). */
+function videoLeanColorExpr() {
+  const e = ['interpolate', ['linear'], ['get', 'lean']];
+  for (const [d, c] of VIDEO3D_CONF.leanRamp) e.push(d, 'rgb(' + c.join(',') + ')');
+  return e;
+}
+
 /* Pura: paint hillshade dal conf (riusa DEM del terrain, niente tile extra). */
 function videoHillPaint() {
   const H = VIDEO3D_CONF.hill;
@@ -85,9 +117,23 @@ function videoSkyVisible(pitchDeg) {
   return h < 1;
 }
 
+/* Pura: lean per segmento 3D dalla riga corrispondente (stesso mapping
+   proporzionale di videoTrackIndexForRow: mapPts può essere track o rows). */
+function videoSegLeansFor(mapPts, rows) {
+  const n = mapPts ? mapPts.length : 0, nr = rows ? rows.length : 0;
+  if (!n || !nr) return new Array(n).fill(0);
+  const out = new Array(n);
+  for (let k = 0; k < n; k++) {
+    const ri = Math.max(0, Math.min(nr - 1, Math.round((k / Math.max(1, n - 1)) * (nr - 1))));
+    const l = rows[ri] ? rows[ri].lean : 0;
+    out[k] = isFinite(l) ? Math.abs(l) : 0;
+  }
+  return out;
+}
+
 /* Aggiunge la traccia una volta sola: percorso intero smorzato + scia vuota
    che verrà riempita per frame. beforeId = primo symbol (non spezza lo stack). */
-function videoTrackAddToMap(map, mapPts) {
+function videoTrackAddToMap(map, mapPts, segLeans) {
   if (!mapPts || !mapPts.length) return;
   const T = VIDEO3D_CONF.trail;
   map.addSource('giro', { type: 'geojson', data: videoTrackGeoJson(mapPts, 0, mapPts.length) });
@@ -99,9 +145,22 @@ function videoTrackAddToMap(map, mapPts) {
   map.addSource('giro', { type: 'geojson', data: videoTrackGeoJson(mapPts, 0, mapPts.length) });
   map.addLayer({ id: 'giro-rest', type: 'line', source: 'giro',
     paint: { 'line-color': T.color, 'line-width': T.width, 'line-opacity': 0.35 } }, beforeId);
-  map.addSource('giro-fatto', { type: 'geojson', data: videoTrackGeoJson([], 0, 0) });
-  map.addLayer({ id: 'giro-done', type: 'line', source: 'giro-fatto',
-    paint: { 'line-color': T.done, 'line-width': T.width, 'line-opacity': 0.9 } }, beforeId);
+  // Sottofondo terra (§6.7): deve stare sotto il raster, non qui (lo stile
+  // liberty lo gestisce); il ground serve al setup che lo inserisce per primo.
+  map.addSource('giro-fatto', { type: 'geojson',
+    data: videoTrackSegGeoJson(mapPts, 0, mapPts.length, segLeans) });
+  // Tratto fatto colorato per piega (stessa rampa del 2D); fallback tinta
+  // solida se l'expression non è supportata dallo stile remoto.
+  try {
+    map.addLayer({ id: 'giro-done', type: 'line', source: 'giro-fatto',
+      paint: { 'line-color': videoLeanColorExpr(), 'line-width': T.width, 'line-opacity': 0.95 } }, beforeId);
+  } catch (e) {
+    map.addLayer({ id: 'giro-done', type: 'line', source: 'giro-fatto',
+      paint: { 'line-color': T.done, 'line-width': T.width, 'line-opacity': 0.9 } }, beforeId);
+  }
+  // Reveal progressivo (§5.3 doc): solo segmenti con k <= corrente, il resto
+  // resta nascosto senza riscrivere geometrie. setFilter solo su cambio chunk.
+  try { map.setFilter('giro-done', ['<=', ['get', 'k'], -1]); } catch (e) {}
   // Scia-cometa con lineMetrics (gradiente testa→coda): se il gradiente non
   // è supportato, catch → tinta solida storica (stesso layer, niente duplicati).
   map.addSource('scia', { type: 'geojson', lineMetrics: true, data: videoTrackGeoJson([], 0, 0) });
@@ -129,8 +188,8 @@ function videoSceneAddToMap(map, beforeId) {
   } catch (e) {}
 }
 
-/* Avanza percorso fatto + scia. setData solo quando kIdx cambia (a 1x ~1/s);
-   il percorso fatto avanza a scatti quantizzati (niente round-trip worker per frame). */
+/* Avanza percorso fatto + scia. Scia = setData su cambio idx; percorso fatto =
+   setFilter su cambio chunk (niente round-trip worker per frame, §5.3 doc). */
 function videoTrackAdvance(map, job, kIdx) {
   const T = VIDEO3D_CONF.trail;
   const n = job.mapPts ? job.mapPts.length : 0;
@@ -142,7 +201,7 @@ function videoTrackAdvance(map, job, kIdx) {
     const q = Math.floor(kIdx / T.quantStep);
     if (q !== job._trailQuant) {
       job._trailQuant = q;
-      map.getSource('giro-fatto').setData(videoTrackGeoJson(job.mapPts, 0, kIdx + 1));
+      map.setFilter('giro-done', ['<=', ['get', 'k'], kIdx]);
     }
   } catch (e) {}
 }
@@ -159,6 +218,27 @@ function videoTrackGeoJson(pts, from, to) {
     if (pts[k] && pts[k].lat != null && pts[k].lon != null) coords.push([pts[k].lon, pts[k].lat]);
   }
   return { type: 'Feature', geometry: { type: 'LineString', coordinates: coords }, properties: {} };
+}
+
+/* Pura: segmenti con k/lean per reveal progressivo (§5.3 doc): una Feature per
+   segmento, così setFilter(['<=',['get','k'],cur]) mostra solo il percorso fatto
+   senza riscrivere geometrie ogni frame. lean = |piega| picco segmento. */
+function videoTrackSegGeoJson(pts, from, to, leans) {
+  const n = pts ? pts.length : 0;
+  const feats = [];
+  if (!n) return { type: 'FeatureCollection', features: [] };
+  const a = Math.max(0, Math.min(n - 1, from == null ? 0 : from));
+  const b = Math.max(1, Math.min(n, to == null ? n : to));
+  for (let k = Math.max(0, a - 1); k < b - 1; k++) {
+    const p0 = pts[k], p1 = pts[k + 1];
+    if (!p0 || !p1 || p0.lat == null || p1.lat == null) continue;
+    const l0 = leans && isFinite(leans[k]) ? Math.abs(leans[k]) : 0;
+    const l1 = leans && isFinite(leans[k + 1]) ? Math.abs(leans[k + 1]) : 0;
+    feats.push({ type: 'Feature',
+      geometry: { type: 'LineString', coordinates: [[p0.lon, p0.lat], [p1.lon, p1.lat]] },
+      properties: { k, lean: Math.max(l0, l1) } });
+  }
+  return { type: 'FeatureCollection', features: feats };
 }
 
 /* Pura: finestra scia [from,to] semiaperto attorno a kIdx (clampata, mai NaN). */
@@ -337,6 +417,7 @@ function video3DBuildJob(pre, canvas, ctx) {
     tSim: pre.rows.length ? pre.rows[0].t : 0, lastRaf: 0,
     chunks: [], rec: null, stream: null, raf: 0, recErr: false,
     keyframes: buildCameraKeyframes(pre.mapPts),
+    segLeans: videoSegLeansFor(pre.mapPts, pre.rows),
     _trailIdx: -1, _trailQuant: -1,
     extremes: videoExtremesForJob(pre.rows),
     hud: hudLayout(pre.res[0], pre.res[1]),
@@ -382,7 +463,7 @@ function initVideoRender3D(pre) {
         const layers = map.getStyle ? map.getStyle().layers : null;
         if (layers) { const s = layers.find(l => l.type === 'symbol'); if (s) beforeId = s.id; }
       } catch (e) {}
-      try { videoTrackAddToMap(map, pre.mapPts); } catch (e) {}
+      try { videoTrackAddToMap(map, pre.mapPts, job.segLeans); } catch (e) {}
       // Rilievo ombreggiato + tinta edifici (stesso beforeId: la scia resta sopra).
       videoSceneAddToMap(map, beforeId);
       job.mapReady = true;

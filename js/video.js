@@ -401,6 +401,27 @@ function drawSpeedLines(ctx, lines, color) {
   ctx.restore();
 }
 
+/* Pura: bbox traccia (una tantum, non per frame: prima min/max O(n) a ogni
+   drawVideoMap, dominante su giri lunghi). */
+function videoMapBounds(pts) {
+  let minLat = Infinity, maxLat = -Infinity, minLon = Infinity, maxLon = -Infinity;
+  for (const p of (pts || [])) {
+    if (p == null || p.lat == null || p.lon == null) continue;
+    if (p.lat < minLat) minLat = p.lat; if (p.lat > maxLat) maxLat = p.lat;
+    if (p.lon < minLon) minLon = p.lon; if (p.lon > maxLon) maxLon = p.lon;
+  }
+  if (!isFinite(minLat)) return null;
+  return { minLat, maxLat, minLon, maxLon };
+}
+
+/* Pura: bin colore del segmento k (stessa rampa |lean| del 3D, §3 doc):
+   raggruppa per bin così il draw fa un Path2D per bin, non 36k strokeStyle. */
+function videoLeanBin(leanDeg, bins) {
+  const B = bins || 26;
+  const a = isFinite(leanDeg) ? Math.min(52, Math.abs(leanDeg)) : 0;
+  return Math.max(0, Math.min(B - 1, Math.floor((a / 52) * B)));
+}
+
 function drawVideoMap(ctx, job, x, y, w, h, rowIdx, r, grid, axis, accent, good, bad, ox, oy) {
   const pts = job.mapPts;
   // Offset shake (default 0: chiamanti vecchi invariati).
@@ -413,17 +434,15 @@ function drawVideoMap(ctx, job, x, y, w, h, rowIdx, r, grid, axis, accent, good,
     ctx.fillText('Nessun GPS', x + w / 2, y + h / 2);
     ctx.restore(); return;
   }
-  let minLat = Infinity, maxLat = -Infinity, minLon = Infinity, maxLon = -Infinity;
-  for (const p of pts) {
-    if (p.lat < minLat) minLat = p.lat; if (p.lat > maxLat) maxLat = p.lat;
-    if (p.lon < minLon) minLon = p.lon; if (p.lon > maxLon) maxLon = p.lon;
-  }
-  const spanLat = (maxLat - minLat) || 0.0001, spanLon = (maxLon - minLon) || 0.0001;
+  // BBox cachata nel job (una tantum): prima ricalcolata O(n) ogni frame.
+  if (!job._mapBounds) job._mapBounds = videoMapBounds(pts);
+  const bb = job._mapBounds || { minLat: 0, maxLat: 0.0001, minLon: 0, maxLon: 0.0001 };
+  const spanLat = (bb.maxLat - bb.minLat) || 0.0001, spanLon = (bb.maxLon - bb.minLon) || 0.0001;
   const pad = 40;
   const scale = Math.min((w - 2 * pad) / spanLon, (h - 2 * pad) / spanLat);
   const offX = x + (w - spanLon * scale) / 2 + shx, offY = y + (h - spanLat * scale) / 2 + shy;
-  const X = lon => offX + (lon - minLon) * scale;
-  const Y = lat => offY + (maxLat - lat) * scale;
+  const X = lon => offX + (lon - bb.minLon) * scale;
+  const Y = lat => offY + (bb.maxLat - lat) * scale;
 
   const n = pts.length;
   const ridden = Math.max(0, Math.min(n - 1, Math.round((rowIdx / Math.max(1, job.rows.length - 1)) * (n - 1))));
@@ -434,11 +453,27 @@ function drawVideoMap(ctx, job, x, y, w, h, rowIdx, r, grid, axis, accent, good,
   ctx.beginPath();
   for (let k = ridden; k < n; k++) { const px = X(pts[k].lon), py = Y(pts[k].lat); k === ridden ? ctx.moveTo(px, py) : ctx.lineTo(px, py); }
   ctx.stroke();
-  // tratto percorso (accento)
-  ctx.strokeStyle = accent;
-  ctx.beginPath();
-  for (let k = 0; k <= ridden; k++) { const px = X(pts[k].lon), py = Y(pts[k].lat); k === 0 ? ctx.moveTo(px, py) : ctx.lineTo(px, py); }
-  ctx.stroke();
+  // tratto percorso colorato per piega (stessa rampa del 3D): un Path2D per
+  // bin invece di cambiare strokeStyle a ogni segmento (§4 doc: 37 ms/36k).
+  const BINS = 26;
+  const paths = new Array(BINS);
+  const hasPath2D = typeof Path2D !== 'undefined';
+  for (let k = 1; k <= ridden; k++) {
+    const lean = job.rows && job.rows.length
+      ? (job.rows[Math.max(0, Math.min(job.rows.length - 1, Math.round((k / Math.max(1, n - 1)) * (job.rows.length - 1))))] || {}).lean
+      : 0;
+    const b = videoLeanBin(lean, BINS);
+    if (!paths[b]) paths[b] = hasPath2D ? new Path2D() : [];
+    const px0 = X(pts[k - 1].lon), py0 = Y(pts[k - 1].lat), px1 = X(pts[k].lon), py1 = Y(pts[k].lat);
+    if (hasPath2D) { paths[b].moveTo(px0, py0); paths[b].lineTo(px1, py1); }
+    else paths[b].push([px0, py0, px1, py1]);
+  }
+  for (let b = 0; b < BINS; b++) {
+    if (!paths[b]) continue;
+    ctx.strokeStyle = (typeof videoLeanColor === 'function') ? videoLeanColor((b + 0.5) / BINS * 52) : accent;
+    if (hasPath2D) ctx.stroke(paths[b]);
+    else { ctx.beginPath(); for (const s of paths[b]) { ctx.moveTo(s[0], s[1]); ctx.lineTo(s[2], s[3]); } ctx.stroke(); }
+  }
 
   // inizio / fine
   const s0 = pts[0], e0 = pts[n - 1];
