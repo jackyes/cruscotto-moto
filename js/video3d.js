@@ -300,24 +300,40 @@ function disposeVideoMoto3D(moto) {
   }
 }
 
-function drawVideoFrame3D(job) {
+/* Velocità angolare ruota da dt reale: prima era speed*0.022*mult per frame
+   (frame-rate dipendente + doppio conteggio di mult, già applicato a tSim). */
+function videoWheelSpin(speedKmh, dt) {
+  if (!isFinite(speedKmh) || !isFinite(dt) || dt <= 0) return 0;
+  return (speedKmh / 3.6) / 0.42 * dt; // v/r, raggio ruota 0.42 m
+}
+
+/* Indice nel track per la riga i: clamp + gestioni vuote. Prima il mapping
+   proporzionale puro dava NaN fuori range se track/rows divergevano. */
+function videoTrackIndexForRow(rowIdx, rowsLen, trackLen) {
+  if (!trackLen || trackLen <= 0) return 0;
+  if (!rowsLen || rowsLen <= 1) return 0;
+  const i = Math.max(0, Math.min(rowsLen - 1, rowIdx));
+  return Math.max(0, Math.min(trackLen - 1, Math.round((i / (rowsLen - 1)) * (trackLen - 1))));
+}
+
+function drawVideoFrame3D(job, dt) {
   const { ctx, map, moto, rows, mapPts, keyframes, dist, speedMax, tSim } = job;
   const W = job.canvas.width, H = job.canvas.height;
   const i = Math.max(0, findRowAt(rows, tSim));
   const r = rows[i] || {};
 
   // Camera mappa: segue il tracciato, muso in avanti, pitch 60.
-  const kIdx = mapPts.length ? Math.min(mapPts.length - 1, Math.round((i / Math.max(1, rows.length - 1)) * (mapPts.length - 1))) : 0;
+  const kIdx = videoTrackIndexForRow(i, rows.length, mapPts.length);
   const kf = keyframes[kIdx];
   if (kf && job.mapReady) {
     map.jumpTo({ center: [kf.lon, kf.lat], bearing: kf.brg, pitch: 60, zoom: 15.5 });
     if (typeof map.triggerRepaint === 'function') map.triggerRepaint(); else if (typeof map.redraw === 'function') map.redraw();
   }
 
-  // Moto: piega + rotolamento ruote.
+  // Moto: piega + rotolamento ruote (dt reale, non per-frame).
   const leanRad = (r.lean || 0) * Math.PI / 180;
   moto.bike.rotation.z = -leanRad;           // piega positiva (destra) = top verso destra
-  const spin = (r.speedKmh || 0) * 0.022 * job.mult; // ω·Δt, scala con il moltiplicatore
+  const spin = videoWheelSpin(r.speedKmh || 0, dt == null ? 1 / 30 : dt);
   for (const w of moto.wheels) w.rotation.y += spin;
 
   moto.renderer.render(moto.scene, moto.camera);

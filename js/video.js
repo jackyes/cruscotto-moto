@@ -184,12 +184,12 @@ function videoLoop(now) {
   job.tSim += dt * job.mult;
   if (job.tSim >= job.tEnd) {
     job.tSim = job.tEnd;
-    drawVideoFrame(job);
+    drawVideoFrame(job, dt);
     job.running = false;
     try { job.rec.stop(); } catch (e) {}
     return;
   }
-  drawVideoFrame(job);
+  drawVideoFrame(job, dt);
   els.videoProg.style.width = Math.round((job.tSim / job.tEnd) * 100) + '%';
   els.videoStatus.textContent = fmtDur(job.tSim) + ' / ' + fmtDur(job.tEnd);
   job.raf = requestAnimationFrame(videoLoop);
@@ -326,7 +326,7 @@ function drawVideoSpark(ctx, job, x, y, w, h, tSim, accent, grid) {
   ctx.beginPath(); ctx.moveTo(cxx, y + 4); ctx.lineTo(cxx, y + h - 4); ctx.stroke();
 }
 
-function drawVideoFrame(job) {
-  if (job.mode === '3d') drawVideoFrame3D(job);
+function drawVideoFrame(job, dt) {
+  if (job.mode === '3d') drawVideoFrame3D(job, dt);
   else drawVideoFrame2D(job);
 }
