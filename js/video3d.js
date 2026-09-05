@@ -588,12 +588,15 @@ function videoTrackIndexForRow(rowIdx, rowsLen, trackLen) {
 
 /* Pura: camera mappa dinamica. Veloce → zoom out (più strada visibile),
    lento → zoom in (dettaglio curve). Piega alta → pitch più radente. */
-function videoCameraFor(speedKmh, leanDeg) {
+/* Pura: camera mappa dinamica. Veloce → zoom out (più strada visibile),
+   vert 9:16 → +0.75 zoom (a parità di zoom la striscia visibile è stretta,
+   la strada sparisce ai bordi; falsy = comportamento storico invariato). */
+function videoCameraFor(speedKmh, leanDeg, vert) {
   const v = isFinite(speedKmh) ? Math.max(0, speedKmh) : 0;
   const lean = isFinite(leanDeg) ? Math.min(60, Math.abs(leanDeg)) : 0;
   const t = Math.max(0, Math.min(1, v / 120)); // 0 km/h → 0, 120+ → 1
   return {
-    zoom: 16.5 - t * 2.0,          // 16.5 (fermo) → 14.5 (veloce)
+    zoom: 16.5 - t * 2.0 + (vert ? 0.75 : 0), // 16.5 (fermo) → 14.5 (veloce)
     pitch: 55 + (lean / 60) * 17,  // 55 (dritto) → 72 (piega max: sopra maxPitch non rende)
   };
 }
@@ -609,7 +612,7 @@ function drawVideoFrame3D(job, dt) {
   const u = videoTrackPosForRow(i, rows.length, keyframes.length);
   const p = videoPathSampleAt(keyframes, u);
   if (p && job.mapReady) {
-    const cam = videoCameraFor(r.speedKmh || 0, r.lean || 0);
+    const cam = videoCameraFor(r.speedKmh || 0, r.lean || 0, W < H);
     const dtSim = (dt == null ? 1 / 30 : Math.max(0, dt)) * (job.mult || 1);
     const ahead = videoPathSampleAt(keyframes, Math.min(keyframes.length - 1, u + 2 * keyframes.length / Math.max(1, job.tEnd - (rows[0] ? rows[0].t : 0))));
     const brgT = ahead ? ahead.brg : p.brg;

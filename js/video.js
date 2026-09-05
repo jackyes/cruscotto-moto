@@ -51,6 +51,21 @@ function pickVideoMime() {
   return '';
 }
 
+/* Pura: risoluzione video da chiave select. 9:16 = 720x1280 (reel):
+   720p largo su telefono spreca metà schermo, il verticale riempie il feed. */
+function videoResFor(key) {
+  if (key === '1080') return [1920, 1080];
+  if (key === '916') return [720, 1280];
+  return [1280, 720];
+}
+
+/* Pura: bitrate da larghezza canvas. 9:16 ha 0.92 Mpx come il 720p:
+   stesso budget, non serve fascia extra. */
+function videoBitrateFor(width) {
+  if (width >= 1920) return 8_000_000;
+  return 5_000_000;
+}
+
 /* Pura: il giro ha punti GPS validi? No = solo IMU/rulli, mappa 3D inutile. */
 function videoHasGps(pre) {
   const mp = pre && pre.mapPts;
@@ -85,7 +100,7 @@ function startVideoRender(s) {
   const tEnd = rows.length ? rows[rows.length - 1].t : 0;
   if (tEnd <= 0) { toast('Sessione troppo corta.', 'err'); return; }
 
-  const res = els.videoRes.value === '1080' ? [1920, 1080] : [1280, 720];
+  const res = videoResFor(els.videoRes ? els.videoRes.value : '720');
   const mult = Number(els.videoSpeed.value) || 1;
 
   // Distanza cumulativa per riga (km), riusando haversine dell'app.
@@ -155,7 +170,7 @@ function beginVideoCapture(job, canvas, mime) {
   if (job.cancelled) return;
   job.stream = canvas.captureStream(30);
   // 1080p ha 2.25x pixel del 720p: a 5 Mbps gli artefatti mangiano i dettagli mappa.
-  const bps = canvas.width >= 1920 ? 8_000_000 : 5_000_000;
+  const bps = videoBitrateFor(canvas.width);
   job.rec = new MediaRecorder(job.stream, { mimeType: mime, videoBitsPerSecond: bps });
   job.rec.onerror = () => {
     job.recErr = true;
@@ -230,6 +245,22 @@ function stopVideoRender() {
   closeVideoModal();
 }
 
+/* Pura: layout frame 2D per aspect. Orizzontale: mappa sx + dash dx + spark
+   sotto. Verticale 9:16: impilato (dash in alto, mappa centro, spark sotto):
+   side-by-side su 720 px darebbe due strisce illeggibili da 360 px. */
+function videoFrameLayout(W, H) {
+  const vert = H > W;
+  if (!vert) {
+    const SPARK = 96, mapW = Math.round(W * 0.56), topH = H - SPARK;
+    return { vert, sparkH: SPARK, map: { x: 0, y: 0, w: mapW, h: topH },
+      dash: { x: mapW, y: 0, w: W - mapW, h: topH }, spark: { x: 0, y: topH, w: W, h: SPARK } };
+  }
+  const dashH = Math.round(H * 0.30), sparkH = Math.round(H * 0.12);
+  const mapH = H - dashH - sparkH;
+  return { vert, sparkH, map: { x: 0, y: dashH, w: W, h: mapH },
+    dash: { x: 0, y: 0, w: W, h: dashH }, spark: { x: 0, y: dashH + mapH, w: W, h: sparkH } };
+}
+
 function drawVideoFrame2D(job) {
   const { canvas, ctx, rows, tSim, dist, speedMax } = job;
   const W = canvas.width, H = canvas.height;
@@ -242,11 +273,12 @@ function drawVideoFrame2D(job) {
 
   const i = Math.max(0, findRowAt(rows, tSim));
   const r = rows[i] || {};
-  const SPARK = 96, mapW = Math.round(W * 0.56), topH = H - SPARK, dashX = mapW, dashW = W - mapW;
+  const L = videoFrameLayout(W, H);
 
-  drawVideoMap(ctx, job, 0, 0, mapW, topH, i, r, grid, axis, accent, good, bad);
-  drawVideoDash(ctx, dashX, 0, dashW, topH, r, tSim, dist[i] || 0, speedMax, accent, axis, txt, good, bad, accLat, accLon, accVert);
-  drawVideoSpark(ctx, job, 0, topH, W, SPARK, tSim, accent, grid);
+  drawVideoMap(ctx, job, L.map.x, L.map.y, L.map.w, L.map.h, i, r, grid, axis, accent, good, bad);
+  if (L.vert) drawVideoDashVert(ctx, L.dash.x, L.dash.y, L.dash.w, L.dash.h, r, tSim, dist[i] || 0, speedMax, accent, axis, txt, good, bad, accLat, accLon, accVert);
+  else drawVideoDash(ctx, L.dash.x, L.dash.y, L.dash.w, L.dash.h, r, tSim, dist[i] || 0, speedMax, accent, axis, txt, good, bad, accLat, accLon, accVert);
+  drawVideoSpark(ctx, job, L.spark.x, L.spark.y, L.spark.w, L.spark.h, tSim, accent, grid);
 }
 
 function drawVideoMap(ctx, job, x, y, w, h, rowIdx, r, grid, axis, accent, good, bad) {
@@ -328,6 +360,36 @@ function drawVideoDash(ctx, x, y, w, h, r, tSim, distKm, speedMax, accent, axis,
   ctx.fillStyle = txt;
   ctx.font = 'bold ' + Math.round(h * 0.042) + 'px system-ui';
   ctx.fillText(fmtDur(tSim) + '  ·  ' + distKm.toFixed(2) + ' km', cx, y + h * 0.94);
+}
+
+/* Dash verticale 9:16: velocità grossa in alto, piega+G affiancate al centro,
+   tempo+distanza sotto. Il dash orizzontale su 720 px di larghezza avrebbe
+   barre da 576 px e testo microscopico: layout dedicato, non riuso. */
+function drawVideoDashVert(ctx, x, y, w, h, r, tSim, distKm, speedMax, accent, axis, txt, good, bad, accLat, accLon, accVert) {
+  ctx.textAlign = 'center';
+  const kmh = Math.round(r.speedKmh || 0);
+  ctx.fillStyle = accent;
+  ctx.font = 'bold ' + Math.round(h * 0.26) + 'px system-ui';
+  ctx.fillText(String(kmh), x + w / 2, y + h * 0.26);
+  ctx.fillStyle = axis;
+  ctx.font = 'bold ' + Math.round(h * 0.05) + 'px system-ui';
+  ctx.fillText('km/h', x + w / 2, y + h * 0.33);
+
+  // Piega a sx, G a dx (stessa fascia, niente sovrapposizione).
+  const lean = r.lean || 0;
+  const midY = y + h * 0.58, gr = Math.min(w * 0.20, h * 0.17);
+  drawLeanArc(ctx, x + w * 0.25, midY, gr, lean, axis, good, bad, txt);
+  hudGdot(ctx, x + w * 0.75, midY, gr * 0.9, r.latG || 0, r.lonG || 0, accent, axis, txt);
+
+  // Barre G compatte sotto (larghezza piena, testo a sx).
+  const bw = w * 0.86, bx = x + (w - bw) / 2, bh = Math.max(6, h * 0.028);
+  const barY = y + h * 0.76, gap = bh + 7;
+  drawAccBar(ctx, bx, barY, bw, bh, r.latG || 0, 1.2, accLat, 'LAT', axis, txt);
+  drawAccBar(ctx, bx, barY + gap, bw, bh, r.lonG || 0, 1.2, accLon, 'LON', axis, txt);
+
+  ctx.fillStyle = txt;
+  ctx.font = 'bold ' + Math.round(h * 0.038) + 'px system-ui';
+  ctx.fillText(fmtDur(tSim) + '  ·  ' + distKm.toFixed(2) + ' km', x + w / 2, y + h * 0.97);
 }
 
 function drawVideoSpark(ctx, job, x, y, w, h, tSim, accent, grid) {
