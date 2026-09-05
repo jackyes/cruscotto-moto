@@ -196,10 +196,21 @@ function buildCameraKeyframes(mapPts) {
   return out;
 }
 
-function initVideoMoto3D(THREE, W, H) {
+/* Pura: contro-piega busto rider (30% della piega, clamp ±60°).
+   Il rider è figlio di bike (che piega di -lean): con +0.3lean il busto
+   resta più verticale, come un pilota vero che sporge. */
+function videoRiderLean(leanDeg) {
+  if (!isFinite(leanDeg)) return 0;
+  const cl = Math.max(-60, Math.min(60, leanDeg));
+  return (cl * Math.PI / 180) * 0.3;
+}
+
+function initVideoMoto3D(THREE, W, H, quality) {
+  const shadows = !!(quality && quality.shadows);
   const renderer = new THREE.WebGLRenderer({ alpha: true, antialias: true, preserveDrawingBuffer: true });
   renderer.setSize(W, H);
   renderer.setPixelRatio(1);
+  renderer.shadowMap.enabled = shadows; // default off: shadowMap costa su telefono
   renderer.domElement.style.cssText = 'position:fixed; left:-9999px; top:0;';
   document.body.appendChild(renderer.domElement);
 
@@ -212,7 +223,18 @@ function initVideoMoto3D(THREE, W, H) {
   scene.add(new THREE.HemisphereLight(0xffffff, 0x223344, 0.4));
   const dir = new THREE.DirectionalLight(0xffffff, 1.4);
   dir.position.set(4, 8, 3);
+  dir.castShadow = shadows;
+  if (shadows && dir.shadow && dir.shadow.mapSize) dir.shadow.mapSize.set(1024, 1024);
   scene.add(dir);
+  if (shadows && THREE.PlaneGeometry && THREE.ShadowMaterial) {
+    const ground = new THREE.Mesh(
+      new THREE.PlaneGeometry(14, 14),
+      new THREE.ShadowMaterial({ opacity: 0.3 })
+    );
+    ground.rotation.x = -Math.PI / 2;
+    ground.receiveShadow = true;
+    scene.add(ground);
+  }
 
   const moto = new THREE.Group();          // yaw: muso via dalla camera
   moto.rotation.y = Math.PI;
@@ -230,13 +252,17 @@ function initVideoMoto3D(THREE, W, H) {
     head:    new THREE.MeshStandardMaterial({ color: 0xfff6d8, emissive: 0xfff2b0, emissiveIntensity: 1.2, roughness: 0.3 }),
     tail:    new THREE.MeshStandardMaterial({ color: 0x300000, emissive: 0xff2222, emissiveIntensity: 1.5 }),
     glass:   new THREE.MeshStandardMaterial({ color: 0x9fd4e8, roughness: 0.1, metalness: 0.1, transparent: true, opacity: 0.35 }),
+    disc:    new THREE.MeshStandardMaterial({ color: 0x8b9096, roughness: 0.2, metalness: 1.0 }),
+    suit:    new THREE.MeshStandardMaterial({ color: 0x1c2733, roughness: 0.8 }),
+    helmet:  new THREE.MeshStandardMaterial({ color: 0x0ea5e9, roughness: 0.25, metalness: 0.4 }),
   };
 
-  const add = (geom, mat, x, y, z, rx = 0, ry = 0, rz = 0) => {
+  const add = (geom, mat, x, y, z, rx = 0, ry = 0, rz = 0, parent) => {
     const m = new THREE.Mesh(geom, mat);
     m.position.set(x, y, z);
     if (rx) m.rotation.x = rx; if (ry) m.rotation.y = ry; if (rz) m.rotation.z = rz;
-    bike.add(m); return m;
+    if (shadows) { m.castShadow = true; }
+    (parent || bike).add(m); return m;
   };
 
   const wheels = [];
@@ -250,6 +276,9 @@ function initVideoMoto3D(THREE, W, H) {
     wheels.push(spin);
     spin.add(new THREE.Mesh(new THREE.CylinderGeometry(0.42, 0.42, 0.16, 32), M.tire));
     spin.add(new THREE.Mesh(new THREE.CylinderGeometry(0.30, 0.30, 0.15, 32), M.rim));
+    const disc = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.16, 0.17, 24), M.disc);
+    disc.userData.videoPart = 'brake-disc';
+    spin.add(disc);
     spin.add(new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.07, 0.18, 16), M.chrome)); // mozzo
     for (let i = 0; i < 6; i++) {            // raggi
       const a = i / 6 * Math.PI * 2;
@@ -315,6 +344,22 @@ function initVideoMoto3D(THREE, W, H) {
   add(new THREE.CylinderGeometry(0.02, 0.02, 0.10, 8), M.frame, -0.20, 0.35, -0.05);
   add(new THREE.CylinderGeometry(0.02, 0.02, 0.10, 8), M.frame, 0.20, 0.35, -0.05);
 
+  // cavalletto laterale (fermo in video: migliora silhouette da dietro)
+  const stand = add(new THREE.CylinderGeometry(0.02, 0.02, 0.5, 8), M.frame, -0.22, 0.25, -0.30, 0, 0, 0.5);
+  stand.userData.videoPart = 'stand';
+
+  // rider minimale: busto + casco, contro-piega 30% (vedi videoRiderLean).
+  // Gruppo separato da bike così la piega si compone senza toccare la moto.
+  const rider = new THREE.Group();
+  rider.position.set(0, 1.0, -0.25);
+  rider.userData.videoPart = 'rider';
+  bike.add(rider);
+  const torsoGeom = THREE.CapsuleGeometry
+    ? new THREE.CapsuleGeometry(0.16, 0.35, 4, 12)
+    : new THREE.CylinderGeometry(0.16, 0.20, 0.55, 12);
+  add(torsoGeom, M.suit, 0, 0.35, 0, 0.15, 0, 0, rider);
+  add(new THREE.SphereGeometry(0.14, 20, 16), M.helmet, 0, 0.72, 0.05, 0, 0, 0, rider);
+
   scene.add(moto);
 
   // Registra tutto il disposable per disposeVideoMoto3D: traverse a fine vita
@@ -326,7 +371,7 @@ function initVideoMoto3D(THREE, W, H) {
     if (o.material) (Array.isArray(o.material) ? o.material : [o.material]).forEach(m => disposables.add(m));
   });
   Object.values(M).forEach(m => disposables.add(m));
-  return { renderer, scene, camera, bike, wheels, _disposables: [...disposables] };
+  return { renderer, scene, camera, bike, wheels, rider, shadows, _disposables: [...disposables] };
 }
 
 /* Libera GPU+CPU dopo un render 3D o un cancel. Idempotente: doppia chiamata
@@ -381,6 +426,7 @@ function drawVideoFrame3D(job, dt) {
   // Moto: piega + rotolamento ruote (dt reale, non per-frame).
   const leanRad = (r.lean || 0) * Math.PI / 180;
   moto.bike.rotation.z = -leanRad;           // piega positiva (destra) = top verso destra
+  if (moto.rider) moto.rider.rotation.z = videoRiderLean(r.lean || 0);
   const spin = videoWheelSpin(r.speedKmh || 0, dt == null ? 1 / 30 : dt);
   for (const w of moto.wheels) w.rotation.y += spin;
 
