@@ -46,6 +46,7 @@ const SHELL = [
   './js/diag.js',
   './js/ui-core.js',
   './js/misc.js',
+  './js/display.js',
   './js/net-base.js',
   './js/draw.js',
   './viewer.html',
