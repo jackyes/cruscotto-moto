@@ -25,6 +25,7 @@ const SHELL = [
   './js/osrm-text.js',
   './js/parse.js',
   './js/sensors-core.js',
+  './js/net-base.js',
   './viewer.html',
   './manifest.webmanifest',
 ];
