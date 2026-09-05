@@ -19,6 +19,7 @@ const OFM_MAX = 1000;
 const SHELL = [
   './',
   './index.html',
+  './js/core.js',
   './viewer.html',
   './manifest.webmanifest',
 ];

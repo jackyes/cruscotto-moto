@@ -16,6 +16,15 @@ function extractScript(html) {
   return html.slice(open + '<script>'.length, close);
 }
 
+// File js/* caricati da index.html via <script src>, in ordine di inclusione.
+// Lo split è a step: ogni nuovo modulo va aggiunto sia qui (ordine uguale
+// all'HTML) sia nella lista SHELL di sw.js.
+function extractJsSrcs(html) {
+  return [...html.matchAll(/<script\s+src="([^"]+)"/g)].map(m => m[1]);
+}
+
+const jsParts = extractJsSrcs(html).map(s => readFileSync(join(root, s), 'utf8'));
+
 let script = extractScript(html);
 // Rimuove l'unica esecuzione al boot: init() registra listener, apre IndexedDB,
 // avvia i sensori, ecc. Qui vogliamo solo le definizioni.
@@ -56,7 +65,9 @@ const exportLine = `
 };
 `;
 
-const full = script + exportLine;
+// vm senza moduli: i file gi/* condividono lo stesso scope globale del <script>
+// inline, come i <script src> classici nell'HTML. Stesso ordine dell'HTML.
+const full = jsParts.join('\n;\n') + '\n;\n' + script + exportLine;
 
 function makeEl(tag) {
   const listeners = {};
