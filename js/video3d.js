@@ -262,12 +262,11 @@ function startVideoRender3D(pre) {
   for (const lib of missing) loadVideo3DScript(lib.url, settle, settle, lib.integrity);
 }
 
-function initVideoRender3D(pre) {
+/* Costruisce job 3D (mappa+moto) senza avviare capture: riusato dal render
+   WebM realtime e dal loop MP4 offline (stesso frame, altro sink). */
+function video3DBuildJob(pre, canvas, ctx) {
   const maplibregl = window.maplibregl, THREE = window.THREE;
   const W = pre.res[0], H = pre.res[1];
-  els.videoStatus.textContent = 'Preparo mappa 3D…';
-
-  // Canvas mappa WebGL con preserveDrawingBuffer (per drawImage nel master canvas).
   const container = document.createElement('div');
   container.style.cssText = 'position:fixed; left:-9999px; top:0; width:' + W + 'px; height:' + H + 'px;';
   document.body.appendChild(container);
@@ -275,16 +274,14 @@ function initVideoRender3D(pre) {
   const first = pre.mapPts.length ? pre.mapPts[0] : { lat: 42.5, lon: 12.5 };
   const mapOpts = videoMapOptions(first.lat, first.lon);
   const map = new maplibregl.Map(Object.assign({ container: container }, mapOpts));
-
-  const canvas = makeVideoCanvas(pre.res);
-  const ctx = canvas.getContext('2d');
   const moto = initVideoMoto3D(THREE, W, H);
 
-  const job = {
+  return {
     mode: '3d', running: true, cancelled: false, canvas, ctx,
     map, container, mapReady: false, moto,
     rows: pre.rows, track: pre.track, mapPts: pre.mapPts, spark: pre.spark,
     dist: pre.dist, tEnd: pre.tEnd, mult: pre.mult, speedMax: pre.speedMax,
+    slow: pre.slow,
     tSim: pre.rows.length ? pre.rows[0].t : 0, lastRaf: 0,
     chunks: [], rec: null, stream: null, raf: 0, recErr: false,
     keyframes: buildCameraKeyframes(pre.mapPts),
@@ -292,7 +289,19 @@ function initVideoRender3D(pre) {
     extremes: videoExtremesForJob(pre.rows),
     hud: hudLayout(pre.res[0], pre.res[1]),
   };
+}
+
+function initVideoRender3D(pre) {
+  const W = pre.res[0], H = pre.res[1];
+  els.videoStatus.textContent = 'Preparo mappa 3D…';
+
+  // Canvas mappa WebGL con preserveDrawingBuffer (per drawImage nel master canvas).
+  const canvas = makeVideoCanvas(pre.res);
+  const ctx = canvas.getContext('2d');
+  const job = video3DBuildJob(pre, canvas, ctx);
+  void W; void H;
   videoJob = job; // così "Annulla" funziona anche durante il caricamento
+  const map = job.map;
 
   map.on('load', () => {
     if (job.cancelled) return;
