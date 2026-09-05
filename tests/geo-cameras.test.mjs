@@ -81,9 +81,13 @@ test('camLabel: unisce nome e limite', () => {
   assert.equal(camLabel({}), '');
 });
 
-test('camKey: toFixed 4', () => {
-  assert.equal(api.camKey({ lat: 45.123456, lon: 9.987654 }), '45.1235,9.9877');
-  assert.equal(api.camKey({ lat: 45, lon: 9 }), '45.0000,9.0000');
+test('camKey: id stabile o toFixed 6', () => {
+  assert.equal(api.camKey({ lat: 45.123456, lon: 9.987654 }), '45.123456,9.987654');
+  assert.equal(api.camKey({ lat: 45, lon: 9 }), '45.000000,9.000000');
+  assert.equal(api.camKey({ id: 123, lat: 45.123456, lon: 9.987654 }), 'id:123');
+  assert.equal(api.camKey({ lat: 45.123456, lon: 9.987654 }), '45.123456,9.987654');
+  assert.equal(api.camKey(null), '?,?');
+  assert.equal(api.camKey({ lat: NaN, lon: 9 }), '?,?');
 });
 
 test('camMarkerRadius / camMoveThreshold: fattori su camRadius', () => {

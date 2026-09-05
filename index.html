@@ -1067,6 +1067,7 @@ const state = {
   gyroSign: LEAN_GYRO_SIGN_DEFAULT, // segno del vettore rotationRate, imparato a runtime
   gyroSignScore: 0,   // correlazione accumulata: <0 = segno da ribaltare
   gyroSignEnergy: 0,  // quanta evidenza è stata raccolta
+  gyroSignLocked: false, // verdetto già dato: blocca l'accumulo finché l'energia resta sopra soglia
   attRef: 'none',     // riferimento attivo: 'centrip' | 'raw' | 'gyro' | 'none'
   attTrust: 0,        // credibilità istantanea del riferimento accelerometrico 0..1
   stopped: false,     // fermo accertato con evidenza positiva
@@ -1489,6 +1490,8 @@ function applyTheme() {
   }
   document.documentElement.dataset.theme = resolved;
   canvasTheme.reset();
+  resetVideoColors();
+  state._lastDisp = null;
   if (els.metaTheme) els.metaTheme.content = resolved === 'light' ? '#eef2f6' : '#0a0e14';
   if (state.currentTab === 'charts') drawCharts();
   if (state.currentTab === 'map' && state.mapType === 'canvas') drawCanvasMap();
@@ -1738,7 +1741,7 @@ function pushAccHist(v) {
   const h = state._accHist || (state._accHist = []);
   h.push(v);
   const w = medianWindow();
-  while (h.length > w) h.shift();
+  if (h.length > w) h.splice(0, h.length - w);
 }
 function medianAcc() {
   const h = state._accHist;
@@ -1796,7 +1799,11 @@ function pushSpeedHist(t, aInt) {
   const h = state._spHist || (state._spHist = []);
   h.push({ t: t, a: aInt });
   const cut = t - SPEED_HIST_S * 1000;
-  while (h.length > 1 && h[0].t < cut) h.shift();
+  if (h.length > 1 && h[0].t < cut) {
+    let k = 1;
+    while (k < h.length - 1 && h[k].t < cut) k++;
+    h.splice(0, k);
+  }
 }
 function aIntAt(t) {
   const h = state._spHist;
@@ -1951,9 +1958,16 @@ function attitudeReference(f, w, B, dt) {
     if (state.latGps != null && Math.abs(state.latGps) > 0.05) sgn = state.latGps < 0 ? -1 : 1;
     else if (state.hasGyro && Math.abs(state.lean) > 2) sgn = state.lean < 0 ? -1 : 1;
     if (sgn) {
+      // mag < G (vibrazione, errore LP) rendeva G/mag > 1: clamp lo saturava a 1,
+      // acos(1) = 0 e il riferimento collassava sul grezzo trascinando la stima
+      // verso l'alto. Sotto g non c'è informazione d'angolo: si congela l'ultimo
+      // rotore norm valido invece di inventarne uno a 0°.
+      if (mag < G) return state._attLastNorm || null;
       const ang = Math.acos(clamp01(G / mag)) * sgn;
       const rot = vadd(vscale(B.up, Math.cos(ang)), vscale(B.right, Math.sin(ang)));
-      return { u: rot, trust: NORM_MODE_TRUST, mode: 'norm' };
+      const out = { u: rot, trust: NORM_MODE_TRUST, mode: 'norm' };
+      state._attLastNorm = out;
+      return out;
     }
   }
 
@@ -2036,21 +2050,32 @@ function updateGyroSign(rollRate, leanAcc, dt, credible) {
      stimatore non partirebbe mai. Si usa una condizione che dipende solo
      dall'accelerometro grezzo: norma vicina a g, cioe' assetto quasi dritto, dove
      l'angolo accelerometrico segue davvero il rollio. */
-  if (!(dt > 0) || !credible) { state._gsPrev = leanAcc; return; }
-  if (state.gyroSignEnergy > GSIGN_MIN_ENERGY * 20) return;   // verdetto gia' dato
-  if (state._gsPrev == null) { state._gsPrev = leanAcc; return; }
+  if (!(dt > 0) || !credible) {
+    state._gsPrev = leanAcc;
+    // Senza campioni credibili l'evidenza decade invece di congelarsi: il lockout
+    // post-verdetto si resetta da solo e un rimontaggio telefono da' nuovo verdetto.
+    const decay0 = !(dt > 0) ? 1 : Math.exp(-dt / GSIGN_TAU_S);
+    state.gyroSignScore = (state.gyroSignScore || 0) * decay0;
+    state.gyroSignEnergy = (state.gyroSignEnergy || 0) * decay0;
+    if (state.gyroSignEnergy < GSIGN_MIN_ENERGY) state.gyroSignLocked = false;
+    return false;
+  }
+  if (state.gyroSignLocked) return false;   // verdetto gia' dato e ancora valido
+  if (state._gsPrev == null) { state._gsPrev = leanAcc; return false; }
   const dLean = (leanAcc - state._gsPrev) / dt;
   state._gsPrev = leanAcc;
-  if (Math.abs(dLean) < 5 || Math.abs(rollRate) < 5) return;   // troppo fermo: nessuna informazione
+  if (Math.abs(dLean) < 5 || Math.abs(rollRate) < 5) return false;   // troppo fermo: nessuna informazione
   const decay = Math.exp(-dt / GSIGN_TAU_S);
   state.gyroSignScore = state.gyroSignScore * decay + rollRate * dLean * dt;
   state.gyroSignEnergy = state.gyroSignEnergy * decay + Math.abs(rollRate * dLean) * dt;
   if (state.gyroSignEnergy > GSIGN_MIN_ENERGY && state.gyroSignScore < -0.3 * state.gyroSignEnergy) {
     state.gyroSign = -state.gyroSign;
     state.gyroSignScore = 0; state.gyroSignEnergy = 0;
+    state.gyroSignLocked = true;
     state._attU = null;                       // la stima precedente e' costruita al contrario
-    toast('Segno del giroscopio corretto automaticamente.', null, 5000);
+    return true;
   }
+  return false;
 }
 
 /* Azzera filtri e stime dipendenti dalla base calibrata: dopo un cambio di
@@ -2068,6 +2093,7 @@ function resetSensorFilters() {
   state.leanConf = 1;
   // attitudine
   state._attU = null;
+  state._attLastNorm = null;
   state.attBias = { x: 0, y: 0, z: 0 };
   state.leanBias = 0;
   state.attTrust = 0;
@@ -2077,6 +2103,7 @@ function resetSensorFilters() {
   state.gyroYaw = 0;
   state.yawUp = 0;
   state._gsPrev = null;
+  state.gyroSignLocked = false;
   // accelerazioni: buffer despike, offset, riferimenti GPS e fusione
   state._hbuf = null;
   state.accBias = null;
@@ -2235,8 +2262,9 @@ function processSample(sm) {
        È la piega: bastano i primi metri, o il montaggio del telefono sul supporto. */
     let leanAccRaw = leanFromUp(upVector(aLP || Am), B);
     if (state.invertLean) leanAccRaw = -leanAccRaw;
-    updateGyroSign(state.gyroRoll, leanAccRaw, dt,
-      state.speedFusMs < CENTRIP_MIN_MS && Math.abs(state.gRatio - 1) < ATT_TOL_G);
+    if (updateGyroSign(state.gyroRoll, leanAccRaw, dt,
+      state.speedFusMs < CENTRIP_MIN_MS && Math.abs(state.gRatio - 1) < ATT_TOL_G))
+      toast('Segno del giroscopio corretto automaticamente.', null, 5000);
     state.leanConf = clamp01(1 - state.vibG / LEAN_VIB_MAX) * (0.5 + 0.5 * state.attTrust);
   } else if (ig && !B) {
     state._attU = null;
@@ -2476,6 +2504,15 @@ function haversine(a, b) {
   const h = Math.sin(dLat/2)**2 + Math.cos(la1)*Math.cos(la2)*Math.sin(dLon/2)**2;
   return 2 * R * Math.asin(Math.sqrt(h)) / 1000;
 }
+// Variante scalare: evita due allocazioni di oggetto per chiamata nel loop checkCameras.
+function haversineM(lat1, lon1, lat2, lon2) {
+  const R = 6371000;
+  const dLat = (lat2 - lat1) * Math.PI / 180;
+  const dLon = (lon2 - lon1) * Math.PI / 180;
+  const la1 = lat1 * Math.PI / 180, la2 = lat2 * Math.PI / 180;
+  const h = Math.sin(dLat/2)**2 + Math.cos(la1)*Math.cos(la2)*Math.sin(dLon/2)**2;
+  return 2 * R * Math.asin(Math.sqrt(h));
+}
 
 function setupSensors() {
   const needPerm = (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function')
@@ -2639,12 +2676,19 @@ function appendTrackPoint(lat, lon, alt) {
   if (now - lastTrackT < 1000) return;
   lastTrackT = now;
   state.track.push({ lat, lon, alt: alt || 0, t: now, ts: Date.now() });
-  if (state.track.length > TRACK_MAX) state.track.shift();
+  if (state.track.length > TRACK_MAX) state.track.splice(0, state.track.length - TRACK_MAX);
   updateMap();
 }
 
 /* ============================== Avvisi autovelox (OSM/Overpass) ============================== */
-function camKey(c) { return c.lat.toFixed(4) + ',' + c.lon.toFixed(4); }
+function camKey(c) {
+  if (c && c._k) return c._k;
+  if (!c || !isFinite(c.lat) || !isFinite(c.lon)) return '?,?';
+  if (c.id != null && c.id !== '') return 'id:' + c.id;
+  const k = c.lat.toFixed(6) + ',' + c.lon.toFixed(6);
+  try { c._k = k; } catch (e) {}
+  return k;
+}
 
 function allCameras() { return state.cameras.concat(state.importedCameras || []); }
 
@@ -2678,21 +2722,34 @@ function camsNear(lat, lon, radiusM) {
   const y0 = Math.floor((lat - dLat) / CAM_GRID_DEG), y1 = Math.floor((lat + dLat) / CAM_GRID_DEG);
   const x0 = Math.floor((lon - dLon) / CAM_GRID_DEG), x1 = Math.floor((lon + dLon) / CAM_GRID_DEG);
   const out = [];
+  const la0 = lat - dLat, la1 = lat + dLat, lo0 = lon - dLon, lo1 = lon + dLon;
   for (let y = y0; y <= y1; y++) {
     for (let x = x0; x <= x1; x++) {
       const a = state.camGrid.get(y + ':' + x);
-      if (a) for (const c of a) out.push(c);
+      if (!a) continue;
+      for (const c of a) {
+        // pre-filtro bbox: evita haversine/allocazioni per i punti ai bordi cella
+        if (c.lat < la0 || c.lat > la1 || c.lon < lo0 || c.lon > lo1) continue;
+        out.push(c);
+      }
     }
   }
   return out;
 }
 
-/* Rilevamento iniziale da A verso B, in gradi bussola (0 = nord). */
+/* Rilevamento iniziale da A verso B, in gradi bussola (0 = nord).
+   Ritorna null se non calcolabile: input non finito o punti coincidenti
+   (sotto ~1 cm atan2(0,0) sarebbe 0° fittizio). */
 function bearing(a, b) {
-  const la1 = a.lat * Math.PI / 180, la2 = b.lat * Math.PI / 180;
-  const dLon = (b.lon - a.lon) * Math.PI / 180;
-  const y = Math.sin(dLon) * Math.cos(la2);
-  const x = Math.cos(la1) * Math.sin(la2) - Math.sin(la1) * Math.cos(la2) * Math.cos(dLon);
+  if (!a || !b) return null;
+  const la1 = +a.lat, lo1 = +a.lon, la2 = +b.lat, lo2 = +b.lon;
+  if (!isFinite(la1) || !isFinite(lo1) || !isFinite(la2) || !isFinite(lo2)) return null;
+  if (Math.abs(la1) > 90 || Math.abs(la2) > 90 || Math.abs(lo1) > 180 || Math.abs(lo2) > 180) return null;
+  const r1 = la1 * Math.PI / 180, r2 = la2 * Math.PI / 180;
+  const dLon = (lo2 - lo1) * Math.PI / 180;
+  const y = Math.sin(dLon) * Math.cos(r2);
+  const x = Math.cos(r1) * Math.sin(r2) - Math.sin(r1) * Math.cos(r2) * Math.cos(dLon);
+  if (Math.abs(x) < 1e-12 && Math.abs(y) < 1e-12) return null; // punti identici (dist ~0)
   return (Math.atan2(y, x) * 180 / Math.PI + 360) % 360;
 }
 function angleDiff(a, b) {
@@ -2724,10 +2781,19 @@ const CAM_HOSTS = [
    AbortController una connessione appesa (galleria, cella satura) non risolveva mai la
    promise: `finally` non girava, state.camFetching restava true e la guardia anti-flood
    qui sotto uccideva ogni fetch successiva per il resto della sessione, senza dirlo. */
+class TimeoutError extends Error { constructor(msg) { super(msg || 'timeout'); this.name = 'TimeoutError'; } }
+class OfflineError extends Error { constructor(msg) { super(msg || 'offline'); this.name = 'OfflineError'; } }
 async function fetchWithTimeout(url, ms) {
   const ctl = new AbortController();
-  const kill = setTimeout(() => ctl.abort(), ms);
+  let timed = false;
+  const kill = setTimeout(() => { timed = true; ctl.abort(); }, ms);
   try { return await fetch(url, { signal: ctl.signal }); }
+  catch (e) {
+    if (timed || (e && e.name === 'AbortError')) throw new TimeoutError('timeout dopo ' + ms + ' ms');
+    if ((typeof navigator !== 'undefined' && navigator.onLine === false) || (e && e.name === 'TypeError'))
+      throw new OfflineError((e && e.message) || 'offline');
+    throw e;
+  }
   finally { clearTimeout(kill); }
 }
 
@@ -2756,6 +2822,7 @@ async function fetchCameras(lat, lon) {
     if (!res) throw lastErr || new Error('overpass non raggiungibile');
     const data = await res.json();
     const cams = (data.elements || []).map(el => ({
+      id: el.id,
       lat: el.lat, lon: el.lon,
       maxspeed: (el.tags && el.tags.maxspeed) || '',
       name: (el.tags && el.tags.name) || ''
@@ -2891,13 +2958,15 @@ function checkCameras() {
 
   let nearest = null, nearestD = Infinity;
   for (const c of cams) {
-    const d = haversine(me, { lat: c.lat, lon: c.lon }) * 1000;
+    const d = haversineM(me.lat, me.lon, c.lat, c.lon);
     const k = camKey(c);
     seen[k] = d;
     if (d > state.camDist) continue;
     if (useBearing) {
       // Scarta gli autovelox alle spalle o sulla carreggiata opposta
-      if (angleDiff(bearing(me, c), hdg) > CAM_AHEAD_DEG) continue;
+      const bc = bearing(me, c);
+      if (bc == null) continue;
+      if (angleDiff(bc, hdg) > CAM_AHEAD_DEG) continue;
     } else {
       // Senza heading affidabile: avvisa solo se ci si sta avvicinando
       const prev = state.camLastDist[k];
@@ -3193,7 +3262,7 @@ function navBuild(trip) {
   }
   const brg = new Float32Array(Math.max(0, n - 1));
   for (let i = 0; i < n - 1; i++) {
-    brg[i] = bearing({ lat: lat[i], lon: lon[i] }, { lat: lat[i + 1], lon: lon[i + 1] });
+    brg[i] = bearing({ lat: lat[i], lon: lon[i] }, { lat: lat[i + 1], lon: lon[i + 1] }) ?? 0;
   }
   const flags = new Uint8Array(n);
 
@@ -3915,15 +3984,53 @@ async function navGeocode(q) {
 
 /* Coordinate incollate: "44.0367, 10.1417" oppure un link mappe. Solo regex, niente rete. */
 function navParseCoords(t) {
-  const s = String(t || '').trim();
-  let m = s.match(/[!]3d(-?\d+\.\d+)[!]4d(-?\d+\.\d+)/);      // link Google Maps
-  if (m) return { lat: +m[1], lon: +m[2], label: 'Coordinate' };
-  m = s.match(/@(-?\d+\.\d+),\s*(-?\d+\.\d+)/);                // .../@lat,lon,15z
-  if (m) return { lat: +m[1], lon: +m[2], label: 'Coordinate' };
-  m = s.match(/^(-?\d{1,2}(?:[.,]\d+)?)\s*[,; ]\s*(-?\d{1,3}(?:[.,]\d+)?)$/);
+  let s = String(t || '').trim();
+  if (!s) return null;
+  // NBSP, figure space, narrow NBSP, BOM, gradi/primi/secondi e punti cardinali
+  s = s.replace(/[   ﻿]/g, ' ').replace(/[°'″"ʼ]/g, ' ');
+  const ns = /[nNsS]/.test(s), ew = /[eEoOwW]/.test(s);
+  s = s.replace(/[nNsS]/g, ' ').replace(/[eEoOwW]/g, ' ');
+  const num = '-?\\d{1,3}(?:[.,]\\d+)?';
+  let m = s.match(new RegExp('[!]3d(' + num + ')[!]4d(' + num + ')'));  // link Google Maps
+  if (m) return { lat: +m[1].replace(',', '.'), lon: +m[2].replace(',', '.'), label: 'Coordinate' };
+  m = s.match(new RegExp('@(' + num + ')\\s*,\\s*(' + num + ')'));       // .../@lat,lon,15z
   if (m) {
     const la = parseFloat(m[1].replace(',', '.')), lo = parseFloat(m[2].replace(',', '.'));
     if (Math.abs(la) <= 90 && Math.abs(lo) <= 180) return { lat: la, lon: lo, label: 'Coordinate' };
+  }
+  m = s.match(/geo:(-?\d+(?:[.,]\d+)?)\s*,\s*(-?\d+(?:[.,]\d+)?)/i);
+  if (m) {
+    const la = parseFloat(m[1].replace(',', '.')), lo = parseFloat(m[2].replace(',', '.'));
+    if (Math.abs(la) <= 90 && Math.abs(lo) <= 180) return { lat: la, lon: lo, label: 'Coordinate' };
+  }
+  m = s.match(/[?&]q=(-?\d+(?:[.,]\d+)?)\s*,\s*(-?\d+(?:[.,]\d+)?)/i)
+    || s.match(/[?&]query=(-?\d+(?:[.,]\d+)?)\s*,\s*(-?\d+(?:[.,]\d+)?)/i);
+  if (m) {
+    const la = parseFloat(m[1].replace(',', '.')), lo = parseFloat(m[2].replace(',', '.'));
+    if (Math.abs(la) <= 90 && Math.abs(lo) <= 180) return { lat: la, lon: lo, label: 'Coordinate' };
+  }
+  // lat=/lon= in entrambi gli ordini; se inizia per lon=, scambia
+  let ml = s.match(/[?&;]lat\s*=\s*(-?\d+(?:[.,]\d+)?)/i), mo = s.match(/[?&;]lon(?:g)?\s*=\s*(-?\d+(?:[.,]\d+)?)/i);
+  if (ml && mo) {
+    let la = parseFloat(ml[1].replace(',', '.')), lo = parseFloat(mo[1].replace(',', '.'));
+    const latFirst = ml.index < mo.index;
+    if (!latFirst) { const tmp = la; la = lo; lo = tmp; }
+    if (!(Math.abs(la) <= 90 && Math.abs(lo) <= 180) && Math.abs(la) <= 180 && Math.abs(lo) <= 90) {
+      const tmp = la; la = lo; lo = tmp;
+    }
+    if (Math.abs(la) <= 90 && Math.abs(lo) <= 180) return { lat: la, lon: lo, label: 'Coordinate' };
+    return null;
+  }
+  // coppia nuda, con o senza N/S/E/W. Senza lettere l'ordine è lat,lon stretto:
+  // "95.0, 9.0" è input non valido (null), non una coppia da scambiare in silenzio.
+  m = s.match(new RegExp('^(' + num + ')\\s*[,; ]\\s*(' + num + ')$'));
+  if (m) {
+    const la = parseFloat(m[1].replace(',', '.')), lo = parseFloat(m[2].replace(',', '.'));
+    if (Math.abs(la) <= 90 && Math.abs(lo) <= 180) return { lat: la, lon: lo, label: 'Coordinate' };
+    if (ns || ew) {
+      const a2 = parseFloat(m[2].replace(',', '.')), b2 = parseFloat(m[1].replace(',', '.'));
+      if (Math.abs(a2) <= 90 && Math.abs(b2) <= 180) return { lat: a2, lon: b2, label: 'Coordinate' };
+    }
   }
   return null;
 }
@@ -4321,10 +4428,14 @@ function snapshot() {
 function sampleTick() {
   if (!state.logging) return;
   state.rows.push(snapshot());
-  if (state.rows.length > MAX_ROWS) {
-    // shift() a 20 Hz su un array da 180k è O(n): si taglia a blocchi, ammortizzato.
-    state.rows.splice(0, Math.ceil(MAX_ROWS * 0.1));
-    state.flushedRows = Math.max(0, state.flushedRows - Math.ceil(MAX_ROWS * 0.1));
+  // Il trim scatta solo se qualcosa è già stato flushato: tagliare righe non
+  // ancora scritte su disco cancellerebbe dati mai salvati. Il 10% extra è lo
+  // slack che evita di rieseguire lo splice a ogni campione.
+  const over = state.rows.length - MAX_ROWS;
+  if (over > 0 && state.flushedRows > 0) {
+    const drop = Math.min(over + Math.ceil(MAX_ROWS * 0.1), state.flushedRows);
+    state.rows.splice(0, drop);
+    state.flushedRows -= drop;
   }
   const nowP = performance.now();
   if (nowP - lastFlush >= FLUSH_MS) {
@@ -4335,8 +4446,10 @@ function sampleTick() {
 
 function startLog() {
   state.logging = true;
+  state._flushWarned = false;
   state.rows = [];
   state.track = [];
+  state._leafN = 0;
   state.sessionId = 's_' + Date.now();
   state.flushSeq = 0;
   state.flushedRows = 0;
@@ -4461,7 +4574,10 @@ function buildCsv(rows, meta) {
 
 function exportCsv(rows, meta, nameSuffix) {
   if (!rows || !rows.length) { toast('Nessun dato da esportare.', 'err'); return; }
-  downloadBlob('cruscotto' + (nameSuffix ? '_' + nameSuffix : '') + '_' + stamp() + '.csv', buildCsv(rows, meta), 'text/csv;charset=utf-8');
+  // Chunk da 5000 righe: una sola stringa da 180k righe picca memoria/GC sul telefono.
+  const parts = [csvMeta(meta) + '\n' + CSV_HEADER + '\n'];
+  for (let i = 0; i < rows.length; i += 5000) parts.push(csvRows(rows.slice(i, i + 5000)) + '\n');
+  downloadBlob('cruscotto' + (nameSuffix ? '_' + nameSuffix : '') + '_' + stamp() + '.csv', parts, 'text/csv;charset=utf-8');
 }
 
 function buildGpx(track) {
@@ -4505,10 +4621,15 @@ function findRowAt(rows, t) {
 }
 
 /* Colore dai CSS var del tema (--accent, --good, --c-bg, --acc-lat, …). */
+let _videoColors = null;
 function videoColor(name) {
-  const v = getComputedStyle(document.documentElement).getPropertyValue('--' + name).trim();
-  return v || '#888';
+  if (_videoColors && (name in _videoColors)) return _videoColors[name];
+  const v = getComputedStyle(document.documentElement).getPropertyValue('--' + name).trim() || '#888';
+  if (_videoColors) _videoColors[name] = v;
+  else { _videoColors = {}; _videoColors[name] = v; }
+  return v;
 }
+function resetVideoColors() { _videoColors = null; }
 
 let videoJob = null;
 
@@ -4652,7 +4773,8 @@ function cleanupVideoJob(job) {
 function videoLoop(now) {
   const job = videoJob;
   if (!job || !job.running) return;
-  const dt = job.lastRaf ? (now - job.lastRaf) / 1000 : 0;
+  const rawDt = job.lastRaf ? (now - job.lastRaf) / 1000 : 0;
+  const dt = rawDt < 0 ? 0 : (rawDt > 0.1 ? 0.1 : rawDt);
   job.lastRaf = now;
   job.tSim += dt * job.mult;
   if (job.tSim >= job.tEnd) {
@@ -4964,8 +5086,8 @@ function buildCameraKeyframes(mapPts) {
   const raw = new Array(n);
   for (let i = 0; i < n; i++) {
     let brg = 0;
-    if (i > 0) brg = bearing(mapPts[i - 1], mapPts[i]);
-    else if (n > 1) brg = bearing(mapPts[0], mapPts[1]);
+    if (i > 0) brg = bearing(mapPts[i - 1], mapPts[i]) ?? 0;
+    else if (n > 1) brg = bearing(mapPts[0], mapPts[1]) ?? 0;
     raw[i] = { lat: mapPts[i].lat, lon: mapPts[i].lon, brg };
   }
   // Media circolare su finestra di 5 per smussare lo jitter dell'heading GPS.
@@ -5115,7 +5237,7 @@ function drawVideoFrame3D(job) {
   const kf = keyframes[kIdx];
   if (kf && job.mapReady) {
     map.jumpTo({ center: [kf.lon, kf.lat], bearing: kf.brg, pitch: 60, zoom: 15.5 });
-    map.redraw();
+    if (typeof map.triggerRepaint === 'function') map.triggerRepaint(); else if (typeof map.redraw === 'function') map.redraw();
   }
 
   // Moto: piega + rotolamento ruote.
@@ -5134,6 +5256,16 @@ function drawVideoFrame3D(job) {
   drawVideoHUD3D(ctx, job, r, tSim, dist[i] || 0, speedMax);
 }
 
+function rrPath(ctx, x, y, w, h, r) {
+  if (typeof ctx.roundRect === 'function') { ctx.beginPath(); ctx.roundRect(x, y, w, h, r); return; }
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.arcTo(x + w, y, x + w, y + h, r);
+  ctx.arcTo(x + w, y + h, x, y + h, r);
+  ctx.arcTo(x, y + h, x, y, r);
+  ctx.arcTo(x, y, x + w, y, r);
+  ctx.closePath();
+}
 function drawVideoHUD3D(ctx, job, r, tSim, distKm, speedMax) {
   const W = job.canvas.width, H = job.canvas.height;
   const accent = videoColor('accent'), txt = videoColor('text'), axis = videoColor('c-axis');
@@ -5143,7 +5275,7 @@ function drawVideoHUD3D(ctx, job, r, tSim, distKm, speedMax) {
   ctx.textBaseline = 'alphabetic';
   // Velocità (alto-sinistra)
   ctx.fillStyle = 'rgba(0,0,0,.35)';
-  ctx.beginPath(); ctx.roundRect(16, 16, 220, 120, 16); ctx.fill();
+  rrPath(ctx, 16, 16, 220, 120, 16); ctx.fill();
   ctx.textAlign = 'left';
   ctx.fillStyle = accent; ctx.font = 'bold 64px system-ui';
   ctx.fillText(String(kmh), 34, 96);
@@ -5154,9 +5286,10 @@ function drawVideoHUD3D(ctx, job, r, tSim, distKm, speedMax) {
   const tr = fmtDur(tSim) + ' · ' + distKm.toFixed(2) + ' km';
   ctx.textAlign = 'right';
   ctx.fillStyle = 'rgba(0,0,0,.35)';
+  ctx.font = 'bold 22px system-ui';
   const tw = ctx.measureText(tr).width;
-  ctx.beginPath(); ctx.roundRect(W - 16 - tw - 28, 16, tw + 28, 44, 14); ctx.fill();
-  ctx.fillStyle = txt; ctx.font = 'bold 22px system-ui';
+  rrPath(ctx, W - 16 - tw - 28, 16, tw + 28, 44, 14); ctx.fill();
+  ctx.fillStyle = txt;
   ctx.fillText(tr, W - 30, 47);
 
   // Piega (basso-sinistra): arco piccolo
@@ -5324,6 +5457,19 @@ async function recoverChunks() {
   let chunks = [];
   try { chunks = await idb.getChunks(); } catch (e) { return; }
   if (!chunks.length) return;
+  // Chunk di sessioni diverse (crash durante un log, poi nuovo log): raggruppa
+  // per sid e recupera il gruppo con più righe, non un frullato di entrambi.
+  const groups = new Map();
+  for (const c of chunks) {
+    const k = (c && c.sid) || '';
+    let g = groups.get(k);
+    if (!g) { g = { rows: 0, list: [] }; groups.set(k, g); }
+    g.rows += (c.rows || []).length;
+    g.list.push(c);
+  }
+  let best = null;
+  for (const g of groups.values()) if (!best || g.rows > best.rows) best = g;
+  chunks = best.list;
   chunks.sort((a, b) => a.seq - b.seq);
   const rows = [];
   for (const c of chunks) if (c.rows) for (const r of c.rows) rows.push(r);
@@ -5458,21 +5604,27 @@ function showSessionDetail(s) {
 
 /* ============================== Mappa ============================== */
 function initMap() {
+  if (state.mapReady || state._mapLoading) return;
+  state._mapLoading = true;
   // CSS prima del JS: caricandolo dopo, Leaflet inizializzava con stili assenti
   // e le tile finivano fuori posto al primo render.
   const link = document.createElement('link');
   link.rel = 'stylesheet';
   link.href = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css';
   link.crossOrigin = 'anonymous';
+  link.integrity = 'sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=';
+  link.onload = () => {};
+  link.onerror = () => { state._mapLoading = false; initCanvasMap(); };
   document.head.appendChild(link);
 
   const script = document.createElement('script');
   script.src = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js';
   script.crossOrigin = 'anonymous';
-  script.onload = initLeaflet;
-  script.onerror = initCanvasMap;
+  script.integrity = 'sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=';
+  script.onload = () => { state._mapLoading = false; initLeaflet(); };
+  script.onerror = () => { state._mapLoading = false; initCanvasMap(); };
   document.head.appendChild(script);
-  setTimeout(() => { if (!state.mapReady) initCanvasMap(); }, 5000);
+  setTimeout(() => { if (!state.mapReady) { state._mapLoading = false; initCanvasMap(); } }, 5000);
 }
 
 function initLeaflet() {
@@ -5505,10 +5657,16 @@ let lastCamRender = 0;
 
 function updateLeaflet() {
   if (!state.map) return;
-  const pts = state.track.map(p => [p.lat, p.lon]);
-  if (pts.length) {
-    state.mapPoly.setLatLngs(pts);
-    if (!state.mapFit) { state.map.fitBounds(pts, { padding: [30, 30], maxZoom: 16 }); state.mapFit = true; }
+  const n = state.track.length;
+  const drawn = state._leafN || 0;
+  if (n) {
+    if (!drawn || !state.mapPoly.getLatLngs().length) {
+      state.mapPoly.setLatLngs(state.track.map(p => [p.lat, p.lon]));
+    } else {
+      for (let k = drawn; k < n; k++) state.mapPoly.addLatLng([state.track[k].lat, state.track[k].lon]);
+    }
+    state._leafN = n;
+    if (!state.mapFit) { state.map.fitBounds(state.mapPoly.getBounds(), { padding: [30, 30], maxZoom: 16 }); state.mapFit = true; }
   }
   // Il marker si muove a ogni fix, anche quando il punto traccia viene scartato.
   if (state.gps.lat != null) {
@@ -5588,11 +5746,15 @@ function drawTrackOnCanvas(canvas, track, opts) {
   }
   const spanLat = (maxLat - minLat) || 0.0001, spanLon = (maxLon - minLon) || 0.0001;
   const pad = 28;
-  const scale = Math.min((w - 2 * pad) / spanLon, (h - 2 * pad) / spanLat);
+  const lat0 = (maxLat + minLat) / 2;
+  const kx = Math.max(0.15, Math.cos(lat0 * Math.PI / 180));
+  const rot0 = (opts && opts.rotateDeg) || 0;
+  const scale = Math.min((w - 2 * pad) / (spanLon * kx), (h - 2 * pad) / spanLat);
   const ctr = (opts && opts.center) ? opts.center : null;
-  const offX = ctr ? (w / 2 - (ctr.lon - minLon) * scale) : ((w - spanLon * scale) / 2);
-  const offY = ctr ? (h / 2 - (maxLat - ctr.lat) * scale) : ((h - spanLat * scale) / 2);
-  const X = lon => offX + (lon - minLon) * scale;
+  const anchor = (ctr || rot0) ? { lon: ctr ? ctr.lon : (minLon + maxLon) / 2, lat: ctr ? ctr.lat : (minLat + maxLat) / 2 } : null;
+  const offX = anchor ? (w / 2 - (anchor.lon - minLon) * kx * scale) : ((w - spanLon * kx * scale) / 2);
+  const offY = anchor ? (h / 2 - (maxLat - anchor.lat) * scale) : ((h - spanLat * scale) / 2);
+  const X = lon => offX + (lon - minLon) * kx * scale;
   const Y = lat => offY + (maxLat - lat) * scale;
 
   // Track-up anche sulla mappa di riserva: si ruota il contesto attorno al centro.
@@ -5670,7 +5832,11 @@ const canvasTheme = {
 function sampleCharts(now) {
   state.chartBuf.push({ t: now, speedKph: state.speedKph, lean: state.lean, latG: state.latG, lonG: state.lonG });
   const cutoff = now - CHART_WINDOW;
-  while (state.chartBuf.length && state.chartBuf[0].t < cutoff) state.chartBuf.shift();
+  if (state.chartBuf.length && state.chartBuf[0].t < cutoff) {
+    let k = 1;
+    while (k < state.chartBuf.length && state.chartBuf[k].t < cutoff) k++;
+    state.chartBuf.splice(0, k);
+  }
 }
 
 function drawChart(canvas, data, field, color, min, max, zeroLine) {
@@ -5748,7 +5914,7 @@ function updateDiag() {
   els.dgSpeed.textContent = (state.speedFusMs * 3.6).toFixed(1) + ' km/h' +
     (state.speedGpsMs != null ? ' (GPS ' + (state.speedGpsMs * 3.6).toFixed(1) + ')' : ' (GPS n/d)');
   els.dgSign.textContent = (state.gyroSign > 0 ? '+1' : '−1') +
-    (state.gyroSignEnergy > GSIGN_MIN_ENERGY ? ' (verificato)' : ' (in verifica)');
+    (state.gyroSignLocked ? ' (verificato)' : ' (in verifica)');
   els.dgVibHi.textContent = state.vibHiG.toFixed(3) + ' g';
 }
 
@@ -5759,7 +5925,7 @@ function startBench() {
   if (!state.calib && !state.demo) { toast('Calibra prima di eseguire il test.', 'err'); return; }
   bench = { t0: Date.now(), lean: [], vib: [], hz: [], lat: [], lon: [], vert: [],
             vibHi: [], pitch: [], src: state.sensorSrc, grav: state.gravNative,
-            sign: state.gyroSign, signOk: state.gyroSignEnergy > GSIGN_MIN_ENERGY };
+            sign: state.gyroSign, signOk: state.gyroSignLocked };
   els.btnBench.disabled = true;
   els.benchOut.textContent = 'Test in corso… tieni la moto ferma e dritta.';
   benchTimer = setInterval(() => {
@@ -5980,8 +6146,14 @@ function tickDemo(now) {
 }
 
 /* ============================== Loop display ============================== */
+// textContent è un setter costoso (layout/style): scrive solo se il testo cambia.
+function setTxt(el, s) {
+  s = String(s);
+  if (!el || el.textContent === s) return;
+  el.textContent = s;
+}
 function updateDisplay() {
-  els.speedVal.textContent = Math.round(state.speedKph);
+  setTxt(els.speedVal, Math.round(state.speedKph));
 
   if (state.demo || state.calib) {
     els.leanVal.textContent = Math.abs(state.lean).toFixed(1);
@@ -6017,7 +6189,7 @@ function updateDisplay() {
   }
 
   const latAbs = Math.abs(state.latG), lonAbs = Math.abs(state.lonG), vertAbs = Math.abs(state.vertG);
-  els.latVal.textContent = (state.latG >= 0 ? '+' : '') + state.latG.toFixed(2);
+  setTxt(els.latVal, (state.latG >= 0 ? '+' : '') + state.latG.toFixed(2));
   els.lonVal.textContent = (state.lonG >= 0 ? '+' : '') + state.lonG.toFixed(2);
   els.vertVal.textContent = (state.vertG >= 0 ? '+' : '') + state.vertG.toFixed(2);
   setBar(els.latBar, state.latG, latAbs, 1.2);
@@ -6032,7 +6204,7 @@ function updateDisplay() {
     state.session.maxLeanR = Math.max(state.session.maxLeanR, state.lean);
     state.session.maxLeanL = Math.min(state.session.maxLeanL, state.lean);
   }
-  els.statMaxSpeed.textContent = Math.round(state.session.maxSpeed);
+  setTxt(els.statMaxSpeed, Math.round(state.session.maxSpeed));
   els.statDist.textContent = state.session.distKm.toFixed(2);
   els.maxLeanR.textContent = Math.abs(state.session.maxLeanR).toFixed(0) + '°';
   els.maxLeanL.textContent = Math.abs(state.session.maxLeanL).toFixed(0) + '°';
@@ -6228,17 +6400,22 @@ function init() {
   els.compassOffsetSel.addEventListener('change', () => { state.compassOffset = parseInt(els.compassOffsetSel.value, 10); saveSettings(); });
 
   /* ---- navigatore ---- */
-  let navSearchT = null;
+  let navSearchT = null, navSearchSeq = 0;
   els.navQuery.addEventListener('input', () => {
     clearTimeout(navSearchT);
     const q = els.navQuery.value.trim();
-    if (q.length < 3) { els.navResults.textContent = ''; return; }
+    if (q.length < 3) { navSearchSeq++; els.navResults.textContent = ''; return; }
     const c = navParseCoords(q);
     if (c) { navRenderResults([{ lat: c.lat, lon: c.lon, label: 'Coordinate', sub: c.lat.toFixed(5) + ', ' + c.lon.toFixed(5) }]); return; }
     // debounce: la policy di Photon e' "sii equo", non una richiesta per tasto premuto
+    const my = ++navSearchSeq;
     navSearchT = setTimeout(async () => {
-      try { navRenderResults(await navGeocode(q)); }
-      catch (e) { navSetStatus('Ricerca non riuscita: ' + e.message); }
+      try {
+        const res = await navGeocode(q);
+        if (my !== navSearchSeq) return; // risposta stale: l'utente ha già digitato altro
+        navRenderResults(res);
+      }
+      catch (e) { if (my === navSearchSeq) navSetStatus('Ricerca non riuscita: ' + e.message); }
     }, 450);
   });
   els.btnNavGo.addEventListener('click', navStart);

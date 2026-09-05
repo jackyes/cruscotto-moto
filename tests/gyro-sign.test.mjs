@@ -69,6 +69,7 @@ test('updateGyroSign: verdetto gia dato blocca accumulo', () => {
   const s = api.state;
   s.gyroSignEnergy = GSIGN_MIN_ENERGY * 20 + 1;
   s.gyroSignScore = 42; s._gsPrev = 5;
+  s.gyroSignLocked = true; // il lock e' il segnale di "verdetto dato", non l'energia
   updateGyroSign(50, 15, 0.05, true);
   assert.equal(s.gyroSignScore, 42);
   assert.equal(s._gsPrev, 5); // early-return: _gsPrev intatto

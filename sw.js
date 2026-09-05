@@ -9,14 +9,17 @@
 
 'use strict';
 
-const CACHE_VERSION = 'v5';
+const CACHE_VERSION = 'v6';
 const SHELL_CACHE = 'cruscotto-shell-' + CACHE_VERSION;
 const LIB_CACHE   = 'cruscotto-lib-' + CACHE_VERSION;
 const TILE_CACHE  = 'cruscotto-tiles-' + CACHE_VERSION;
+const OFM_CACHE   = 'cruscotto-ofm-' + CACHE_VERSION;
+const OFM_MAX = 1000;
 
 const SHELL = [
   './',
   './index.html',
+  './viewer.html',
   './manifest.webmanifest',
 ];
 
@@ -38,7 +41,7 @@ self.addEventListener('activate', event => {
     caches.keys()
       .then(keys => Promise.all(
         keys.filter(k => k.startsWith('cruscotto-') &&
-                         k !== SHELL_CACHE && k !== LIB_CACHE && k !== TILE_CACHE)
+                         k !== SHELL_CACHE && k !== LIB_CACHE && k !== TILE_CACHE && k !== OFM_CACHE)
             .map(k => caches.delete(k))
       ))
       .then(() => self.clients.claim())
@@ -61,8 +64,15 @@ async function cacheFirst(req, cacheName, opts) {
   const res = await fetch(req);
   // Le tile OSM arrivano in CORS: si conservano solo risposte valide.
   if (res && (res.ok || res.type === 'opaque')) {
-    cache.put(req, res.clone());
-    if (opts && opts.max) trimCache(cacheName, opts.max);
+    try {
+      await cache.put(req, res.clone());
+    } catch (e) {
+      if (e && e.name === 'QuotaExceededError' && opts && opts.max) {
+        await trimCache(cacheName, opts.max);
+        try { await cache.put(req, res.clone()); } catch (_) {}
+      }
+    }
+    if (opts && opts.max) await trimCache(cacheName, opts.max);
   }
   return res;
 }
@@ -72,7 +82,9 @@ async function networkFirst(req) {
   const cache = await caches.open(SHELL_CACHE);
   try {
     const res = await fetch(req);
-    if (res && res.ok) cache.put(req, res.clone());
+    if (res && res.ok) {
+      try { await cache.put(req, res.clone()); } catch (_) {}
+    }
     return res;
   } catch (e) {
     const hit = await cache.match(req) || await cache.match('./index.html');
@@ -106,6 +118,12 @@ self.addEventListener('fetch', event => {
     return;
   }
 
+  if (url.hostname === 'tiles.openfreemap.org' ||
+      (url.hostname === 's3.amazonaws.com' && url.pathname.startsWith('/elevation-tiles-prod/'))) {
+    event.respondWith(cacheFirst(req, OFM_CACHE, { max: OFM_MAX }).catch(() => Response.error()));
+    return;
+  }
+
   if (LIB_HOSTS.includes(url.hostname)) {
     event.respondWith(cacheFirst(req, LIB_CACHE).catch(() => Response.error()));
     return;
@@ -117,11 +135,17 @@ self.addEventListener('fetch', event => {
         const hit = await cache.match(req);
         if (hit) {
           // Aggiornamento in background: la prossima apertura avrà la versione nuova.
-          fetch(req).then(res => { if (res && res.ok) cache.put(req, res.clone()); }).catch(() => {});
+          fetch(req).then(async res => {
+            if (res && res.ok) {
+              try { await cache.put(req, res.clone()); } catch (_) {}
+            }
+          }).catch(() => {});
           return hit;
         }
         const res = await fetch(req);
-        if (res && res.ok) cache.put(req, res.clone());
+        if (res && res.ok) {
+          try { await cache.put(req, res.clone()); } catch (_) {}
+        }
         return res;
       })
     );

@@ -43,7 +43,7 @@ const exportLine = `
   despike, clampG, clamp01, medianWindow, pushAccHist, medianAcc, updateVibration, keepPeak, resetLogAcc,
   pushSpeedHist, aIntAt, propagateSpeed, correctSpeed, updateGpsAccel, updateAccelFusion,
   attitudeReference, updateAttitude, updateGyroSign, resetSensorFilters, processSample,
-  haversine, bearing, angleDiff, distM,
+  haversine, haversineM, bearing, angleDiff, distM,
   camKey, cellKey, rebuildCamGrid, camsNear, camMarkerRadius, camMoveThreshold, camLabel, parseCamerasFile, allCameras,
   decodePolyline6, navShapePlausible, navBuild, navSegNearest, navLowerBound, navProject,
   navPassed, navAdvance, navBandDist, navFmtDist, navFmtShort, navFmtTime,
