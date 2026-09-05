@@ -475,14 +475,20 @@ function initVideoRender3D(pre) {
         map.addLayer({ id: 'video-ground', type: 'background',
           paint: { 'background-color': VIDEO3D_CONF.ground } });
       } catch (e) {}
-      // Satellite opzionale: raster Esri sotto tutto (probe prima, fallback
-      // liberty se bloccato). beforeId null = fondo stile.
+      // Satellite opzionale: raster Esri SOTTO il liberty (non sopra: il
+      // liberty è opaco e lo seppellirebbe). Si cerca il primo layer dello
+      // stile e si inserisce prima; se non c'è, fondo stile.
       if (pre.sat) {
         try {
           map.addSource('video-sat', { type: 'raster', tileSize: 256, maxzoom: 19,
             tiles: VIDEO3D_CONF.satTiles, attribution: VIDEO3D_CONF.satAttr });
+          let satBefore = null;
+          try {
+            const ls = map.getStyle ? map.getStyle().layers : null;
+            if (ls && ls.length) satBefore = ls[0].id;
+          } catch (e) {}
           map.addLayer({ id: 'video-sat', type: 'raster', source: 'video-sat',
-            paint: { 'raster-opacity': 1 } });
+            paint: { 'raster-opacity': 1 } }, satBefore);
         } catch (e) {}
       }
       try { videoTrackAddToMap(map, pre.mapPts, job.segLeans); } catch (e) {}
