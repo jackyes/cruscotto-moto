@@ -35,6 +35,15 @@
   main[hidden] { display: none; }
   .err { background: #3a1620; border: 1px solid var(--bad); color: #fecaca; border-radius: 12px; padding: 12px 14px; margin-bottom: 14px; font-size: 14px; font-weight: 600; }
   .err[hidden] { display: none; }
+  .laps { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 12px 14px; margin-bottom: 12px; }
+  .laps .clbl { display: flex; justify-content: space-between; font-size: 12px; color: var(--text-2); font-weight: 700; margin-bottom: 6px; }
+  .laps table { width: 100%; border-collapse: collapse; font-size: 13px; font-variant-numeric: tabular-nums; }
+  .laps th, .laps td { padding: 6px 8px; text-align: right; border-top: 1px solid var(--line); }
+  .laps th:first-child, .laps td:first-child { text-align: left; }
+  .laps th { border-top: none; color: var(--text-2); font-size: 11px; text-transform: uppercase; letter-spacing: .5px; }
+  .rowbtn { display: flex; gap: 8px; margin-bottom: 12px; flex-wrap: wrap; }
+  .btn { background: var(--surface-2); color: var(--text); border: 1px solid var(--line); border-radius: 10px; padding: 8px 14px; font-weight: 700; font-size: 13px; cursor: pointer; }
+  .btn:hover { border-color: var(--accent); }
   .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px; margin-bottom: 14px; }
   .stat { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 12px; text-align: center; }
   .stat .v { font-size: 22px; font-weight: 800; font-variant-numeric: tabular-nums; }
@@ -67,6 +76,15 @@
     <div class="chart"><div class="clbl"><span>Accelerazioni (G)</span><span>lat / lon / vert</span></div><canvas id="cAcc"></canvas></div>
     <div class="chart"><div class="clbl"><span>Vibrazione / giroscopio</span><span>vib_g / gyro dps</span></div><canvas id="cVib"></canvas></div>
     <div class="chart"><div class="clbl"><span>Quota</span><span>m</span></div><canvas id="cAlt"></canvas></div>
+    <div class="laps" id="laps" hidden>
+      <div class="clbl"><span>Giri</span><span id="lblLaps"></span></div>
+      <table><thead><tr><th>Giro</th><th>Durata</th><th>Vmax</th><th>Km</th></tr></thead><tbody id="lapsBody"></tbody></table>
+    </div>
+    <div class="rowbtn">
+      <button class="btn" id="btnOverlay" type="button">Confronta 2° file…</button>
+      <button class="btn" id="btnExport" type="button">Esporta CSV filtrato</button>
+    </div>
+    <input type="file" id="file2" accept=".csv" hidden>
     <div class="hint">Grafici e statistiche generati localmente nel browser. Nessun dato inviato altrove.</div>
   </main>
 </div>
@@ -294,7 +312,12 @@
     $('main').hidden = false;
     const paint = () => {
       const maxV = Math.ceil(vmax / 20) * 20 + 20;
-      drawLine($('cSpeed'), rows, (r, k) => r.speed_kmh, { min: 0, max: maxV, series: [{ key: 'speed_kmh', color: getCss('--accent') }] });
+      const speedSeries = [{ key: 'speed_kmh', color: getCss('--accent') }];
+      // Overlay 2° file: velocità tratteggiata in grigio per confronto visivo.
+      if (overlayRows && overlayRows.length) {
+        drawLine($('cSpeed'), overlayRows, (r, k) => r.speed_kmh, { min: 0, max: maxV, series: [{ key: 'speed_kmh', color: getCss('--c-axis') }] });
+      }
+      drawLine($('cSpeed'), rows, (r, k) => r.speed_kmh, { min: 0, max: maxV, series: speedSeries });
       drawLine($('cLean'), rows, (r, k) => r.lean_deg, { min: -60, max: 60, series: [{ key: 'lean_deg', color: getCss('--good') }] });
       drawLine($('cAcc'), rows, (r, k) => r[k], {
         min: -1.5, max: 1.5,
@@ -313,16 +336,78 @@
       });
       drawLine($('cAlt'), rows, (r, k) => r.alt_m, { min: altMin, max: altMax, series: [{ key: 'alt_m', color: getCss('--acc-vert') }] });
       renderMap(trackPts);
+      renderLapTable(splitLaps(rows));
     };
     if (typeof requestAnimationFrame === 'function') requestAnimationFrame(paint);
     else paint();
   }
 
+  // Split in giri: nuovo giro a gap==1 o salto t > 5s (sosta/box).
+  // Pura: ritorna array di {rows, dur, vmax, dist}.
+  function splitLaps(rows, gapSec) {
+    const G = isFinite(gapSec) && gapSec > 0 ? gapSec : 5;
+    const laps = [];
+    let cur = [];
+    for (const r of rows) {
+      const prev = cur.length ? cur[cur.length - 1] : null;
+      if (prev && (r.gap === 1 || (isFinite(r.t) && isFinite(prev.t) && r.t - prev.t > G))) {
+        laps.push(cur); cur = [];
+      }
+      cur.push(r);
+    }
+    if (cur.length) laps.push(cur);
+    return laps.map(lr => {
+      const st = viewerStats(lr);
+      return { rows: lr, dur: sessionDur(lr), vmax: st.vmax, dist: st.dist };
+    });
+  }
+
+  // Ultimo dataset caricato: serve a overlay/export senza rileggere il file.
+  let currentRows = [];
+  let overlayRows = null;
+
+  function renderLapTable(laps) {
+    const box = $('laps'), body = $('lapsBody');
+    if (laps.length < 2) { box.hidden = true; body.innerHTML = ''; return; }
+    $('lblLaps').textContent = laps.length + ' giri';
+    body.innerHTML = laps.map((l, i) =>
+      '<tr><td>' + (i + 1) + '</td><td>' + fmtDur(l.dur) + '</td><td>' +
+      Math.round(l.vmax) + '</td><td>' + l.dist.toFixed(2) + '</td></tr>').join('');
+    box.hidden = false;
+  }
+
+  // CSV filtrato: solo righe con t valido, colonne COLS, virgola decimale punto.
+  function buildFilteredCsv(rows) {
+    const lines = [COLS.join(',')];
+    for (const r of rows) {
+      if (r.t == null || !isFinite(r.t)) continue;
+      lines.push(COLS.map(c => {
+        const v = r[c];
+        return (v == null || (typeof v === 'number' && !isFinite(v))) ? '' : String(v);
+      }).join(','));
+    }
+    return lines.join('\n') + '\n';
+  }
+
+  function exportFilteredCsv() {
+    if (!currentRows.length) { showError('Nessun dato da esportare.'); return; }
+    const blob = new Blob([buildFilteredCsv(currentRows)], { type: 'text/csv;charset=utf-8' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'viewer_filtrato.csv';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(a.href);
+  }
+
   // Wrapper retrocompatibile: i test e handleFile chiamano render().
-  function render(rows) {
+  function render(rows, overlay) {
+    currentRows = rows || [];
+    if (overlay !== undefined) overlayRows = overlay;
     $('main').hidden = false;
-    if (typeof requestAnimationFrame === 'function') requestAnimationFrame(() => renderRows(rows));
-    else renderRows(rows);
+    if (typeof requestAnimationFrame === 'function') requestAnimationFrame(() => renderRows(currentRows));
+    else renderRows(currentRows);
   }
 
   function fmtDur(sec) {
@@ -344,18 +429,47 @@
     reader.readAsText(file, 'utf-8');
   }
 
-  // Prende tutti i .csv dalla lista (input multiplo o drop multiplo):
-  // il primo si visualizza, gli altri si accodano in overlay (vedi B4).
+  // Prende tutti i .csv dalla lista: il primo si visualizza, il secondo
+  // diventa overlay di confronto (velocità grigia sul grafico).
   function handleFiles(files) {
     const list = (files ? Array.from(files) : []).filter(f => /\.csv$/i.test(f.name || ''));
     if (!list.length) { showError('Seleziona un file .csv.'); return; }
+    overlayRows = null;
     handleFile(list[0]);
+    if (list[1]) {
+      const reader = new FileReader();
+      reader.onerror = () => { showError('Errore di lettura del 2° file.'); };
+      reader.onload = () => {
+        try {
+          overlayRows = parseCsv(String(reader.result));
+          render(currentRows, overlayRows);
+        } catch (e) { showError('Errore di lettura 2° file: ' + e.message); }
+      };
+      reader.readAsText(list[1], 'utf-8');
+    }
     return list;
   }
 
   const drop = $('drop');
   const fileInput = $('file');
+  const fileInput2 = $('file2');
   fileInput.addEventListener('change', e => { if (e.target.files) handleFiles(e.target.files); e.target.value = ''; });
+  $('btnExport').addEventListener('click', exportFilteredCsv);
+  $('btnOverlay').addEventListener('click', () => fileInput2.click());
+  fileInput2.addEventListener('change', e => {
+    const f = e.target.files && e.target.files[0];
+    e.target.value = '';
+    if (!f) return;
+    const reader = new FileReader();
+    reader.onerror = () => { showError('Errore di lettura del 2° file.'); };
+    reader.onload = () => {
+      try {
+        overlayRows = parseCsv(String(reader.result));
+        render(currentRows, overlayRows);
+      } catch (err) { showError('Errore di lettura 2° file: ' + err.message); }
+    };
+    reader.readAsText(f, 'utf-8');
+  });
   // Drop su tutta la finestra (non solo la label): altrove il browser
   // navigherebbe via al file trascinato. La label evidenzia comunque l'over.
   window.addEventListener('dragover', e => { e.preventDefault(); if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy'; });

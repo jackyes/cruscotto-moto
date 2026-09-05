@@ -22,7 +22,7 @@ function extractViewerScript(html) {
   COLS, parseCsv, haversineKm, downsample, drawLine, getCss,
   renderMap, render, renderRows, fmtDur, handleFile, handleFiles,
   stripBom, toNumOrNull, splitCsvLine, showError, sessionDur, hasLeaflet,
-  viewerStats,
+  viewerStats, splitLaps, buildFilteredCsv, exportFilteredCsv, renderRows, renderLapTable,
 };`;
 }
 
