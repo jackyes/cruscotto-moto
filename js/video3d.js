@@ -706,19 +706,33 @@ function videoTrackIndexForRow(rowIdx, rowsLen, trackLen) {
   return Math.max(0, Math.min(trackLen - 1, Math.round((i / (rowsLen - 1)) * (trackLen - 1))));
 }
 
-/* Pura: camera mappa dinamica. Veloce → zoom out (più strada visibile),
-   lento → zoom in (dettaglio curve). Piega alta → pitch più radente. */
-/* Pura: camera mappa dinamica. Veloce → zoom out (più strada visibile),
-   vert 9:16 → +0.75 zoom (a parità di zoom la striscia visibile è stretta,
-   la strada sparisce ai bordi; falsy = comportamento storico invariato). */
-function videoCameraFor(speedKmh, leanDeg, vert) {
+/* Pura: altezza target dal suolo per regime (m). Lento = basso e radente
+   sui tornanti, veloce = più alto per leggere la strada (§6.5 doc). */
+function videoCamAltFor(speedKmh, leanDeg) {
   const v = isFinite(speedKmh) ? Math.max(0, speedKmh) : 0;
   const lean = isFinite(leanDeg) ? Math.min(60, Math.abs(leanDeg)) : 0;
   const t = Math.max(0, Math.min(1, v / 120)); // 0 km/h → 0, 120+ → 1
-  return {
-    zoom: 16.5 - t * 2.0 + (vert ? 0.75 : 0), // 16.5 (fermo) → 14.5 (veloce)
-    pitch: 55 + (lean / 60) * 17,  // 55 (dritto) → 72 (piega max: sopra maxPitch non rende)
-  };
+  // 90 m fermo → 260 m veloce; piega abbassa (prospettiva radente).
+  return 90 + t * 170 - (lean / 60) * 15;
+}
+
+/* Pura: camera mappa dinamica. Veloce → zoom out (più strada visibile),
+   lento → zoom in (dettaglio curve). Piega alta → pitch più radente.
+   vert 9:16 → +0.75 zoom (a parità di zoom la striscia visibile è stretta,
+   la strada sparisce ai bordi; falsy = comportamento storico invariato).
+   Con lat/H noti lo zoom viene dall'altezza vera (niente tentativi, §6.5);
+   senza (chiamanti vecchi/test) cade sulla curva storica. */
+function videoCameraFor(speedKmh, leanDeg, vert, latDeg, viewportHPx) {
+  const v = isFinite(speedKmh) ? Math.max(0, speedKmh) : 0;
+  const lean = isFinite(leanDeg) ? Math.min(60, Math.abs(leanDeg)) : 0;
+  const t = Math.max(0, Math.min(1, v / 120)); // 0 km/h → 0, 120+ → 1
+  const pitch = 55 + (lean / 60) * 17; // 55 (dritto) → 72 (piega max)
+  let zoom = 16.5 - t * 2.0 + (vert ? 0.75 : 0); // curva storica
+  if (isFinite(latDeg) && isFinite(viewportHPx)) {
+    const z = videoZoomForHeight(videoCamAltFor(v, lean), pitch, latDeg, viewportHPx);
+    if (isFinite(z)) zoom = z + (vert ? 0.75 : 0);
+  }
+  return { zoom, pitch };
 }
 
 function drawVideoFrame3D(job, dt) {
@@ -732,7 +746,9 @@ function drawVideoFrame3D(job, dt) {
   const u = videoTrackPosForRow(i, rows.length, keyframes.length);
   const p = videoPathSampleAt(keyframes, u);
   if (p && job.mapReady) {
-    const cam = videoCameraFor(r.speedKmh || 0, r.lean || 0, W < H);
+    // Altezza vera da lat/viewport (§6.5) + padding top (§6.6: punto in quota
+    // si proietta alto con terrain, la moto finirebbe sotto l'HUD).
+    const cam = videoCameraFor(r.speedKmh || 0, r.lean || 0, W < H, p.lat, H);
     const dtSim = (dt == null ? 1 / 30 : Math.max(0, dt)) * (job.mult || 1);
     const ahead = videoPathSampleAt(keyframes, Math.min(keyframes.length - 1, u + 2 * keyframes.length / Math.max(1, job.tEnd - (rows[0] ? rows[0].t : 0))));
     const brgT = ahead ? ahead.brg : p.brg;
@@ -746,7 +762,8 @@ function drawVideoFrame3D(job, dt) {
     c.zoom = videoDamp(c.zoom, cam.zoom, dtSim, 0.4);
     c.pitch = videoDamp(c.pitch, cam.pitch, dtSim, 0.4);
     job._cam = c;
-    map.jumpTo({ center: [c.lon, c.lat], bearing: c.brg, pitch: c.pitch, zoom: c.zoom });
+    map.jumpTo({ center: [c.lon, c.lat], bearing: c.brg, pitch: c.pitch, zoom: c.zoom,
+      padding: { top: 150, bottom: 0, left: 0, right: 0 } });
     if (typeof map.redraw === 'function') map.redraw(); else if (typeof map.triggerRepaint === 'function') map.triggerRepaint();
     // Scia: kIdx intero già calcolato? qui serve l'indice traccia, non keyframe.
     videoTrackAdvance(map, job, videoTrackIndexForRow(i, rows.length, mapPts.length));
