@@ -28,6 +28,7 @@ const SHELL = [
   './js/storage.js',
   './js/calib.js',
   './js/accel-fusion.js',
+  './js/sensors-pipe.js',
   './js/net-base.js',
   './js/draw.js',
   './viewer.html',
