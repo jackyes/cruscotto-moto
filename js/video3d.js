@@ -8,18 +8,50 @@ function loadVideo3DScript(url, onload, onerror) {
 }
 
 function fallbackTo2D(pre, msg, job) {
+  requestVideoFallback(pre, job, msg);
+}
+
+/* Punto unico di fallback 3D→2D. Prima i 5 trigger (settle ok/ko, timeout CDN,
+   catch terrain, map error, timeout stile) correvano senza dedup: doppio
+   recorder 2D+3D. E se l'utente premeva Annulla durante il load, il fallback
+   avviava comunque un render fantasma. */
+function requestVideoFallback(pre, job, reason) {
+  const cur = (typeof globalThis !== 'undefined' && globalThis.videoJob !== undefined)
+    ? globalThis.videoJob
+    : (typeof videoJob !== 'undefined' ? videoJob : null);
   if (job) {
-    if (job._fellBack) return;
+    if (job._fellBack || job.cancelled) return false;
     job._fellBack = true;
+    clearVideoTimers(job);
     cleanupVideoJob(job);
+  } else if (cur && cur.cancelled) {
+    return false;
   }
-  if (videoJob === job) videoJob = null;
-  toast(msg, 'err', 6000);
+  if (cur === job && typeof videoJob !== 'undefined') videoJob = null;
+  if (typeof globalThis !== 'undefined' && globalThis.videoJob === job) globalThis.videoJob = null;
+  toast(reason, 'err', 6000);
   startVideoRender2D(pre);
+  return true;
+}
+
+/* Timer registrati in job._timers: al fallback/cancel si cancellano tutti,
+   così nessun timeout tardivo riavvia un render dopo la chiusura. */
+function trackVideoTimer(job, id) {
+  if (job) (job._timers = job._timers || []).push(id);
+  return id;
+}
+function clearVideoTimers(job) {
+  if (!job || !job._timers) return;
+  for (const t of job._timers) { try { clearTimeout(t); } catch (e) {} }
+  job._timers = [];
 }
 
 function startVideoRender3D(pre) {
-  if (window.maplibregl && window.THREE) { initVideoRender3D(pre); return; }
+  if (window.maplibregl && window.THREE) {
+    try { initVideoRender3D(pre); }
+    catch (e) { requestVideoFallback(pre, null, 'Errore motore 3D: ' + (e && e.message ? e.message : e) + '. Uso il render 2D.'); }
+    return;
+  }
   els.videoStatus.textContent = 'Carico motore 3D';
   const css = document.createElement('link');
   css.rel = 'stylesheet'; css.href = 'https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css';
@@ -36,17 +68,19 @@ function startVideoRender3D(pre) {
   }, 400);
 
   let done = 0, settled = false;
+  const pre2 = pre;
   const settle = () => {
     if (settled) return;
     if (++done < missing.length) return;
     settled = true;
     clearInterval(tick);
     clearTimeout(timeout);
+    if (videoJob && videoJob.cancelled) return;
     if (window.maplibregl && window.THREE) {
-      try { initVideoRender3D(pre); }
-      catch (e) { fallbackTo2D(pre, 'Errore motore 3D: ' + (e && e.message ? e.message : e) + '. Uso il render 2D.'); }
+      try { initVideoRender3D(pre2); }
+      catch (e) { requestVideoFallback(pre2, null, 'Errore motore 3D: ' + (e && e.message ? e.message : e) + '. Uso il render 2D.'); }
     } else {
-      fallbackTo2D(pre, 'Mappa 3D non disponibile, uso il render 2D.');
+      requestVideoFallback(pre2, null, 'Mappa 3D non disponibile, uso il render 2D.');
     }
   };
 
@@ -55,7 +89,7 @@ function startVideoRender3D(pre) {
     if (settled) return;
     settled = true;
     clearInterval(tick);
-    fallbackTo2D(pre, 'Dipendenze 3D non caricate (rete lenta?), uso il render 2D.');
+    requestVideoFallback(pre, null, 'Dipendenze 3D non caricate (rete lenta?), uso il render 2D.');
   }, 12000);
 
   for (const url of missing) loadVideo3DScript(url, settle, settle);
@@ -108,21 +142,21 @@ function initVideoRender3D(pre) {
       job.mapReady = true;
       beginVideoCapture(job, canvas, pre.mime);
     } catch (e) {
-      fallbackTo2D(pre, 'Terreno 3D non disponibile, uso il render 2D.', job);
+      requestVideoFallback(pre, job, 'Terreno 3D non disponibile, uso il render 2D.');
     }
   });
 
   // Stile/worker non caricati (CSP, offline, CDN bloccata) → fallback immediato.
   map.on('error', () => {
-    if (!job.mapReady && !job.cancelled) fallbackTo2D(pre, 'Mappa 3D non disponibile, uso il render 2D.', job);
+    if (!job.mapReady && !job.cancelled) requestVideoFallback(pre, job, 'Mappa 3D non disponibile, uso il render 2D.');
   });
 
   // Rete di sicurezza: se lo stile non carica in tempo.
-  setTimeout(() => {
+  trackVideoTimer(job, setTimeout(() => {
     if (!job.mapReady && videoJob === job && !job.cancelled) {
-      fallbackTo2D(pre, 'Stile mappa non caricato, uso il render 2D.', job);
+      requestVideoFallback(pre, job, 'Stile mappa non caricato, uso il render 2D.');
     }
-  }, 15000);
+  }, 15000));
 }
 
 function buildCameraKeyframes(mapPts) {
