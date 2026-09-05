@@ -30,12 +30,16 @@ function videoMp4Supported() {
   return typeof VideoEncoder !== 'undefined' && typeof VideoFrame !== 'undefined';
 }
 
-/* Carica il muxer vendored (stessa origine, niente CSP/module-harness trap):
-   import() dinamico via indirection così la vm dei test non lo parsa mai. */
+/* Carica il muxer vendored (stessa origine). import() dinamico diretto: il
+   wrapper new Function chiedeva 'unsafe-eval' e la CSP dell'app (script-src
+   senza unsafe-eval) lo bloccava sempre → MP4 morto. .js invece di .mjs:
+   import() lo tratta comunque da modulo, e .js ha MIME text/javascript
+   ovunque (Pages statiche servono .mjs come text/plain). La vm dei test
+   non chiama mai loadMp4Muxer, quindi l'import non viene risolto. */
 let _mp4MuxerPromise = null;
 function loadMp4Muxer() {
   if (_mp4MuxerPromise) return _mp4MuxerPromise;
-  _mp4MuxerPromise = new Function('u', 'return import(u)')('./js/vendor/mp4-muxer.mjs');
+  _mp4MuxerPromise = import('./js/vendor/mp4-muxer.js');
   return _mp4MuxerPromise;
 }
 
@@ -132,15 +136,8 @@ function videoMp4SetupMap(job, pre) {
         job.map.setTerrain({ source: 'dem', exaggeration: 1.5 });
         try { job.map.jumpTo({ center: [first.lon, first.lat], zoom: VIDEO3D_CONF.camera.zoom, pitch: VIDEO3D_CONF.camera.pitch, bearing: 0 }); } catch (e) {}
         if (typeof job.map.setSky === 'function') { try { job.map.setSky(videoSkyOptions()); } catch (e) {} }
-        // Satellite opzionale: raster Esri sotto tutto (stesso ramo del realtime).
-        if (pre.sat) {
-          try {
-            job.map.addSource('video-sat', { type: 'raster', tileSize: 256, maxzoom: 19,
-              tiles: VIDEO3D_CONF.satTiles, attribution: VIDEO3D_CONF.satAttr });
-            job.map.addLayer({ id: 'video-sat', type: 'raster', source: 'video-sat',
-              paint: { 'raster-opacity': 1 } });
-          } catch (e) {}
-        }
+        // Satellite opzionale: stessa base + liberty nascosto del realtime.
+        if (pre.sat) { try { videoSatAddToMap(job.map); } catch (e) {} }
         let beforeId = null;
         try {
           const layers = job.map.getStyle ? job.map.getStyle().layers : null;

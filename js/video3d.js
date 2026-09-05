@@ -179,6 +179,43 @@ function videoTrackAddToMap(map, mapPts, segLeans) {
 
 /* Rilievo + edifici dopo il terrain (try/catch dedicati: un id mancante nello
    stile remoto non deve buttare in 2D un render sano). */
+/* Layer liberty da nascondere in modalità satellite: i fill opachi (acqua,
+   edifici, landuse/landcover/park) coprirebbero il raster Esri. Restano
+   strade/labels/waterway per il contesto. Guardia per layer: id mancanti
+   nello stile remoto non devono buttare in 2D un render sano. */
+const VIDEO3D_SAT_HIDE = ['background', 'natural_earth', 'park', 'park_outline',
+  'landuse_residential', 'landcover_wood', 'landcover_grass', 'landcover_ice',
+  'landcover_wetland', 'landuse_pitch', 'landuse_track', 'landuse_cemetery',
+  'landuse_hospital', 'landuse_school', 'water', 'landcover_sand',
+  'aeroway_fill', 'building', 'building-3d', 'road_area_pattern'];
+
+function videoSatHideBaseLayers(map) {
+  for (const id of VIDEO3D_SAT_HIDE) {
+    try { if (map.getLayer && map.getLayer(id)) map.setLayoutProperty(id, 'visibility', 'none'); } catch (e) {}
+  }
+}
+
+/* Satellite opzionale: raster Esri come base (sotto strade/labels), liberty
+   base (fill opachi) nascosto. Prima fix: si metteva SOTTO il liberty opaco
+   e restava invisibile. Idempotente, try/catch: stile remoto senza layer o
+   tile bloccate → si resta su liberty, niente throw. */
+function videoSatAddToMap(map) {
+  try {
+    map.addSource('video-sat', { type: 'raster', tileSize: 256, maxzoom: 19,
+      tiles: VIDEO3D_CONF.satTiles, attribution: VIDEO3D_CONF.satAttr });
+  } catch (e) {}
+  videoSatHideBaseLayers(map);
+  let satBefore = null;
+  try {
+    const ls = map.getStyle ? map.getStyle().layers : null;
+    if (ls && ls.length) satBefore = ls[0].id;
+  } catch (e) {}
+  try {
+    map.addLayer({ id: 'video-sat', type: 'raster', source: 'video-sat',
+      paint: { 'raster-opacity': 1 } }, satBefore);
+  } catch (e) {}
+}
+
 function videoSceneAddToMap(map, beforeId) {
   const B = VIDEO3D_CONF.buildings;
   try {
@@ -475,22 +512,8 @@ function initVideoRender3D(pre) {
         map.addLayer({ id: 'video-ground', type: 'background',
           paint: { 'background-color': VIDEO3D_CONF.ground } });
       } catch (e) {}
-      // Satellite opzionale: raster Esri SOTTO il liberty (non sopra: il
-      // liberty è opaco e lo seppellirebbe). Si cerca il primo layer dello
-      // stile e si inserisce prima; se non c'è, fondo stile.
-      if (pre.sat) {
-        try {
-          map.addSource('video-sat', { type: 'raster', tileSize: 256, maxzoom: 19,
-            tiles: VIDEO3D_CONF.satTiles, attribution: VIDEO3D_CONF.satAttr });
-          let satBefore = null;
-          try {
-            const ls = map.getStyle ? map.getStyle().layers : null;
-            if (ls && ls.length) satBefore = ls[0].id;
-          } catch (e) {}
-          map.addLayer({ id: 'video-sat', type: 'raster', source: 'video-sat',
-            paint: { 'raster-opacity': 1 } }, satBefore);
-        } catch (e) {}
-      }
+      // Satellite opzionale: raster Esri come base + liberty fill nascosti.
+      if (pre.sat) { try { videoSatAddToMap(map); } catch (e) {} }
       try { videoTrackAddToMap(map, pre.mapPts, job.segLeans); } catch (e) {}
       // Rilievo ombreggiato + tinta edifici (stesso beforeId: la scia resta sopra).
       videoSceneAddToMap(map, beforeId);

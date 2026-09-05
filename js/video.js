@@ -233,6 +233,7 @@ function startVideoRender(s) {
   if (!videoHasGps(pre)) {
     if (els.videoType) els.videoType.value = '2d';
     toast('Giro senza GPS: uso il render 2D (grafici+HUD).', 'err', 6000);
+    if (wantMp4Early && !mp4ok) toast('MP4 non supportato qui, uso WebM.', 'err', 6000);
     startVideoRender2D(pre);
     return;
   }
@@ -242,7 +243,14 @@ function startVideoRender(s) {
     // supportato va al loop MP4, altrimenti cade sul WebM realtime.
     const wantMp4 = !!(els.videoFormat && els.videoFormat.value === 'mp4');
     if (wantMp4 && typeof videoMp4Supported === 'function' && videoMp4Supported()) {
-      startVideoRenderMp4(pre, mode);
+      // MP4 è async e può rifiutare (muxer offline, encode fallito): se
+      // succede cade sul WebM. pre.mime resta '' nel ramo MP4 (pickVideoMime
+      // gira solo quando !mp4ok), quindi va ripopolato prima del fallback.
+      startVideoRenderMp4(pre, mode).catch(() => {
+        toast('MP4 non riuscito, uso WebM.', 'err', 6000);
+        pre.mime = pickVideoMime();
+        if (mode === '3d') startVideoRender3D(pre); else startVideoRender2D(pre);
+      });
       return;
     }
     if (wantMp4) toast('MP4 non supportato qui, uso WebM.', 'err', 6000);

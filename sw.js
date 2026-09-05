@@ -43,7 +43,7 @@ const SHELL = [
   './js/log-session.js',
   './js/video3d.js',
   './js/video-mp4.js',
-  './js/vendor/mp4-muxer.mjs',
+  './js/vendor/mp4-muxer.js',
   './js/map.js',
   './js/diag.js',
   './js/ui-core.js',
