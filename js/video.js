@@ -163,9 +163,13 @@ function beginVideoCapture(job, canvas, mime) {
 function cleanupVideoJob(job) {
   if (job.raf) { cancelAnimationFrame(job.raf); job.raf = 0; }
   if (job.canvas && job.canvas.parentNode) job.canvas.parentNode.removeChild(job.canvas);
-  if (job.moto && job.moto.renderer) {
-    try { job.moto.renderer.dispose(); } catch (e) {}
-    if (job.moto.renderer.domElement && job.moto.renderer.domElement.parentNode) job.moto.renderer.domElement.parentNode.removeChild(job.moto.renderer.domElement);
+  if (job.moto) {
+    if (typeof disposeVideoMoto3D === 'function') { try { disposeVideoMoto3D(job.moto); } catch (e) {} }
+    else if (job.moto.renderer) {
+      try { job.moto.renderer.dispose(); } catch (e) {}
+      if (job.moto.renderer.domElement && job.moto.renderer.domElement.parentNode) job.moto.renderer.domElement.parentNode.removeChild(job.moto.renderer.domElement);
+    }
+    job.moto = null;
   }
   if (job.map && job.map.remove) { try { job.map.remove(); } catch (e) {} }
   if (job.container && job.container.parentNode) job.container.parentNode.removeChild(job.container);

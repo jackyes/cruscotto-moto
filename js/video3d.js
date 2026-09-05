@@ -268,7 +268,36 @@ function initVideoMoto3D(THREE, W, H) {
   add(new THREE.CylinderGeometry(0.02, 0.02, 0.10, 8), M.frame, 0.20, 0.35, -0.05);
 
   scene.add(moto);
-  return { renderer, scene, camera, bike, wheels };
+
+  // Registra tutto il disposable per disposeVideoMoto3D: traverse a fine vita
+  // non basta se i materiali condivisi (M.*) non sono referenziati dai mesh
+  // visitati — qui la lista è esplicita e completa.
+  const disposables = new Set();
+  scene.traverse(o => {
+    if (o.geometry) disposables.add(o.geometry);
+    if (o.material) (Array.isArray(o.material) ? o.material : [o.material]).forEach(m => disposables.add(m));
+  });
+  Object.values(M).forEach(m => disposables.add(m));
+  return { renderer, scene, camera, bike, wheels, _disposables: [...disposables] };
+}
+
+/* Libera GPU+CPU dopo un render 3D o un cancel. Idempotente: doppia chiamata
+   (cleanupVideoJob + stopVideoRender) non lancia. Senza: ogni render 3D
+   accumulava decine di Geometry/Material mai disposti. */
+function disposeVideoMoto3D(moto) {
+  if (!moto || moto._disposed) return;
+  moto._disposed = true;
+  const list = moto._disposables || [];
+  for (const d of list) { try { d.dispose && d.dispose(); } catch (e) {} }
+  moto._disposables = [];
+  if (moto.renderer) {
+    try { moto.renderer.dispose(); } catch (e) {}
+    try { moto.renderer.forceContextLoss && moto.renderer.forceContextLoss(); } catch (e) {}
+    try {
+      const el = moto.renderer.domElement;
+      if (el && el.parentNode) el.parentNode.removeChild(el);
+    } catch (e) {}
+  }
 }
 
 function drawVideoFrame3D(job) {

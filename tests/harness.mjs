@@ -62,7 +62,7 @@ const exportLine = `
   navRequestRoute, navGeocode, checkCameras, camsToDraw, maybeLoadCameras, fetchCameras,
   startCalibration, collectCalib, finishCalibration, sampleTick, flushLog,
   navPersistRoute, navRestore, fetchWithTimeout, navTick, navMaybeReroute, navTryOsrm,
-  buildCameraKeyframes
+  buildCameraKeyframes, disposeVideoMoto3D
 };
 `;
 
