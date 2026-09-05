@@ -70,3 +70,32 @@ test('handleFiles: scarta non-csv, apre il primo', () => {
   assert.equal(opened, 'giro.csv');
   sandbox.__viewer.render = origRender;
 });
+
+test('viewerVideoRows: snake_case CSV → camelCase video', () => {
+  const { sandbox } = loadViewer();
+  const out = sandbox.__viewer.viewerVideoRows([
+    { t: 0, speed_kmh: 50, speed_ms: 13.9, lean_deg: 10, lat_accel_g: 0.1, lon_accel_g: 0.2,
+      vert_accel_g: 1, vib_g: 0.05, lat: 44, lon: 10, alt_m: 500, heading_deg: 90,
+      gps_acc_m: 5, pitch_deg: 1, gyro_yaw_dps: 2, speed_fus_ms: 13, lean_kin_deg: 9,
+      vib_hi_g: 0.01, lean_ref: 'x' },
+    { t: null, speed_kmh: 60 }, // scartata: t invalido
+    { t: 1, speed_kmh: 60, lean_deg: -20, lat: 44.001, lon: 10.001 },
+  ]);
+  assert.equal(out.length, 2);
+  assert.equal(out[0].speedKmh, 50);
+  assert.equal(out[0].lean, 10);
+  assert.equal(out[0].latG, 0.1);
+  assert.equal(out[0].alt, 500);
+  assert.equal(out[0].heading, 90);
+  assert.equal(out[1].lean, -20);
+});
+
+test('viewer video: script js/* inclusi + els locali', () => {
+  for (const s of ['js/geo.js', 'js/parse.js', 'js/draw.js', 'js/video.js', 'js/video3d.js', 'js/video-mp4.js']) {
+    assert.ok(html.includes('<script src="' + s + '">'), s);
+  }
+  assert.ok(html.includes('id="btnVideo"'), 'bottone Crea video');
+  assert.ok(html.includes('id="videoModal"'), 'modal video');
+  assert.ok(html.includes('viewerBindEls'), 'bind els locali');
+  assert.ok(!html.includes('videoCard'), 'niente card PNG nel viewer');
+});

@@ -12,6 +12,9 @@
     --accent: #0ea5e9; --good: #34d399; --bad: #f87171; --warn: #fbbf24;
     --acc-lat: #38bdf8; --acc-lon: #fbbf24; --acc-vert: #a78bfa;
     --c-bg: #121924; --c-grid: #263243; --c-axis: #8a99aa;
+    --c-accent: #0ea5e9; --c-good: #34d399; --c-bad: #f87171;
+    --c-txt: #e6edf5; --c-route: #a78bfa;
+    --c-acc-lat: #38bdf8; --c-acc-lon: #fbbf24; --c-acc-vert: #a78bfa;
     color-scheme: dark;
   }
   * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -44,6 +47,16 @@
   .rowbtn { display: flex; gap: 8px; margin-bottom: 12px; flex-wrap: wrap; }
   .btn { background: var(--surface-2); color: var(--text); border: 1px solid var(--line); border-radius: 10px; padding: 8px 14px; font-weight: 700; font-size: 13px; cursor: pointer; }
   .btn:hover { border-color: var(--accent); }
+  .btn.primary { background: var(--accent); border-color: var(--accent); color: #06121c; }
+  .modal { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 14px 16px; margin-bottom: 12px; }
+  .modal[hidden] { display: none; }
+  .modal h2 { font-size: 15px; margin-bottom: 10px; }
+  .m-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 8px; font-size: 13px; font-weight: 600; }
+  .m-row select { background: var(--surface-2); color: var(--text); border: 1px solid var(--line); border-radius: 8px; padding: 6px 8px; font-size: 13px; max-width: 60%; }
+  .m-progress { height: 8px; background: var(--surface-2); border-radius: 6px; overflow: hidden; margin: 10px 0 6px; }
+  .m-progress > div { height: 100%; width: 0%; background: var(--accent); }
+  .m-status { font-size: 12px; color: var(--text-2); margin-bottom: 8px; }
+  .m-btns { display: flex; gap: 8px; justify-content: flex-end; }
   .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px; margin-bottom: 14px; }
   .stat { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 12px; text-align: center; }
   .stat .v { font-size: 22px; font-weight: 800; font-variant-numeric: tabular-nums; }
@@ -83,13 +96,109 @@
     <div class="rowbtn">
       <button class="btn" id="btnOverlay" type="button">Confronta 2° file…</button>
       <button class="btn" id="btnExport" type="button">Esporta CSV filtrato</button>
+      <button class="btn" id="btnVideo" type="button">Crea video…</button>
     </div>
     <input type="file" id="file2" accept=".csv,text/csv,text/plain" hidden>
+    <div class="modal" id="videoModal" hidden>
+      <h2>Export video</h2>
+      <div class="m-row"><span>Risoluzione</span>
+        <select id="videoRes">
+          <option value="720" selected>1280×720 (720p)</option>
+          <option value="1080">1920×1080 (1080p)</option>
+          <option value="916">720×1280 (9:16 reel)</option>
+        </select>
+      </div>
+      <div class="m-row"><span>Velocità</span>
+        <select id="videoSpeed">
+          <option value="1">1×</option>
+          <option value="2">2×</option>
+          <option value="4">4×</option>
+          <option value="12">12×</option>
+        </select>
+      </div>
+      <div class="m-row"><span>Tipo</span>
+        <select id="videoType">
+          <option value="3d" selected>3D (mappa + moto)</option>
+          <option value="2d">2D (cruscotto)</option>
+        </select>
+      </div>
+      <div class="m-row"><span>Stile 3D</span>
+        <select id="videoStyle">
+          <option value="map" selected>Mappa (leggero)</option>
+          <option value="sat">Satellite (cinematografico)</option>
+        </select>
+      </div>
+      <div class="m-row"><span>Formato</span>
+        <select id="videoFormat">
+          <option value="webm" selected>WebM (compatibile)</option>
+          <option value="mp4">MP4 (reel/social)</option>
+        </select>
+      </div>
+      <div class="m-row"><span>Audio</span>
+        <select id="videoAudio">
+          <option value="on" selected>Motore + vento</option>
+          <option value="off">Muto</option>
+        </select>
+      </div>
+      <div class="m-progress"><div id="videoProg"></div></div>
+      <div class="m-status" id="videoStatus">Pronto.</div>
+      <div class="m-btns">
+        <button class="btn" id="videoCancel" type="button">Annulla</button>
+        <button class="btn primary" id="videoStart" type="button">Avvia render</button>
+      </div>
+    </div>
     <div class="hint">Grafici e statistiche generati localmente nel browser. Nessun dato inviato altrove.</div>
   </main>
 </div>
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha384-cxOPjt7s7Iz04uaHJceBmS+qpjv2JkIHNVcuOrM+YHwZOmJGBXI00mdUXEq65HTH" crossorigin="anonymous"></script>
+<script src="js/geo.js"></script>
+<script src="js/parse.js"></script>
+<script src="js/draw.js"></script>
+<script>
+/* Shim viewer→video: els/toast/canvasTheme locali (niente dipendenza dall'app).
+   toast riusa il box #err del viewer; canvasTheme legge le --c-* già in :root. */
+var els = {
+  videoModal: null, videoRes: null, videoSpeed: null, videoType: null,
+  videoStyle: null, videoFormat: null, videoAudio: null,
+  videoProg: null, videoStatus: null, videoStart: null, videoCancel: null,
+};
+function viewerBindEls() {
+  for (const k of Object.keys(els)) {
+    const id = (k === 'videoCancel') ? 'videoCancel' : k;
+    try { els[k] = document.getElementById(id); } catch (e) { els[k] = null; }
+  }
+}
+function toast(msg, kind, ms) {
+  try {
+    const box = document.getElementById('err');
+    if (!box) return;
+    box.hidden = false;
+    box.textContent = String(msg == null ? '' : msg);
+    setTimeout(() => { try { box.hidden = true; } catch (e) {} }, ms || 4000);
+  } catch (e) {}
+}
+const canvasTheme = {
+  _c: null,
+  get(name) {
+    if (!canvasTheme._c) {
+      let cs = null;
+      try { cs = getComputedStyle(document.documentElement); } catch (e) {}
+      canvasTheme._c = {};
+      for (const n of ['c-bg', 'c-grid', 'c-axis', 'c-accent', 'c-good', 'c-bad', 'c-warn', 'c-txt', 'c-route', 'c-acc-lat', 'c-acc-lon', 'c-acc-vert']) {
+        let v = '';
+        try { v = cs ? (cs.getPropertyValue('--' + n) || '').trim() : ''; } catch (e) {}
+        canvasTheme._c[n] = v;
+      }
+    }
+    return canvasTheme._c[name] || '#888';
+  },
+  reset() { canvasTheme._c = null; },
+};
+</script>
+<script src="js/video.js"></script>
+<script src="js/video3d.js"></script>
+<script src="js/video-mp4.js"></script>
 <script>
 (function () {
   'use strict';
@@ -540,6 +649,46 @@
   fileInput.addEventListener('change', e => { if (e.target.files) handleFiles(e.target.files); e.target.value = ''; });
   $('btnExport').addEventListener('click', exportFilteredCsv);
   $('btnOverlay').addEventListener('click', () => fileInput2.click());
+  try { viewerBindEls(); } catch (e) {}
+  $('btnVideo').addEventListener('click', openViewerVideo);
+  $('videoCancel').addEventListener('click', () => { stopVideoRender(); $('videoModal').hidden = true; });
+  $('videoStart').addEventListener('click', startViewerVideo);
+
+  /* Adattatore righe viewer (snake_case CSV) → righe app (camelCase video):
+     il motore video legge speedKmh/lean/latG/lonG/vertG/vib/lat/lon. */
+  function viewerVideoRows(rows) {
+    const out = [];
+    for (const r of (rows || [])) {
+      if (r == null || r.t == null || !isFinite(r.t)) continue;
+      out.push({
+        t: r.t,
+        speedKmh: r.speed_kmh, speedMs: r.speed_ms,
+        lean: r.lean_deg,
+        latG: r.lat_accel_g, lonG: r.lon_accel_g, vertG: r.vert_accel_g,
+        latPk: r.lat_peak_g, lonPk: r.lon_peak_g, vertPk: r.vert_peak_g,
+        latFus: r.lat_accel_fus_g, lonFus: r.lon_accel_fus_g,
+        gyro: r.gyro_roll_dps, gap: r.gap, vib: r.vib_g,
+        lat: r.lat, lon: r.lon, alt: r.alt_m,
+        heading: r.heading_deg, gpsAcc: r.gps_acc_m,
+        pitch: r.pitch_deg, yaw: r.gyro_yaw_dps, speedFus: r.speed_fus_ms,
+        leanKin: r.lean_kin_deg, vibHi: r.vib_hi_g, leanRef: r.lean_ref,
+      });
+    }
+    return out;
+  }
+
+  function openViewerVideo() {
+    if (!currentRows.length) { showError('Carica prima un file .csv.'); return; }
+    if (typeof startVideoRender !== 'function') { showError('Motore video non caricato (serve rete per MapLibre?).'); return; }
+    $('videoModal').hidden = false;
+  }
+
+  function startViewerVideo() {
+    const rows = viewerVideoRows(currentRows);
+    if (!rows.length) { showError('Nessun dato da renderizzare.'); return; }
+    const s = { rows, track: rows, meta: {} };
+    startVideoRender(s);
+  }
   fileInput2.addEventListener('change', e => {
     const f = e.target.files && e.target.files[0];
     e.target.value = '';

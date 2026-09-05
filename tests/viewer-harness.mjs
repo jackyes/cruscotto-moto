@@ -24,6 +24,7 @@ function extractViewerScript(html) {
   renderMap, render, renderRows, fmtDur, handleFile, handleFiles,
   stripBom, toNumOrNull, splitCsvLine, showError, sessionDur, hasLeaflet,
   viewerStats, splitLaps, buildFilteredCsv, exportFilteredCsv, renderRows, renderLapTable,
+  viewerVideoRows, openViewerVideo, startViewerVideo,
 };`;
 }
 
