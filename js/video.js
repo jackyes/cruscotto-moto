@@ -51,6 +51,12 @@ function pickVideoMime() {
   return '';
 }
 
+/* Pura: il giro ha punti GPS validi? No = solo IMU/rulli, mappa 3D inutile. */
+function videoHasGps(pre) {
+  const mp = pre && pre.mapPts;
+  return !!(mp && mp.length >= 2);
+}
+
 function openVideoModal(s) {
   stopVideoRender();
   els.videoModal._session = s;
@@ -111,6 +117,14 @@ function startVideoRender(s) {
   speedMax = Math.ceil(speedMax / 20) * 20;
 
   const pre = { mime, res, mult, rows, track, mapPts, spark, dist, tEnd, speedMax };
+  // Giro senza GPS (solo IMU, es. rulli): la mappa 3D centrerebbe l'Italia
+  // di default e centrerebbe il nulla. Forza 2D e spiega perché.
+  if (!videoHasGps(pre)) {
+    if (els.videoType) els.videoType.value = '2d';
+    toast('Giro senza GPS: uso il render 2D (grafici+HUD).', 'err', 6000);
+    startVideoRender2D(pre);
+    return;
+  }
   const mode = (els.videoType && els.videoType.value === '2d') ? '2d' : '3d';
   if (mode === '3d') { startVideoRender3D(pre); return; }
   startVideoRender2D(pre);
