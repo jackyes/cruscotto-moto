@@ -63,7 +63,8 @@ const exportLine = `
   startCalibration, collectCalib, finishCalibration, sampleTick, flushLog,
   navPersistRoute, navRestore, fetchWithTimeout, navTick, navMaybeReroute, navTryOsrm,
   buildCameraKeyframes, disposeVideoMoto3D, videoWheelSpin, videoTrackIndexForRow,
-  requestVideoFallback, clearVideoTimers, trackVideoTimer
+  requestVideoFallback, clearVideoTimers, trackVideoTimer,
+  VIDEO3D_CONF, loadVideo3DScript
 };
 `;
 

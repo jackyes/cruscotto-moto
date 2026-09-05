@@ -1,8 +1,24 @@
 'use strict';
 /* js/video3d.js (step 25): render video 3D (loader three.js, fallback, start/init, keyframes, moto procedurale, drawVideoFrame3D/HUD3D). Ordine: dopo js/log-session.js. */
-function loadVideo3DScript(url, onload, onerror) {
+/* Config video 3D: URL pinnati + SRI, timeouts, camera, terreno.
+   Versioni allineate al loader mappa (maplibre 4.7.1) e three 0.149.0. */
+const VIDEO3D_CONF = {
+  libs: [
+    { global: 'maplibregl', url: 'https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js', integrity: 'sha384-SYKAG6cglRMN0RVvhNeBY0r3FYKNOJtznwA0v7B5Vp9tr31xAHsZC0DqkQ/pZDmj' },
+    { global: 'THREE', url: 'https://unpkg.com/three@0.149.0/build/three.min.js', integrity: 'sha384-RRHfJ6w1mTlKUBMYT/hvnRiOzEB/vyRV3DrQOseb6oYfvaZSfdd0byS4bHps0k2R' },
+  ],
+  css: 'https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css',
+  styleUrl: 'https://tiles.openfreemap.org/styles/liberty',
+  demTiles: ['https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png'],
+  demEncoding: 'terrarium',
+  timeouts: { cdnMs: 12000, styleMs: 15000 },
+  camera: { zoom: 15.5, pitch: 60 },
+};
+
+function loadVideo3DScript(url, onload, onerror, integrity) {
   const sc = document.createElement('script');
   sc.src = url; sc.crossOrigin = 'anonymous';
+  if (integrity) sc.integrity = integrity;
   sc.onload = onload; sc.onerror = onerror;
   document.head.appendChild(sc);
 }
@@ -54,11 +70,9 @@ function startVideoRender3D(pre) {
   }
   els.videoStatus.textContent = 'Carico motore 3D';
   const css = document.createElement('link');
-  css.rel = 'stylesheet'; css.href = 'https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css';
+  css.rel = 'stylesheet'; css.href = VIDEO3D_CONF.css;
   document.head.appendChild(css);
-  const missing = [];
-  if (!window.maplibregl) missing.push('https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js');
-  if (!window.THREE) missing.push('https://unpkg.com/three@0.149.0/build/three.min.js');
+  const missing = VIDEO3D_CONF.libs.filter(l => !window[l.global]);
 
   // Feedback: pallini animati, così si capisce che sta lavorando.
   let dots = 1;
@@ -90,9 +104,9 @@ function startVideoRender3D(pre) {
     settled = true;
     clearInterval(tick);
     requestVideoFallback(pre, null, 'Dipendenze 3D non caricate (rete lenta?), uso il render 2D.');
-  }, 12000);
+  }, VIDEO3D_CONF.timeouts.cdnMs);
 
-  for (const url of missing) loadVideo3DScript(url, settle, settle);
+  for (const lib of missing) loadVideo3DScript(lib.url, settle, settle, lib.integrity);
 }
 
 function initVideoRender3D(pre) {
@@ -109,8 +123,8 @@ function initVideoRender3D(pre) {
   const map = new maplibregl.Map({
     container: container,
     center: [first.lon, first.lat],
-    zoom: 15.5, pitch: 60, bearing: 0,
-    style: 'https://tiles.openfreemap.org/styles/liberty',
+    zoom: VIDEO3D_CONF.camera.zoom, pitch: VIDEO3D_CONF.camera.pitch, bearing: 0,
+    style: VIDEO3D_CONF.styleUrl,
     attributionControl: false,
     preserveDrawingBuffer: true, // serve a drawImage nel master canvas
   });
@@ -135,8 +149,8 @@ function initVideoRender3D(pre) {
     try {
       map.addSource('dem', {
         type: 'raster-dem',
-        tiles: ['https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png'],
-        encoding: 'terrarium', tileSize: 256, maxzoom: 15,
+        tiles: VIDEO3D_CONF.demTiles,
+        encoding: VIDEO3D_CONF.demEncoding, tileSize: 256, maxzoom: 15,
       });
       map.setTerrain({ source: 'dem', exaggeration: 1.5 });
       job.mapReady = true;
@@ -156,7 +170,7 @@ function initVideoRender3D(pre) {
     if (!job.mapReady && videoJob === job && !job.cancelled) {
       requestVideoFallback(pre, job, 'Stile mappa non caricato, uso il render 2D.');
     }
-  }, 15000));
+  }, VIDEO3D_CONF.timeouts.styleMs));
 }
 
 function buildCameraKeyframes(mapPts) {
@@ -360,7 +374,7 @@ function drawVideoFrame3D(job, dt) {
   const kIdx = videoTrackIndexForRow(i, rows.length, mapPts.length);
   const kf = keyframes[kIdx];
   if (kf && job.mapReady) {
-    map.jumpTo({ center: [kf.lon, kf.lat], bearing: kf.brg, pitch: 60, zoom: 15.5 });
+    map.jumpTo({ center: [kf.lon, kf.lat], bearing: kf.brg, pitch: VIDEO3D_CONF.camera.pitch, zoom: VIDEO3D_CONF.camera.zoom });
     if (typeof map.triggerRepaint === 'function') map.triggerRepaint(); else if (typeof map.redraw === 'function') map.redraw();
   }
 
