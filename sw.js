@@ -39,6 +39,7 @@ const SHELL = [
   './js/video.js',
   './js/sensor-src.js',
   './js/cam-map.js',
+  './js/nav-map.js',
   './js/net-base.js',
   './js/draw.js',
   './viewer.html',
