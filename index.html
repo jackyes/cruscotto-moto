@@ -1737,11 +1737,25 @@ function medianWindow() {
   if (n % 2 === 0) n++;
   return n < 3 ? 3 : (n > 9 ? 9 : n);
 }
+/* Coda a blocchi unica: tetto per lunghezza o per tempo. Rimpiazza gli
+   shift() O(n) per campione con splice ammortizzato. */
+function pushBounded(h, v, max, maxAgeMs, getT) {
+  h.push(v);
+  if (maxAgeMs != null && getT) {
+    const cut = getT(v) - maxAgeMs;
+    if (h.length > 1 && getT(h[0]) < cut) {
+      let k = 1;
+      while (k < h.length - 1 && getT(h[k]) < cut) k++;
+      h.splice(0, k);
+    }
+  } else if (max != null && h.length > max) {
+    h.splice(0, h.length - max);
+  }
+  return h;
+}
 function pushAccHist(v) {
   const h = state._accHist || (state._accHist = []);
-  h.push(v);
-  const w = medianWindow();
-  if (h.length > w) h.splice(0, h.length - w);
+  pushBounded(h, v, medianWindow());
 }
 function medianAcc() {
   const h = state._accHist;
@@ -1797,13 +1811,7 @@ const clamp01 = v => v < 0 ? 0 : (v > 1 ? 1 : v);
    piega di troppo dopo ogni staccata. */
 function pushSpeedHist(t, aInt) {
   const h = state._spHist || (state._spHist = []);
-  h.push({ t: t, a: aInt });
-  const cut = t - SPEED_HIST_S * 1000;
-  if (h.length > 1 && h[0].t < cut) {
-    let k = 1;
-    while (k < h.length - 1 && h[k].t < cut) k++;
-    h.splice(0, k);
-  }
+  pushBounded(h, { t: t, a: aInt }, null, SPEED_HIST_S * 1000, e => e.t);
 }
 function aIntAt(t) {
   const h = state._spHist;
@@ -2703,11 +2711,23 @@ function camMoveThreshold() { return state.camRadius * CAM_MOVE_FACTOR; }
 function cellKey(lat, lon) {
   return Math.floor(lat / CAM_GRID_DEG) + ':' + Math.floor(lon / CAM_GRID_DEG);
 }
+/* Precomputa all'ingest: radianti + sin/cos lat + chiave stabile. Il costo
+   trigonometrico si paga 1x all'import invece di 1x per fix per camera. */
+function camPrecompute(c) {
+  if (c._pre) return c;
+  const D = Math.PI / 180;
+  c.latR = c.lat * D; c.lonR = c.lon * D;
+  c.sinLat = Math.sin(c.latR); c.cosLat = Math.cos(c.latR);
+  c._k = camKey(c);
+  c._pre = true;
+  return c;
+}
 function rebuildCamGrid() {
   const g = new Map();
   for (const c of allCameras()) {
     if (typeof c.lat !== 'number' || typeof c.lon !== 'number') continue;
     if (!isFinite(c.lat) || !isFinite(c.lon)) continue;
+    camPrecompute(c);
     const k = cellKey(c.lat, c.lon);
     let a = g.get(k);
     if (!a) { a = []; g.set(k, a); }
@@ -2957,9 +2977,14 @@ function checkCameras() {
   const seen = {};
 
   let nearest = null, nearestD = Infinity;
+  const meR = me.lat * Math.PI / 180, meLonR = me.lon * Math.PI / 180;
+  const sinMe = Math.sin(meR), cosMe = Math.cos(meR);
   for (const c of cams) {
-    const d = haversineM(me.lat, me.lon, c.lat, c.lon);
-    const k = camKey(c);
+    // haversine inline su precomputati: niente oggetti, niente sin/cos per me.
+    const dLatH = (c.latR - meR) / 2, dLonH = (c.lonR - meLonR) / 2;
+    const h = Math.sin(dLatH) ** 2 + cosMe * c.cosLat * Math.sin(dLonH) ** 2;
+    const d = 2 * 6371000 * Math.asin(Math.sqrt(Math.min(1, Math.max(0, h))));
+    const k = c._k || camKey(c);
     seen[k] = d;
     if (d > state.camDist) continue;
     if (useBearing) {
@@ -3854,6 +3879,48 @@ function navCostingOptions() {
   } };
 }
 
+/* Cache route/geocode in idb kv (stesse chiavi, no migrazione schema).
+   Route: chiave = hash(from@4dec+to+costing); TTL 24h. Geocode: chiave = query
+   normalizzata + bias @2dec; TTL 7gg, max ~200 voci LRU. Offline: cache letta
+   anche se scaduta (stale-while-offline); TimeoutError non scrive mai. */
+const ROUTE_CACHE_TTL_MS = 24 * 3600 * 1000, GEO_CACHE_TTL_MS = 7 * 24 * 3600 * 1000;
+function routeCacheKey(from, to, costing) {
+  const f = from.lat.toFixed(4) + ',' + from.lon.toFixed(4);
+  const t = to.lat.toFixed(4) + ',' + to.lon.toFixed(4);
+  return 'routeCache:' + f + '>' + t + ':' + JSON.stringify(costing || {});
+}
+function geoCacheKey(q, p) {
+  const nq = String(q || '').toLowerCase().trim().replace(/\s+/g, ' ');
+  const bias = p ? '|' + p.lat.toFixed(2) + ',' + p.lon.toFixed(2) : '';
+  return 'geocodeCache:' + nq + bias;
+}
+async function cacheGetFresh(key, ttl) {
+  try {
+    const e = await idb.kvGet(key);
+    if (!e || !e.ts) return null;
+    if (Date.now() - e.ts > (e.ttl || ttl)) return { stale: true, body: e.body };
+    return { stale: false, body: e.body };
+  } catch (err) { return null; }
+}
+async function cachePut(key, body, ttl) {
+  try { await idb.kvPut(key, { ts: Date.now(), ttl: ttl, body: body }); } catch (err) {}
+}
+async function geoCachePrune() {
+  try {
+    // kv store senza indici: prune best-effort solo se idb espone keys; altrimenti no-op.
+    if (typeof idb.kvKeys !== 'function') return;
+    const keys = await idb.kvKeys();
+    const geo = (keys || []).filter(k => k.indexOf('geocodeCache:') === 0);
+    if (geo.length <= 200) return;
+    const entries = [];
+    for (const k of geo) { const e = await idb.kvGet(k); if (e) entries.push([k, e.ts || 0]); }
+    entries.sort((a, b) => a[1] - b[1]);
+    for (let i = 0; i < entries.length - 200; i++) {
+      try { await idb.kvPut(entries[i][0], null); } catch (err) {}
+    }
+  } catch (err) {}
+}
+
 async function navRequestRoute(from, to, hdg, why) {
   if (!from || !to) return;
   // L'heading si passa a Valhalla SOLO quando si e' davvero in movimento: il compass
@@ -3874,6 +3941,30 @@ async function navRequestRoute(from, to, hdg, why) {
   };
   navSetStatus(why ? 'Ricalcolo in corso…' : 'Calcolo percorso…');
   let trip = null, engine = null, err = null, retried = false, lastReq = null;
+  const rKey = routeCacheKey(from, to, navCostingOptions());
+  const cached = await cacheGetFresh(rKey, ROUTE_CACHE_TTL_MS);
+  if (cached && !cached.stale) {
+    try {
+      const nv0 = navBuild(cached.body.trip);
+      nv0.engine = cached.body.engine || 'cache';
+      nv0.dest = { lat: to.lat, lon: to.lon, label: (state.navDest && state.navDest.label) || '' };
+      nv0.status = 'ACTIVE';
+      nv0.idx = 0; nv0.segT = 0; nv0.sAlong = 0; nv0.offDist = 0; nv0.offThr = 50;
+      nv0.nextMan = Math.min(1, nv0.man.length - 1);
+      nv0.spoken = 0; nv0.preSpoken = {};
+      nv0.offCount = 0; nv0.offTravel = 0; nv0.missCount = 0; nv0.missTravel = 0;
+      nv0.wrongCount = 0; nv0.wrongTravel = 0; nv0.farCount = 0; nv0.lostCount = 0; nv0.arriveCount = 0;
+      nv0.vEMA = null; nv0.lastFixAt = 0; nv0.lastGoodAt = Date.now(); nv0.lastLat = null; nv0.lastLon = null;
+      nv0.rerouteAt = 0; nv0.rerouteWait = 0; nv0.rerouteStreak = 0; nv0.rerouteLog = [];
+      nv0.lastRerouteEnd = Date.now(); nv0.travelSinceReroute = 0; nv0.suppressPost = false;
+      nv0.shapeRaw = (cached.body.trip.legs || []).map(l => l.shape);
+      nv0.reqSaved = lastReq || { from: { lat: from.lat, lon: from.lon }, to: { lat: to.lat, lon: to.lon } };
+      state.nav = nv0;
+      navSetStatus((why ? 'Percorso ricalcolato' : 'Percorso pronto') + ' · motore: ' + nv0.engine + ' (cache)');
+      navPersistRoute(); navDrawRoute(); navFitRoute(); navRenderBanner(); renderNavPanel();
+      return;
+    } catch (e) { /* cache corrotta: si prosegue con rete */ }
+  }
   // 1) Valhalla: profilo moto e preferenze. Timeout corto, cosi' se e' giu' il
   //    fallback parte in fretta invece di far aspettare venti secondi.
   for (const host of NAV_HOSTS) {
@@ -3906,7 +3997,23 @@ async function navRequestRoute(from, to, hdg, why) {
       engine = 'OSRM';
     } catch (e2) { err = err || e2; }
   }
+  if (trip && !(err && err.name === 'TimeoutError')) {
+    cachePut(rKey, { trip: trip, engine: engine }, ROUTE_CACHE_TTL_MS);
+  }
   const data = trip ? { trip: trip } : null;
+  // Offline con cache stale: meglio rotta vecchia che niente.
+  if (!data && cached && cached.stale && cached.body && cached.body.trip) {
+    try {
+      const nvS = navBuild(cached.body.trip);
+      nvS.engine = cached.body.engine || 'cache';
+      nvS.dest = { lat: to.lat, lon: to.lon, label: (state.navDest && state.navDest.label) || '' };
+      nvS.status = 'ACTIVE';
+      state.nav = nvS;
+      navSetStatus('Offline: uso ultimo percorso salvato.');
+      navPersistRoute(); navDrawRoute(); navFitRoute(); navRenderBanner(); renderNavPanel();
+      return;
+    } catch (e) { /* stale illeggibile: si prosegue col messaggio OFF_NONET */ }
+  }
   const prev = state.nav;
   if (!data) {
     if (prev && prev.man) {
@@ -3960,18 +4067,28 @@ async function navRequestRoute(from, to, hdg, why) {
 /* ---- geocoding (Photon) ---- */
 async function navGeocode(q) {
   const p = state.pos.lat != null ? state.pos : (state.gps.lat != null ? state.gps : null);
+  const gKey = geoCacheKey(q, p);
+  const gCached = await cacheGetFresh(gKey, GEO_CACHE_TTL_MS);
+  if (gCached && !gCached.stale) return gCached.body;
   /* Niente `lang`: Photon accetta solo default/de/en/fr e su `it` risponde 400.
      Senza il parametro usa i nomi locali, che in Italia e' esattamente quello che serve. */
   let url = NAV_GEO_HOST + '?limit=6&q=' + encodeURIComponent(q);
   if (p) url += '&lat=' + p.lat.toFixed(5) + '&lon=' + p.lon.toFixed(5);
-  const res = await navGate(() => fetchWithTimeout(url, NAV_GEO_TIMEOUT_MS));
+  let res;
+  try {
+    res = await navGate(() => fetchWithTimeout(url, NAV_GEO_TIMEOUT_MS));
+  } catch (e) {
+    if (gCached && gCached.stale) return gCached.body; // offline: meglio stale che niente
+    throw e;
+  }
   if (!res.ok) {
     let detail = '';
     try { const j = await res.json(); detail = (j && (j.message || j.error)) ? ' — ' + (j.message || j.error) : ''; } catch (e) {}
+    if (gCached && gCached.stale) return gCached.body;
     throw new Error('HTTP ' + res.status + detail);
   }
   const j = await res.json();
-  return (j.features || []).map(f => {
+  const out = (j.features || []).map(f => {
     const c = f.geometry && f.geometry.coordinates;   // [lon, lat]: invertito
     const pr = f.properties || {};
     if (!c || c.length < 2) return null;
@@ -3980,6 +4097,9 @@ async function navGeocode(q) {
       .filter(Boolean).join(', ');
     return { lat: +c[1], lon: +c[0], label: String(name), sub: String(sub) };
   }).filter(Boolean);
+  cachePut(gKey, out, GEO_CACHE_TTL_MS);
+  geoCachePrune();
+  return out;
 }
 
 /* Coordinate incollate: "44.0367, 10.1417" oppure un link mappe. Solo regex, niente rete. */
@@ -4621,15 +4741,14 @@ function findRowAt(rows, t) {
 }
 
 /* Colore dai CSS var del tema (--accent, --good, --c-bg, --acc-lat, …). */
-let _videoColors = null;
+/* videoColor ora delega a canvasTheme (unica cache colori, invalidata da
+   applyTheme): niente doppia cache dello stesso concetto. Accetta nomi sia
+   con sia senza prefisso 'c-' ('accent' -> 'c-accent'). */
 function videoColor(name) {
-  if (_videoColors && (name in _videoColors)) return _videoColors[name];
-  const v = getComputedStyle(document.documentElement).getPropertyValue('--' + name).trim() || '#888';
-  if (_videoColors) _videoColors[name] = v;
-  else { _videoColors = {}; _videoColors[name] = v; }
-  return v;
+  const key = (name.indexOf('c-') === 0) ? name : ('c-' + name);
+  return canvasTheme.get(key);
 }
-function resetVideoColors() { _videoColors = null; }
+function resetVideoColors() { canvasTheme.reset(); }
 
 let videoJob = null;
 
@@ -5830,13 +5949,7 @@ const canvasTheme = {
 };
 
 function sampleCharts(now) {
-  state.chartBuf.push({ t: now, speedKph: state.speedKph, lean: state.lean, latG: state.latG, lonG: state.lonG });
-  const cutoff = now - CHART_WINDOW;
-  if (state.chartBuf.length && state.chartBuf[0].t < cutoff) {
-    let k = 1;
-    while (k < state.chartBuf.length && state.chartBuf[k].t < cutoff) k++;
-    state.chartBuf.splice(0, k);
-  }
+  pushBounded(state.chartBuf, { t: now, speedKph: state.speedKph, lean: state.lean, latG: state.latG, lonG: state.lonG }, null, CHART_WINDOW, e => e.t);
 }
 
 function drawChart(canvas, data, field, color, min, max, zeroLine) {

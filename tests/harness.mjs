@@ -48,7 +48,11 @@ const exportLine = `
   decodePolyline6, navShapePlausible, navBuild, navSegNearest, navLowerBound, navProject,
   navPassed, navAdvance, navBandDist, navFmtDist, navFmtShort, navFmtTime,
   osrmType, osrmText, osrmIdxOf, navFromOsrm, navParseCoords,
-  csvMeta, num, csvRows, buildCsv, buildGpx, stamp, fmtDur, takeLogAvg, snapshot, findRowAt
+  csvMeta, num, csvRows, buildCsv, buildGpx, stamp, fmtDur, takeLogAvg, snapshot, findRowAt,
+  pushBounded, camPrecompute, routeCacheKey, geoCacheKey, cacheGetFresh, cachePut,
+  navRequestRoute, navGeocode, checkCameras, camsToDraw, maybeLoadCameras, fetchCameras,
+  startCalibration, collectCalib, finishCalibration, sampleTick, flushLog,
+  navPersistRoute, navRestore, fetchWithTimeout, navTick, navMaybeReroute, navTryOsrm
 };
 `;
 
