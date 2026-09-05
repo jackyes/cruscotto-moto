@@ -30,6 +30,7 @@ const SHELL = [
   './js/accel-fusion.js',
   './js/sensors-pipe.js',
   './js/nav-engine.js',
+  './js/log-core.js',
   './js/net-base.js',
   './js/draw.js',
   './viewer.html',
