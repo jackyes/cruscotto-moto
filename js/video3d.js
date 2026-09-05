@@ -11,7 +11,12 @@ const VIDEO3D_CONF = {
   css: 'https://unpkg.com/maplibre-gl@5.24.0/dist/maplibre-gl.css',
   cssFallback: 'https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css',
   styleUrl: 'https://tiles.openfreemap.org/styles/liberty',
+  // Satellite opzionale (§5.1 doc): raster Esri (z/y/x!) + DEM terrarium (z/x/y).
+  // Default liberty: satellite costa tile pesanti, resta scelta utente.
+  satTiles: ['https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'],
+  satAttr: 'Immagini Esri, Maxar, Earthstar Geographics',
   demTiles: ['https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png'],
+  demAttr: 'Quote Tilezen / AWS Open Data',
   demEncoding: 'terrarium',
   timeouts: { cdnMs: 12000, styleMs: 15000 },
   camera: { zoom: 15.5, pitch: 60 },
@@ -470,6 +475,16 @@ function initVideoRender3D(pre) {
         map.addLayer({ id: 'video-ground', type: 'background',
           paint: { 'background-color': VIDEO3D_CONF.ground } });
       } catch (e) {}
+      // Satellite opzionale: raster Esri sotto tutto (probe prima, fallback
+      // liberty se bloccato). beforeId null = fondo stile.
+      if (pre.sat) {
+        try {
+          map.addSource('video-sat', { type: 'raster', tileSize: 256, maxzoom: 19,
+            tiles: VIDEO3D_CONF.satTiles, attribution: VIDEO3D_CONF.satAttr });
+          map.addLayer({ id: 'video-sat', type: 'raster', source: 'video-sat',
+            paint: { 'raster-opacity': 1 } });
+        } catch (e) {}
+      }
       try { videoTrackAddToMap(map, pre.mapPts, job.segLeans); } catch (e) {}
       // Rilievo ombreggiato + tinta edifici (stesso beforeId: la scia resta sopra).
       videoSceneAddToMap(map, beforeId);
