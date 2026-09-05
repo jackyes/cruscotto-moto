@@ -409,17 +409,30 @@ function videoTrackIndexForRow(rowIdx, rowsLen, trackLen) {
   return Math.max(0, Math.min(trackLen - 1, Math.round((i / (rowsLen - 1)) * (trackLen - 1))));
 }
 
+/* Pura: camera mappa dinamica. Veloce → zoom out (più strada visibile),
+   lento → zoom in (dettaglio curve). Piega alta → pitch più radente. */
+function videoCameraFor(speedKmh, leanDeg) {
+  const v = isFinite(speedKmh) ? Math.max(0, speedKmh) : 0;
+  const lean = isFinite(leanDeg) ? Math.min(60, Math.abs(leanDeg)) : 0;
+  const t = Math.max(0, Math.min(1, v / 120)); // 0 km/h → 0, 120+ → 1
+  return {
+    zoom: 16.5 - t * 2.0,          // 16.5 (fermo) → 14.5 (veloce)
+    pitch: 55 + (lean / 60) * 13,  // 55 (dritto) → 68 (piega max)
+  };
+}
+
 function drawVideoFrame3D(job, dt) {
   const { ctx, map, moto, rows, mapPts, keyframes, dist, speedMax, tSim } = job;
   const W = job.canvas.width, H = job.canvas.height;
   const i = Math.max(0, findRowAt(rows, tSim));
   const r = rows[i] || {};
 
-  // Camera mappa: segue il tracciato, muso in avanti, pitch 60.
+  // Camera mappa: segue il tracciato, muso in avanti, zoom/pitch dinamici.
   const kIdx = videoTrackIndexForRow(i, rows.length, mapPts.length);
   const kf = keyframes[kIdx];
   if (kf && job.mapReady) {
-    map.jumpTo({ center: [kf.lon, kf.lat], bearing: kf.brg, pitch: VIDEO3D_CONF.camera.pitch, zoom: VIDEO3D_CONF.camera.zoom });
+    const cam = videoCameraFor(r.speedKmh || 0, r.lean || 0);
+    map.jumpTo({ center: [kf.lon, kf.lat], bearing: kf.brg, pitch: cam.pitch, zoom: cam.zoom });
     if (typeof map.triggerRepaint === 'function') map.triggerRepaint(); else if (typeof map.redraw === 'function') map.redraw();
   }
 
@@ -477,4 +490,15 @@ function drawVideoHUD3D(ctx, job, r, tSim, distKm, speedMax) {
   ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(cx + Math.cos(na) * gr * 0.82, cy - Math.sin(na) * gr * 0.82); ctx.stroke();
   ctx.fillStyle = txt; ctx.textAlign = 'center'; ctx.font = 'bold 24px system-ui';
   ctx.fillText(Math.round(cl) + '°', cx, cy + gr * 0.3);
+
+  // Vmax + distanza (basso-destra)
+  const vmax = Math.round(Math.max(0, speedMax || kmh));
+  const br = 'Vmax ' + vmax + ' km/h · ' + (isFinite(distKm) ? distKm.toFixed(2) : '0.00') + ' km';
+  ctx.textAlign = 'right';
+  ctx.font = 'bold 22px system-ui';
+  const bw = ctx.measureText(br).width;
+  ctx.fillStyle = 'rgba(0,0,0,.35)';
+  rrPath(ctx, W - 16 - bw - 28, H - 60, bw + 28, 44, 14); ctx.fill();
+  ctx.fillStyle = txt;
+  ctx.fillText(br, W - 30, H - 29);
 }
