@@ -67,6 +67,7 @@ const exportLine = `
   VIDEO3D_CONF, loadVideo3DScript, initVideoMoto3D, videoRiderLean, videoCameraFor,
   drawVideoHUD3D, videoColorKey, canvasTheme, videoColor, resetVideoColors, HUD3D_COLORS,
   videoHasGps, videoResFor, videoBitrateFor, videoFrameLayout,
+  buildSlowZones, slowMultAt, shakeAmpFor, shakeOffset, speedLinesFor,
   videoBearingSeries, videoSmoothBearings, videoPathSampleAt, videoTrackPosForRow,
   videoDamp, videoDampAngle,
   videoMapOptions, videoMapPixelRatio, videoSkyOptions, videoSkyVisible,

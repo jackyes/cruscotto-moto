@@ -66,6 +66,91 @@ function videoBitrateFor(width) {
   return 5_000_000;
 }
 
+/* Pura: zone slow-mo precalcolate (piega forte o picchi vib): il realtime
+   integrale resta tSim, l'envelope cambia solo la derivata per-frame. */
+function buildSlowZones(rows, base) {
+  const b = isFinite(base) && base > 0 ? base : 1;
+  const zones = [];
+  const arr = rows || [];
+  let open = -1;
+  for (let k = 0; k < arr.length; k++) {
+    const r = arr[k] || {};
+    const lean = isFinite(r.lean) ? Math.abs(r.lean) : 0;
+    const vib = isFinite(r.vib_g) ? r.vib_g : (isFinite(r.vib) ? r.vib : 0);
+    const hot = lean > 25 || vib > 0.5;
+    if (hot && open < 0) open = isFinite(r.t) ? r.t : k * 0.05;
+    else if (!hot && open >= 0) { zones.push({ t0: open, t1: isFinite(r.t) ? r.t : k * 0.05 }); open = -1; }
+  }
+  if (open >= 0 && arr.length) {
+    const last = arr[arr.length - 1];
+    zones.push({ t0: open, t1: last && isFinite(last.t) ? last.t : open + 1 });
+  }
+  // Fondi sovrapposte + scarta corte (sotto 1.5 s è flicker, non slow-mo).
+  const merged = [];
+  for (const z of zones) {
+    const prev = merged[merged.length - 1];
+    if (prev && z.t0 <= prev.t1 + 0.5) prev.t1 = Math.max(prev.t1, z.t1);
+    else if (z.t1 - z.t0 >= 1.5) merged.push({ t0: z.t0, t1: z.t1 });
+  }
+  return { base: b, zones: merged, slow: 0.35, ramp: 0.5 };
+}
+
+/* Pura: moltiplicatore con ramp lineare in/out (niente scalini nel video). */
+function slowMultAt(t, slow) {
+  if (!slow || !slow.zones || !slow.zones.length) return slow && isFinite(slow.base) ? slow.base : 1;
+  const ramp = slow.ramp > 0 ? slow.ramp : 0.5;
+  for (const z of slow.zones) {
+    if (t < z.t0 - ramp || t > z.t1 + ramp) continue;
+    if (t >= z.t0 && t <= z.t1) return slow.slow;
+    // Rampa: interpola base↔slow ai bordi.
+    const edge = t < z.t0 ? (t - (z.t0 - ramp)) / ramp : ((z.t1 + ramp) - t) / ramp;
+    const f = Math.max(0, Math.min(1, edge));
+    return slow.slow + (slow.base - slow.slow) * f;
+  }
+  return slow.base;
+}
+
+/* Pura: ampiezza shake px da vibrazione (sotto soglia = 0, niente costo). */
+function shakeAmpFor(vib, W) {
+  const v = isFinite(vib) ? Math.max(0, vib) : 0;
+  if (v < 0.15) return 0;
+  const maxPx = 6 * (isFinite(W) && W > 0 ? W / 1280 : 1);
+  return Math.min(maxPx, (v - 0.15) * 8);
+}
+
+/* Pura: offset deterministico (seni 13/29 Hz ~ vib moto; seed tSim = testabile,
+   niente random che cambia a ogni render dello stesso frame). */
+function shakeOffset(tSim, amp) {
+  if (!amp) return { dx: 0, dy: 0 };
+  const t = isFinite(tSim) ? tSim : 0;
+  return {
+    dx: amp * (Math.sin(2 * Math.PI * 13 * t) + 0.5 * Math.sin(2 * Math.PI * 29 * t)),
+    dy: amp * (Math.sin(2 * Math.PI * 17 * t + 1.3) + 0.5 * Math.sin(2 * Math.PI * 23 * t)),
+  };
+}
+
+/* Pura: speed-lines procedurali (solo sopra soglia: sotto = video pulito).
+   Seed da frame intero: stesso tSim = stesse linee (deterministico). */
+function speedLinesFor(tSim, speedKmh, speedMax, W, H) {
+  const sm = isFinite(speedMax) && speedMax > 0 ? speedMax : 120;
+  const v = isFinite(speedKmh) ? speedKmh : 0;
+  if (v < 0.72 * sm) return [];
+  const over = Math.min(1, (v - 0.72 * sm) / (0.28 * sm));
+  const n = 6 + Math.round(over * 8);
+  // Hash intero dal frame (niente Math.random: render ripetibile).
+  let hsh = (Math.floor((isFinite(tSim) ? tSim : 0) * 30) * 2654435761) >>> 0;
+  const rnd = () => { hsh = ((hsh * 1664525 + 1013904223) >>> 0); return hsh / 4294967296; };
+  const out = [];
+  for (let k = 0; k < n; k++) {
+    const side = rnd() < 0.5 ? 0 : 1; // 0 = sx, 1 = dx (mai centro dash)
+    const y0 = rnd() * H;
+    const len = 60 + rnd() * 120;
+    const x0 = side ? W - rnd() * W * 0.15 : rnd() * W * 0.15;
+    out.push({ x0, y0, x1: side ? x0 + len : x0 - len, y1: y0, a: 0.15 + over * 0.35 * rnd() });
+  }
+  return out;
+}
+
 /* Pura: il giro ha punti GPS validi? No = solo IMU/rulli, mappa 3D inutile. */
 function videoHasGps(pre) {
   const mp = pre && pre.mapPts;
@@ -131,7 +216,8 @@ function startVideoRender(s) {
   else for (const r of rows) if (r.speedKmh > speedMax) speedMax = r.speedKmh;
   speedMax = Math.ceil(speedMax / 20) * 20;
 
-  const pre = { mime, res, mult, rows, track, mapPts, spark, dist, tEnd, speedMax };
+  const pre = { mime, res, mult, rows, track, mapPts, spark, dist, tEnd, speedMax,
+    slow: buildSlowZones(rows, mult) };
   // Giro senza GPS (solo IMU, es. rulli): la mappa 3D centrerebbe l'Italia
   // di default e centrerebbe il nulla. Forza 2D e spiega perché.
   if (!videoHasGps(pre)) {
@@ -160,6 +246,7 @@ function startVideoRender2D(pre) {
     mode: '2d', running: true, cancelled: false, canvas, ctx,
     rows: pre.rows, track: pre.track, mapPts: pre.mapPts, spark: pre.spark,
     dist: pre.dist, tEnd: pre.tEnd, mult: pre.mult, speedMax: pre.speedMax,
+    slow: pre.slow,
     tSim: pre.rows.length ? pre.rows[0].t : 0, lastRaf: 0,
     chunks: [], rec: null, stream: null, raf: 0, recErr: false,
   };
@@ -218,7 +305,8 @@ function videoLoop(now) {
   const rawDt = job.lastRaf ? (now - job.lastRaf) / 1000 : 0;
   const dt = rawDt < 0 ? 0 : (rawDt > 0.1 ? 0.1 : rawDt);
   job.lastRaf = now;
-  job.tSim += dt * job.mult;
+  // Slow-mo envelope (piega/vib): fuori zone = mult base, dentro = 0.35x.
+  job.tSim += dt * slowMultAt(job.tSim, job.slow || { base: job.mult });
   if (job.tSim >= job.tEnd) {
     job.tSim = job.tEnd;
     drawVideoFrame(job, dt);
@@ -275,14 +363,34 @@ function drawVideoFrame2D(job) {
   const r = rows[i] || {};
   const L = videoFrameLayout(W, H);
 
-  drawVideoMap(ctx, job, L.map.x, L.map.y, L.map.w, L.map.h, i, r, grid, axis, accent, good, bad);
+  // Shake solo sulla mappa (clip interno): l'HUD resta leggibile, il
+  // MediaRecorder amplificherebbe il jitter su testi e barre.
+  const vib = isFinite(r.vib_g) ? r.vib_g : (isFinite(r.vib) ? r.vib : 0);
+  const sh = shakeOffset(tSim, shakeAmpFor(vib, W));
+  drawVideoMap(ctx, job, L.map.x, L.map.y, L.map.w, L.map.h, i, r, grid, axis, accent, good, bad, sh.dx, sh.dy);
   if (L.vert) drawVideoDashVert(ctx, L.dash.x, L.dash.y, L.dash.w, L.dash.h, r, tSim, dist[i] || 0, speedMax, accent, axis, txt, good, bad, accLat, accLon, accVert);
   else drawVideoDash(ctx, L.dash.x, L.dash.y, L.dash.w, L.dash.h, r, tSim, dist[i] || 0, speedMax, accent, axis, txt, good, bad, accLat, accLon, accVert);
   drawVideoSpark(ctx, job, L.spark.x, L.spark.y, L.spark.w, L.spark.h, tSim, accent, grid);
+  // Speed-lines ultime (sopra tutto ma solo ai bordi, mai sul numero).
+  drawSpeedLines(ctx, speedLinesFor(tSim, r.speedKmh || 0, speedMax, W, H), accent);
 }
 
-function drawVideoMap(ctx, job, x, y, w, h, rowIdx, r, grid, axis, accent, good, bad) {
+/* ctx-only sottile: stroke delle speed-lines (vuote = niente, costo zero). */
+function drawSpeedLines(ctx, lines, color) {
+  if (!lines || !lines.length) return;
+  ctx.save();
+  ctx.strokeStyle = color; ctx.lineWidth = 2; ctx.lineCap = 'round';
+  for (const l of lines) {
+    ctx.globalAlpha = l.a;
+    ctx.beginPath(); ctx.moveTo(l.x0, l.y0); ctx.lineTo(l.x1, l.y1); ctx.stroke();
+  }
+  ctx.restore();
+}
+
+function drawVideoMap(ctx, job, x, y, w, h, rowIdx, r, grid, axis, accent, good, bad, ox, oy) {
   const pts = job.mapPts;
+  // Offset shake (default 0: chiamanti vecchi invariati).
+  const shx = isFinite(ox) ? ox : 0, shy = isFinite(oy) ? oy : 0;
   ctx.save();
   ctx.beginPath(); ctx.rect(x, y, w, h); ctx.clip();
   ctx.fillStyle = videoColor('c-bg'); ctx.fillRect(x, y, w, h);
@@ -299,7 +407,7 @@ function drawVideoMap(ctx, job, x, y, w, h, rowIdx, r, grid, axis, accent, good,
   const spanLat = (maxLat - minLat) || 0.0001, spanLon = (maxLon - minLon) || 0.0001;
   const pad = 40;
   const scale = Math.min((w - 2 * pad) / spanLon, (h - 2 * pad) / spanLat);
-  const offX = x + (w - spanLon * scale) / 2, offY = y + (h - spanLat * scale) / 2;
+  const offX = x + (w - spanLon * scale) / 2 + shx, offY = y + (h - spanLat * scale) / 2 + shy;
   const X = lon => offX + (lon - minLon) * scale;
   const Y = lat => offY + (maxLat - lat) * scale;
 
