@@ -65,6 +65,7 @@
     <div class="chart"><div class="clbl"><span>Velocità</span><span id="lblVmax"></span></div><canvas id="cSpeed"></canvas></div>
     <div class="chart"><div class="clbl"><span>Piega</span><span>±60°</span></div><canvas id="cLean"></canvas></div>
     <div class="chart"><div class="clbl"><span>Accelerazioni (G)</span><span>lat / lon / vert</span></div><canvas id="cAcc"></canvas></div>
+    <div class="chart"><div class="clbl"><span>Vibrazione / giroscopio</span><span>vib_g / gyro dps</span></div><canvas id="cVib"></canvas></div>
     <div class="chart"><div class="clbl"><span>Quota</span><span>m</span></div><canvas id="cAlt"></canvas></div>
     <div class="hint">Grafici e statistiche generati localmente nel browser. Nessun dato inviato altrove.</div>
   </main>
@@ -76,7 +77,12 @@
   'use strict';
   const $ = id => document.getElementById(id);
 
-  const COLS = ['t','speed_kmh','lean_deg','lat_accel_g','lon_accel_g','vert_accel_g','alt_m','lat','lon'];
+  // Stesse 26 colonne dell'app (CSV_HEADER in js/csv.js). I CSV legacy a 9
+  // colonne continuano a funzionare: le colonne assenti restano null.
+  const COLS = ('t,speed_kmh,speed_ms,lean_deg,lat_accel_g,lon_accel_g,vert_accel_g,' +
+    'lat_peak_g,lon_peak_g,vert_peak_g,lat_accel_fus_g,lon_accel_fus_g,' +
+    'gyro_roll_dps,gap,vib_g,lat,lon,alt_m,heading_deg,gps_acc_m,' +
+    'pitch_deg,gyro_yaw_dps,speed_fus_ms,lean_kin_deg,vib_hi_g,lean_ref').split(',');
 
   // --- parser CSV: salta i commenti '#', header per nome colonna, campi vuoti -> null.
   // RFC4180 minimo: virgolette doppie ("" = escape), BOM, NaN/Infinity -> null.
@@ -229,36 +235,52 @@
     return Math.max(0, rows[rows.length - 1].t - rows[0].t);
   }
 
-  function renderRows(rows) {
-    const n = rows.length;
-    if (!n) { showError('Nessuna riga valida nel CSV.'); return; }
-    showError(null);
-
-    // statistiche
-    let vmax = 0, leanR = 0, leanL = 0;
-    let dist = 0, prev = null;
+  // Statistiche pure: vmax/media, pieghe, distanza, vib max, gap.
+  // gap==1 marca le righe dopo un buco sensori (vedi js/csv.js).
+  function viewerStats(rows) {
+    let vmax = 0, vSum = 0, vN = 0, leanR = 0, leanL = 0;
+    let dist = 0, prev = null, vibMax = null, gapCount = 0;
     const trackPts = [];
     for (const r of rows) {
-      if (r.speed_kmh != null && r.speed_kmh > vmax) vmax = r.speed_kmh;
+      if (r.speed_kmh != null && isFinite(r.speed_kmh)) {
+        if (r.speed_kmh > vmax) vmax = r.speed_kmh;
+        vSum += r.speed_kmh; vN++;
+      }
       if (r.lean_deg != null) {
         if (r.lean_deg > leanR) leanR = r.lean_deg;
         if (r.lean_deg < leanL) leanL = r.lean_deg;
       }
+      if (r.vib_g != null && isFinite(r.vib_g) && (vibMax == null || r.vib_g > vibMax)) vibMax = r.vib_g;
+      if (r.gap === 1) gapCount++;
       if (r.lat != null && r.lon != null) {
         trackPts.push([r.lat, r.lon]);
         if (prev) dist += haversineKm(prev, { lat: r.lat, lon: r.lon });
         prev = { lat: r.lat, lon: r.lon };
       } else { prev = null; }
     }
+    return { vmax, vavg: vN ? vSum / vN : 0, leanR, leanL, dist, trackPts, vibMax, gapCount };
+  }
+
+  function renderRows(rows) {
+    const n = rows.length;
+    if (!n) { showError('Nessuna riga valida nel CSV.'); return; }
+    showError(null);
+
+    // statistiche (pura: riusabile nei test, vedi viewerStats)
+    const st = viewerStats(rows);
+    const { vmax, leanR, leanL, dist, trackPts, vavg, vibMax, gapCount } = st;
     const dur = sessionDur(rows);
 
     const stat = (v, k) => '<div class="stat"><div class="v">' + v + '</div><div class="k">' + k + '</div></div>';
     $('stats').innerHTML =
       stat(fmtDur(dur), 'durata') +
       stat(Math.round(vmax), 'km/h max') +
+      stat(Math.round(vavg), 'km/h med') +
       stat(Math.abs(leanR).toFixed(0) + '°', 'piega D') +
       stat(Math.abs(leanL).toFixed(0) + '°', 'piega S') +
       stat(dist.toFixed(2), 'km') +
+      stat(vibMax != null ? vibMax.toFixed(2) + 'g' : '—', 'vib max') +
+      stat(gapCount, 'gap') +
       stat(n, 'campioni');
     $('lblVmax').textContent = Math.round(vmax) + ' km/h';
 
@@ -280,6 +302,13 @@
           { key: 'lat_accel_g', color: getCss('--acc-lat') },
           { key: 'lon_accel_g', color: getCss('--acc-lon') },
           { key: 'vert_accel_g', color: getCss('--acc-vert') }
+        ]
+      });
+      drawLine($('cVib'), rows, (r, k) => r[k], {
+        min: 0, max: Math.max(0.5, Math.ceil((st.vibMax || 0) * 2) / 2),
+        series: [
+          { key: 'vib_g', color: getCss('--acc-vert') },
+          { key: 'gyro_roll_dps', color: getCss('--acc-lon') }
         ]
       });
       drawLine($('cAlt'), rows, (r, k) => r.alt_m, { min: altMin, max: altMax, series: [{ key: 'alt_m', color: getCss('--acc-vert') }] });
