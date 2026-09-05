@@ -244,6 +244,8 @@ function initVideoRender3D(pre) {
     chunks: [], rec: null, stream: null, raf: 0, recErr: false,
     keyframes: buildCameraKeyframes(pre.mapPts),
     _trailIdx: -1, _trailQuant: -1,
+    extremes: videoExtremesForJob(pre.rows),
+    hud: hudLayout(pre.res[0], pre.res[1]),
   };
   videoJob = job; // così "Annulla" funziona anche durante il caricamento
 
@@ -644,6 +646,12 @@ function drawVideoFrame3D(job, dt) {
   drawVideoHUD3D(ctx, job, r, tSim, dist[i] || 0, speedMax);
 }
 
+/* Pura: estremi per indice riga nel formato {tickR,tickL} che l'HUD legge. */
+function videoExtremesForJob(rows) {
+  const ex = runningExtremes(rows || []);
+  return ex.leanR.map((rR, k) => ({ tickR: rR, tickL: ex.leanL[k] }));
+}
+
 // L'HUD 3D sta su pannelli neri sopra una basemap sempre chiara (stile liberty):
 // usa una palette scura fissa, non il tema app (in tema chiaro --text è quasi
 // nero e diventerebbe illeggibile sul pannello). Il cruscotto 2D invece segue
@@ -658,47 +666,86 @@ function drawVideoHUD3D(ctx, job, r, tSim, distKm, speedMax) {
   const accent = HUD3D_COLORS.accent, txt = HUD3D_COLORS.txt, axis = HUD3D_COLORS.axis;
   const good = HUD3D_COLORS.good, bad = HUD3D_COLORS.bad;
   const kmh = Math.round(r.speedKmh || 0);
+  // Layout parametrico (720p/1080p/9:16); il chiamante non testato può non
+  // passare job.hud → fallback, altrimenti 1 test su 160 lancia.
+  const L = job.hud || hudLayout(W, H);
+  const s = L.s || 1;
+  const P0 = 'rgba(0,0,0,.42)', P1 = 'rgba(0,0,0,.30)';
 
   ctx.textBaseline = 'alphabetic';
-  // Velocità (alto-sinistra)
-  ctx.fillStyle = 'rgba(0,0,0,.35)';
-  rrPath(ctx, 16, 16, 220, 120, 16); ctx.fill();
+  // Velocità (alto-sinistra): numero + km/h, alone per il beige liberty.
+  hudPanel(ctx, L.speed.x, L.speed.y, L.speed.w, L.speed.h, 16 * s, P0, P1);
   ctx.textAlign = 'left';
-  ctx.fillStyle = accent; ctx.font = 'bold 64px system-ui';
-  ctx.fillText(String(kmh), 34, 96);
-  ctx.fillStyle = axis; ctx.font = 'bold 22px system-ui';
-  ctx.fillText('km/h', 34 + 64 * (kmh >= 100 ? 2.1 : 1.4), 96);
+  hudText(ctx, String(kmh), L.speed.x + 18 * s, L.speed.y + 80 * s,
+    hudFont('bold', 64 * s), accent, 4 * s);
+  hudText(ctx, 'km/h', L.speed.x + 18 * s + 64 * s * (kmh >= 100 ? 2.1 : 1.4), L.speed.y + 80 * s,
+    hudFont('bold', 22 * s), axis, 3 * s);
 
-  // Tempo + distanza (alto-destra)
-  const tr = fmtDur(tSim) + ' · ' + distKm.toFixed(2) + ' km';
+  // Tempo + distanza (alto-destra): box auto-larghezza dal testo misurato.
+  const tr = fmtDur(tSim) + ' · ' + (isFinite(distKm) ? distKm.toFixed(2) : '0.00') + ' km';
   ctx.textAlign = 'right';
-  ctx.fillStyle = 'rgba(0,0,0,.35)';
-  ctx.font = 'bold 22px system-ui';
-  const tw = ctx.measureText(tr).width;
-  rrPath(ctx, W - 16 - tw - 28, 16, tw + 28, 44, 14); ctx.fill();
-  ctx.fillStyle = txt;
-  ctx.fillText(tr, W - 30, 47);
+  ctx.font = hudFont('bold', 22 * s);
+  const tw = ctx.measureText ? ctx.measureText(tr).width : 200 * s;
+  const tx = L.vert ? L.time.x : W - 16 * s - tw - 28 * s;
+  hudPanel(ctx, tx, L.time.y, tw + 28 * s, 44 * s, 14 * s, P0, P1);
+  hudText(ctx, tr, tx + tw + 14 * s, L.time.y + 31 * s, hudFont('bold', 22 * s), txt, 3 * s);
 
-  // Piega (basso-sinistra): arco piccolo
-  const cx = 90, cy = H - 96, gr = 56;
-  ctx.strokeStyle = axis; ctx.lineWidth = 9; ctx.lineCap = 'round';
-  const ang = a => (90 - a) * Math.PI / 180;
-  ctx.beginPath(); ctx.arc(cx, cy, gr, ang(-60), ang(60)); ctx.stroke();
-  const cl = Math.max(-60, Math.min(60, r.lean || 0));
-  const na = ang(cl);
-  ctx.strokeStyle = cl >= 0 ? good : bad; ctx.lineWidth = 5;
-  ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(cx + Math.cos(na) * gr * 0.82, cy - Math.sin(na) * gr * 0.82); ctx.stroke();
-  ctx.fillStyle = txt; ctx.textAlign = 'center'; ctx.font = 'bold 24px system-ui';
-  ctx.fillText(Math.round(cl) + '°', cx, cy + gr * 0.3);
+  // Cerchio G fra i blocchi alti (non sopra la moto: sta a y ~ fascia alta).
+  hudGdot(ctx, L.g.cx, L.g.cy, L.g.gr, r.latG || 0, r.lonG || 0, accent, axis, txt);
 
-  // Vmax + distanza (basso-destra)
+  // Piega: contagiri con fondoscala vivo (record finora) + settore attivo.
+  // hudCang è in convenzione canvas; ang() matematica qui darebbe il giro lungo.
+  function tickMark(cx, cy, gr, tickDeg, scale) {
+    if (!isFinite(tickDeg) || !tickDeg) return;
+    const t = Math.max(-scale, Math.min(scale, tickDeg));
+    const a = hudCang(t);
+    ctx.beginPath();
+    ctx.moveTo(cx + Math.cos(a) * gr * 0.86, cy + Math.sin(a) * gr * 0.86);
+    ctx.lineTo(cx + Math.cos(a) * gr * 1.02, cy + Math.sin(a) * gr * 1.02);
+    ctx.stroke();
+  }
+  function i0(job) {
+    try { return Math.max(0, findRowAt(job.rows, job.tSim)); } catch (e) { return 0; }
+  }
+  const cx = L.lean.cx, cy = L.lean.cy, gr = L.lean.gr;
+  const ex = (job.extremes && job.extremes[i0(job)]) || { tickR: 47, tickL: -42 };
+  const scale = leanScaleFor(ex.tickR, ex.tickL);
+  const m = leanGaugeModel(r.lean || 0, ex.tickR, ex.tickL, scale);
+  hudPanel(ctx, L.lean.x, L.lean.y, L.lean.w, L.lean.h, 14 * s, P0, P1);
+  ctx.lineCap = 'round';
+  ctx.strokeStyle = axis; ctx.lineWidth = Math.max(3, gr * 0.14);
+  ctx.beginPath(); ctx.arc(cx, cy, gr, hudCang(-scale), hudCang(scale)); ctx.stroke();
+  // tacche record D/S
+  ctx.strokeStyle = good; ctx.lineWidth = Math.max(2, gr * 0.07);
+  tickMark(cx, cy, gr, ex.tickR, scale); tickMark(cx, cy, gr, ex.tickL, scale);
+  // settore 0→corrente + ago
+  const na = (90 - m.cl) * Math.PI / 180; // ago: convenzione matematica con sin negato
+  ctx.strokeStyle = m.cl >= 0 ? good : bad; ctx.lineWidth = Math.max(2, gr * 0.10);
+  ctx.beginPath(); ctx.arc(cx, cy, gr, hudCang(0), hudCang(m.cl), m.cl < 0); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(cx, cy);
+  ctx.lineTo(cx + Math.cos(na) * gr * 0.82, cy - Math.sin(na) * gr * 0.82); ctx.stroke();
+  ctx.textAlign = 'center';
+  hudText(ctx, Math.round(m.cl) + '° ' + m.side, cx, cy + gr * 0.3 + 24 * s,
+    hudFont('bold', 24 * s), txt, 3 * s);
+  hudText(ctx, 'max ' + Math.round(Math.max(Math.abs(ex.tickR), Math.abs(ex.tickL))) + '°',
+    cx, cy + gr * 0.3 + 48 * s, hudFont('bold', 18 * s), axis, 3 * s);
+
+  // Vmax + record piega (basso-destra): box auto-larghezza, layout-dipendente.
+  const exV = (job.extremes && job.extremes[i0(job)]) || { tickR: 47, tickL: -42 };
   const vmax = Math.round(Math.max(0, speedMax || kmh));
-  const br = 'Vmax ' + vmax + ' km/h · ' + (isFinite(distKm) ? distKm.toFixed(2) : '0.00') + ' km';
+  const br = 'Vmax ' + vmax + ' · piega ' + Math.round(Math.max(Math.abs(exV.tickR), Math.abs(exV.tickL))) + '°';
   ctx.textAlign = 'right';
-  ctx.font = 'bold 22px system-ui';
-  const bw = ctx.measureText(br).width;
-  ctx.fillStyle = 'rgba(0,0,0,.35)';
-  rrPath(ctx, W - 16 - bw - 28, H - 60, bw + 28, 44, 14); ctx.fill();
-  ctx.fillStyle = txt;
-  ctx.fillText(br, W - 30, H - 29);
+  ctx.font = hudFont('bold', 22 * s);
+  const bw = ctx.measureText ? ctx.measureText(br).width : 260 * s;
+  const bx = L.vert ? L.vmax.x : W - 16 * s - bw - 28 * s;
+  hudPanel(ctx, bx, L.vmax.y, L.vert ? L.vmax.w : bw + 28 * s, L.vmax.h, 14 * s, P0, P1);
+  const bxx = L.vert ? L.vmax.x + L.vmax.w - 14 * s : bx + bw + 14 * s;
+  hudText(ctx, br, bxx, L.vmax.y + 31 * s, hudFont('bold', 22 * s), txt, 3 * s);
+
+  // Avanzamento giro (sottile, bordo basso): frazione tSim/tEnd.
+  const frac = job.tEnd > 0 ? Math.max(0, Math.min(1, tSim / job.tEnd)) : 0;
+  ctx.fillStyle = 'rgba(0,0,0,.30)';
+  ctx.fillRect(0, H - 6 * s, W, 6 * s);
+  ctx.fillStyle = accent;
+  ctx.fillRect(0, H - 6 * s, W * frac, 6 * s);
 }

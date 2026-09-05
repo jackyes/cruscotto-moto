@@ -47,6 +47,6 @@ test('drawVideoHUD3D: mostra Vmax e distanza in basso-destra', () => {
   drawVideoHUD3D(ctx, job, { speedKmh: 88, lean: 12 }, 61, 3.456, 120);
   const all = ctx.calls.fillText.join(' | ');
   assert.ok(all.includes('88'), 'velocità corrente: ' + all);
-  assert.ok(all.includes('Vmax 120 km/h'), 'vmax: ' + all);
+  assert.ok(all.includes('Vmax 120'), 'vmax: ' + all);
   assert.ok(all.includes('3.46 km'), 'distanza: ' + all);
 });
