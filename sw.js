@@ -27,6 +27,7 @@ const SHELL = [
   './js/sensors-core.js',
   './js/storage.js',
   './js/calib.js',
+  './js/accel-fusion.js',
   './js/net-base.js',
   './js/draw.js',
   './viewer.html',
