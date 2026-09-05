@@ -67,7 +67,8 @@ const exportLine = `
   VIDEO3D_CONF, loadVideo3DScript, initVideoMoto3D, videoRiderLean, videoCameraFor,
   drawVideoHUD3D, videoColorKey, canvasTheme, videoColor, resetVideoColors, HUD3D_COLORS,
   videoBearingSeries, videoSmoothBearings, videoPathSampleAt, videoTrackPosForRow,
-  videoDamp, videoDampAngle
+  videoDamp, videoDampAngle,
+  videoMapOptions, videoMapPixelRatio, videoSkyOptions, videoSkyVisible
 };
 `;
 

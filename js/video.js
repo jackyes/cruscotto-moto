@@ -140,7 +140,9 @@ function startVideoRender2D(pre) {
 function beginVideoCapture(job, canvas, mime) {
   if (job.cancelled) return;
   job.stream = canvas.captureStream(30);
-  job.rec = new MediaRecorder(job.stream, { mimeType: mime, videoBitsPerSecond: 5_000_000 });
+  // 1080p ha 2.25x pixel del 720p: a 5 Mbps gli artefatti mangiano i dettagli mappa.
+  const bps = canvas.width >= 1920 ? 8_000_000 : 5_000_000;
+  job.rec = new MediaRecorder(job.stream, { mimeType: mime, videoBitsPerSecond: bps });
   job.rec.onerror = () => {
     job.recErr = true;
     toast('Errore encoder video: prova 720p o un browser desktop.', 'err', 6000);

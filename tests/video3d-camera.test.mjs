@@ -17,7 +17,7 @@ test('videoCameraFor: fermo zoom-in, veloce zoom-out', () => {
 
 test('videoCameraFor: piega alza il pitch', () => {
   assert.equal(videoCameraFor(50, 0).pitch, 55);
-  assert.equal(videoCameraFor(50, 60).pitch, 68);
+  assert.equal(videoCameraFor(50, 60).pitch, 72);
   assert.ok(videoCameraFor(50, 30).pitch > 55);
   // segno piega irrilevante, invalidi → default dritto
   assert.equal(videoCameraFor(50, -45).pitch, videoCameraFor(50, 45).pitch);

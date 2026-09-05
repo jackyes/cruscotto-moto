@@ -13,7 +13,49 @@ const VIDEO3D_CONF = {
   demEncoding: 'terrarium',
   timeouts: { cdnMs: 12000, styleMs: 15000 },
   camera: { zoom: 15.5, pitch: 60 },
+  // pixelRatio 1: a DPR 3 la mappa rasterizzerebbe 8.3 Mpx per un frame 720p
+  // da 0.92 Mpx (9x fragment + readback buttati). fadeDuration 0: con 30
+  // jumpTo/s le label ricomincerebbero il crossfade a ogni frame. maxPitch 75:
+  // il tetto default 60 clampa in silenzio il pitch in piega (bug mai notato).
+  map: { pixelRatio: 1, fadeDuration: 0, maxPitch: 75, refreshExpiredTiles: false },
+  // Cielo nativo maplibre (sopra l'orizzonte il canvas è trasparente, e nel
+  // WebM l'alpha diventa nero: serve un colore vero). Solo chiavi spec 4.7.1.
+  sky: { 'sky-color': '#88c6fc', 'sky-horizon-blend': 0.5, 'horizon-color': '#f8f4f0', 'horizon-fog-blend': 0.5, 'fog-color': '#dfe9f2', 'fog-ground-blend': 0.6 },
 };
+
+/* Pura: opzioni costruttore Map (testabile senza DOM né maplibre). */
+function videoMapOptions(centerLat, centerLon) {
+  return {
+    center: [centerLon, centerLat],
+    zoom: VIDEO3D_CONF.camera.zoom, pitch: VIDEO3D_CONF.camera.pitch, bearing: 0,
+    style: VIDEO3D_CONF.styleUrl,
+    attributionControl: false,
+    preserveDrawingBuffer: true, // serve a drawImage nel master canvas
+    pixelRatio: VIDEO3D_CONF.map.pixelRatio,
+    fadeDuration: VIDEO3D_CONF.map.fadeDuration,
+    maxPitch: VIDEO3D_CONF.map.maxPitch,
+    refreshExpiredTiles: VIDEO3D_CONF.map.refreshExpiredTiles,
+  };
+}
+
+/* Pura: pixelRatio effettivo, mai oltre il tetto 4096 di maxCanvasSize e mai
+   sopra il dpr del device (sotto: 1, non 0 — maplibre lo userebbe per dividere). */
+function videoMapPixelRatio(dpr, W, H) {
+  if (!isFinite(dpr) || dpr <= 0) return 1;
+  const pr = Math.min(dpr, 4096 / Math.max(1, Math.max(W, H)));
+  return Math.max(1, pr);
+}
+
+/* Pura: oggetto sky per map.setSky (solo chiavi renderizzate da 4.7.1). */
+function videoSkyOptions() { return Object.assign({}, VIDEO3D_CONF.sky); }
+
+/* Pura: a quale pitch l'orizzonte entra nel frame (formula dal bundle 4.7.1:
+   h = 0.5 + tan(90-pitch)*1.4993*0.85; visibile se h < 1). */
+function videoSkyVisible(pitchDeg) {
+  if (!isFinite(pitchDeg)) return false;
+  const h = 0.5 + Math.tan((90 - pitchDeg) * Math.PI / 180) * 1.4993 * 0.85;
+  return h < 1;
+}
 
 function loadVideo3DScript(url, onload, onerror, integrity) {
   const sc = document.createElement('script');
@@ -120,14 +162,8 @@ function initVideoRender3D(pre) {
   document.body.appendChild(container);
 
   const first = pre.mapPts.length ? pre.mapPts[0] : { lat: 42.5, lon: 12.5 };
-  const map = new maplibregl.Map({
-    container: container,
-    center: [first.lon, first.lat],
-    zoom: VIDEO3D_CONF.camera.zoom, pitch: VIDEO3D_CONF.camera.pitch, bearing: 0,
-    style: VIDEO3D_CONF.styleUrl,
-    attributionControl: false,
-    preserveDrawingBuffer: true, // serve a drawImage nel master canvas
-  });
+  const mapOpts = videoMapOptions(first.lat, first.lon);
+  const map = new maplibregl.Map(Object.assign({ container: container }, mapOpts));
 
   const canvas = makeVideoCanvas(pre.res);
   const ctx = canvas.getContext('2d');
@@ -153,6 +189,9 @@ function initVideoRender3D(pre) {
         encoding: VIDEO3D_CONF.demEncoding, tileSize: 256, maxzoom: 15,
       });
       map.setTerrain({ source: 'dem', exaggeration: 1.5 });
+      // Cielo sopra l'orizzonte (chiave fuori spec = ErrorEvent, mai throw:
+      // la guardia typeof evita di buttare in 2D un render sano).
+      if (typeof map.setSky === 'function') { try { map.setSky(videoSkyOptions()); } catch (e) {} }
       job.mapReady = true;
       beginVideoCapture(job, canvas, pre.mime);
     } catch (e) {
@@ -483,7 +522,7 @@ function videoCameraFor(speedKmh, leanDeg) {
   const t = Math.max(0, Math.min(1, v / 120)); // 0 km/h → 0, 120+ → 1
   return {
     zoom: 16.5 - t * 2.0,          // 16.5 (fermo) → 14.5 (veloce)
-    pitch: 55 + (lean / 60) * 13,  // 55 (dritto) → 68 (piega max)
+    pitch: 55 + (lean / 60) * 17,  // 55 (dritto) → 72 (piega max: sopra maxPitch non rende)
   };
 }
 
