@@ -36,6 +36,7 @@ const SHELL = [
   './js/inputs.js',
   './js/nav-ui.js',
   './js/nav-config.js',
+  './js/video.js',
   './js/net-base.js',
   './js/draw.js',
   './viewer.html',
