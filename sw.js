@@ -20,6 +20,7 @@ const SHELL = [
   './',
   './index.html',
   './js/core.js',
+  './js/geo.js',
   './viewer.html',
   './manifest.webmanifest',
 ];
