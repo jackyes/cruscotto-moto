@@ -572,6 +572,18 @@
           <option value="2d">2D (cruscotto)</option>
         </select>
       </div>
+      <div class="m-row"><span>Formato</span>
+        <select id="videoFormat">
+          <option value="webm" selected>WebM (compatibile)</option>
+          <option value="mp4">MP4 (reel/social)</option>
+        </select>
+      </div>
+      <div class="m-row"><span>Audio</span>
+        <select id="videoAudio">
+          <option value="on" selected>Motore + vento</option>
+          <option value="off">Muto</option>
+        </select>
+      </div>
       <div class="m-progress"><div id="videoProg"></div></div>
       <div class="m-status" id="videoStatus">Pronto.</div>
       <div class="m-btns">
@@ -971,6 +983,7 @@
   <script src="js/nav-map.js"></script>
   <script src="js/log-session.js"></script>
   <script src="js/video3d.js"></script>
+  <script src="js/video-mp4.js"></script>
   <script src="js/share.js"></script>
   <script src="js/map.js"></script>
   <script src="js/diag.js"></script>
@@ -1017,6 +1030,7 @@ const els = {
   navBackroads: $('navBackroads'), navNoFerry: $('navNoFerry'),
   btnImportCam: $('btnImportCam'), camFile: $('camFile'), btnViewer: $('btnViewer'),
   videoModal: $('videoModal'), videoRes: $('videoRes'), videoSpeed: $('videoSpeed'), videoType: $('videoType'),
+  videoFormat: $('videoFormat'), videoAudio: $('videoAudio'),
   videoProg: $('videoProg'), videoStatus: $('videoStatus'),
   videoStart: $('videoStart'), videoCancel: $('videoCancel'),
   videoCard: $('videoCard'), videoCardPrevWrap: $('videoCardPrevWrap'),

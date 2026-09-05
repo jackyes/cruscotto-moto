@@ -69,7 +69,7 @@ const exportLine = `
   videoHasGps, videoResFor, videoBitrateFor, videoFrameLayout,
   buildSlowZones, slowMultAt, shakeAmpFor, shakeOffset, speedLinesFor,
   videoBearingSeries, videoSmoothBearings, videoPathSampleAt, videoTrackPosForRow,
-  videoDamp, videoDampAngle,
+  videoDamp, videoDampAngle, mp4ConfigFor, engineToneFor, windGainFor, mp4FrameStepUs,
   videoMapOptions, videoMapPixelRatio, videoSkyOptions, videoSkyVisible,
   videoTrackGeoJson, videoTrailRange, videoExtremesForJob, videoCometPaint, videoHillPaint,
   hudFont, hudCang, runningExtremes, leanScaleFor, leanGaugeModel,

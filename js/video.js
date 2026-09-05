@@ -172,13 +172,12 @@ function closeVideoModal() {
 }
 
 function startVideoRender(s) {
-  if (typeof MediaRecorder === 'undefined' || !HTMLCanvasElement.prototype.captureStream) {
+  const wantMp4Early = !!(els.videoFormat && els.videoFormat.value === 'mp4');
+  const mp4ok = wantMp4Early && typeof videoMp4Supported === 'function' && videoMp4Supported();
+  if (!mp4ok && (typeof MediaRecorder === 'undefined' || !HTMLCanvasElement.prototype.captureStream)) {
     toast('Registrazione video non supportata su questo browser.', 'err');
     return;
   }
-  const mime = pickVideoMime();
-  if (!mime) { toast('Codec WebM non disponibile.', 'err'); return; }
-
   const rows = s.rows || [];
   const track = s.track || [];
   if (!rows.length && !track.length) { toast('Nessun dato da renderizzare.', 'err'); return; }
@@ -216,6 +215,13 @@ function startVideoRender(s) {
   else for (const r of rows) if (r.speedKmh > speedMax) speedMax = r.speedKmh;
   speedMax = Math.ceil(speedMax / 20) * 20;
 
+  // mime solo per WebM: se MP4 parte, pickVideoMime non serve (su browser
+  // senza MediaRecorder ma con WebCodecs il check sopra l'ha già lasciato passare).
+  let mime = '';
+  if (!mp4ok) {
+    mime = pickVideoMime();
+    if (!mime) { toast('Codec WebM non disponibile.', 'err'); return; }
+  }
   const pre = { mime, res, mult, rows, track, mapPts, spark, dist, tEnd, speedMax,
     slow: buildSlowZones(rows, mult) };
   // Giro senza GPS (solo IMU, es. rulli): la mappa 3D centrerebbe l'Italia
@@ -227,6 +233,14 @@ function startVideoRender(s) {
     return;
   }
   const mode = (els.videoType && els.videoType.value === '2d') ? '2d' : '3d';
+  // Formato MP4 (WebCodecs + muxer vendored, offline): se richiesto e
+  // supportato va al loop MP4, altrimenti cade sul WebM realtime.
+  const wantMp4 = !!(els.videoFormat && els.videoFormat.value === 'mp4');
+  if (wantMp4 && typeof videoMp4Supported === 'function' && videoMp4Supported()) {
+    startVideoRenderMp4(pre, mode);
+    return;
+  }
+  if (wantMp4) toast('MP4 non supportato qui, uso WebM.', 'err', 6000);
   if (mode === '3d') { startVideoRender3D(pre); return; }
   startVideoRender2D(pre);
 }
