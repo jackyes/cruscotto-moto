@@ -4,10 +4,12 @@
    Versioni allineate al loader mappa (maplibre 4.7.1) e three 0.149.0. */
 const VIDEO3D_CONF = {
   libs: [
-    { global: 'maplibregl', url: 'https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js', integrity: 'sha384-SYKAG6cglRMN0RVvhNeBY0r3FYKNOJtznwA0v7B5Vp9tr31xAHsZC0DqkQ/pZDmj' },
+    { global: 'maplibregl', url: 'https://unpkg.com/maplibre-gl@5.24.0/dist/maplibre-gl.js', integrity: 'sha384-5+cfbwT0iiub6VsQAdn6yz16nr6sDiQoHx6tm4O8OVYXHYOxcffFmCJBL0dgdvGp',
+      fallback: { url: 'https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js', integrity: 'sha384-SYKAG6cglRMN0RVvhNeBY0r3FYKNOJtznwA0v7B5Vp9tr31xAHsZC0DqkQ/pZDmj' } },
     { global: 'THREE', url: 'https://unpkg.com/three@0.149.0/build/three.min.js', integrity: 'sha384-RRHfJ6w1mTlKUBMYT/hvnRiOzEB/vyRV3DrQOseb6oYfvaZSfdd0byS4bHps0k2R' },
   ],
-  css: 'https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css',
+  css: 'https://unpkg.com/maplibre-gl@5.24.0/dist/maplibre-gl.css',
+  cssFallback: 'https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css',
   styleUrl: 'https://tiles.openfreemap.org/styles/liberty',
   demTiles: ['https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png'],
   demEncoding: 'terrarium',
@@ -172,8 +174,58 @@ function loadVideo3DScript(url, onload, onerror, integrity) {
   const sc = document.createElement('script');
   sc.src = url; sc.crossOrigin = 'anonymous';
   if (integrity) sc.integrity = integrity;
-  sc.onload = onload; sc.onerror = onerror;
+  sc.onload = onload;
+  // Fallback versione precedente (solo maplibre: se la v5 non carica o
+  // l'SRI non torna, riprova con la 4.7.1 prima di buttare in 2D).
+  sc.onerror = () => {
+    const lib = (VIDEO3D_CONF.libs || []).find(l => l.url === url);
+    if (lib && lib.fallback && !lib._fbTried) {
+      lib._fbTried = true;
+      try {
+        const css = document.querySelector('link[href="' + VIDEO3D_CONF.css + '"]');
+        if (css && VIDEO3D_CONF.cssFallback) css.href = VIDEO3D_CONF.cssFallback;
+      } catch (e) {}
+      loadVideo3DScript(lib.fallback.url, onload, onerror, lib.fallback.integrity);
+      return;
+    }
+    onerror();
+  };
   document.head.appendChild(sc);
+}
+
+/* Pura: altezza camera vera dal suolo (§6.5 doc replay). Dipende anche
+   dall'altezza viewport: stesso zoom su telefono basso = più in alto. */
+function videoCamHeightFor(zoom, pitchDeg, latDeg, viewportHPx) {
+  if (!isFinite(zoom) || !isFinite(pitchDeg) || !isFinite(latDeg) || !isFinite(viewportHPx)) return NaN;
+  const mpp = 156543.03 * Math.cos(latDeg * Math.PI / 180) / Math.pow(2, zoom);
+  const dPx = 1.5 * Math.max(1, viewportHPx);
+  return dPx * mpp * Math.cos(pitchDeg * Math.PI / 180);
+}
+
+/* Pura: zoom per un'altezza target (inversa della sopra: niente tentativi).
+   Clamp 18: oltre l'Esri sgrana, sotto ~80 m niente chase (§6.5). */
+function videoZoomForHeight(targetM, pitchDeg, latDeg, viewportHPx) {
+  if (!isFinite(targetM) || targetM <= 0 || !isFinite(pitchDeg) || !isFinite(latDeg) || !isFinite(viewportHPx)) return NaN;
+  const cosP = Math.cos(pitchDeg * Math.PI / 180);
+  if (cosP <= 0.05) return NaN;
+  const mpp = targetM / (1.5 * Math.max(1, viewportHPx) * cosP);
+  const z = Math.log2(156543.03 * Math.cos(latDeg * Math.PI / 180) / mpp);
+  return Math.max(10, Math.min(18, z));
+}
+
+/* Probe satellite opzionale (Image + cache-buster, §6.4 doc): eventi
+   error/data maplibre non segnalano tile fallite (loaded anche se ko).
+   Chiama cb(true) se arriva, cb(false) dopo timeout. */
+function videoSatProbe(tileUrl, timeoutMs, cb) {
+  let done = false;
+  const finish = ok => { if (!done) { done = true; try { cb(!!ok); } catch (e) {} } };
+  try {
+    const img = new Image();
+    img.onload = () => finish(true);
+    img.onerror = () => finish(false);
+    img.src = tileUrl + (tileUrl.indexOf('?') >= 0 ? '&' : '?') + 'p=' + Date.now();
+    setTimeout(() => finish(false), isFinite(timeoutMs) ? timeoutMs : 9000);
+  } catch (e) { finish(false); }
 }
 
 function fallbackTo2D(pre, msg, job) {
@@ -303,7 +355,10 @@ function initVideoRender3D(pre) {
   videoJob = job; // così "Annulla" funziona anche durante il caricamento
   const map = job.map;
 
-  map.on('load', () => {
+  /* Init robusto (§6.3 doc): 'load' aspetta le tile e hanga offline, mentre
+     'style.load' dipende solo dal parsing. Guardia 6 s + satellite probe. */
+  let styleReady = false;
+  const setupTerrain = () => {
     if (job.cancelled) return;
     try {
       map.addSource('dem', {
@@ -311,7 +366,12 @@ function initVideoRender3D(pre) {
         tiles: VIDEO3D_CONF.demTiles,
         encoding: VIDEO3D_CONF.demEncoding, tileSize: 256, maxzoom: 15,
       });
+      // Terreno solo dopo camera in posizione (§6.2): recalculateZoom sposta
+      // lo zoom, quindi si posiziona → setTerrain → riposiziona.
+      const first = pre.mapPts.length ? pre.mapPts[0] : { lat: 42.5, lon: 12.5 };
+      try { map.jumpTo({ center: [first.lon, first.lat], zoom: VIDEO3D_CONF.camera.zoom, pitch: VIDEO3D_CONF.camera.pitch, bearing: 0 }); } catch (e) {}
       map.setTerrain({ source: 'dem', exaggeration: 1.5 });
+      try { map.jumpTo({ center: [first.lon, first.lat], zoom: VIDEO3D_CONF.camera.zoom, pitch: VIDEO3D_CONF.camera.pitch, bearing: 0 }); } catch (e) {}
       // Cielo sopra l'orizzonte (chiave fuori spec = ErrorEvent, mai throw:
       // la guardia typeof evita di buttare in 2D un render sano).
       if (typeof map.setSky === 'function') { try { map.setSky(videoSkyOptions()); } catch (e) {} }
@@ -330,14 +390,13 @@ function initVideoRender3D(pre) {
     } catch (e) {
       requestVideoFallback(pre, job, 'Terreno 3D non disponibile, uso il render 2D.');
     }
-  });
+  };
+  const onStyle = () => { if (!styleReady) { styleReady = true; setupTerrain(); } };
+  try { map.on('style.load', onStyle); } catch (e) {}
+  // Guardia: se style.load non scatta (CDN/stile bloccati), prova comunque.
+  trackVideoTimer(job, setTimeout(onStyle, 6000));
 
-  // Stile/worker non caricati (CSP, offline, CDN bloccata) → fallback immediato.
-  map.on('error', () => {
-    if (!job.mapReady && !job.cancelled) requestVideoFallback(pre, job, 'Mappa 3D non disponibile, uso il render 2D.');
-  });
-
-  // Rete di sicurezza: se lo stile non carica in tempo.
+  // Rete di sicurezza: se nemmeno la guardia basta (mappa morta).
   trackVideoTimer(job, setTimeout(() => {
     if (!job.mapReady && videoJob === job && !job.cancelled) {
       requestVideoFallback(pre, job, 'Stile mappa non caricato, uso il render 2D.');

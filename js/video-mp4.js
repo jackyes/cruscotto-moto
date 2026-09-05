@@ -126,7 +126,11 @@ function videoMp4SetupMap(job, pre) {
           tiles: VIDEO3D_CONF.demTiles,
           encoding: VIDEO3D_CONF.demEncoding, tileSize: 256, maxzoom: 15,
         });
+        // Stesso ordine del realtime (§6.2): posiziona → setTerrain → riposiziona.
+        const first = pre.mapPts.length ? pre.mapPts[0] : { lat: 42.5, lon: 12.5 };
+        try { job.map.jumpTo({ center: [first.lon, first.lat], zoom: VIDEO3D_CONF.camera.zoom, pitch: VIDEO3D_CONF.camera.pitch, bearing: 0 }); } catch (e) {}
         job.map.setTerrain({ source: 'dem', exaggeration: 1.5 });
+        try { job.map.jumpTo({ center: [first.lon, first.lat], zoom: VIDEO3D_CONF.camera.zoom, pitch: VIDEO3D_CONF.camera.pitch, bearing: 0 }); } catch (e) {}
         if (typeof job.map.setSky === 'function') { try { job.map.setSky(videoSkyOptions()); } catch (e) {} }
         let beforeId = null;
         try {
@@ -136,8 +140,6 @@ function videoMp4SetupMap(job, pre) {
         try { videoTrackAddToMap(job.map, pre.mapPts); } catch (e) {}
         videoSceneAddToMap(job.map, beforeId);
       } catch (e) {}
-      // Terreno agganciato solo se setTerrain dopo camera in posizione (§6.2):
-      // warmup di qualche frame, poi il loop riaggancia a ogni salto grosso.
       job.mapReady = true;
       resolve();
     };
