@@ -21,6 +21,7 @@ function extractViewerScript(html) {
 ;globalThis.__viewer = {
   COLS, parseCsv, haversineKm, downsample, drawLine, getCss,
   renderMap, render, fmtDur, handleFile,
+  stripBom, toNumOrNull, splitCsvLine,
 };`;
 }
 

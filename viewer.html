@@ -74,26 +74,54 @@
 
   const COLS = ['t','speed_kmh','lean_deg','lat_accel_g','lon_accel_g','vert_accel_g','alt_m','lat','lon'];
 
-  // --- parser CSV: salta i commenti '#', header per nome colonna, campi vuoti -> null
+  // --- parser CSV: salta i commenti '#', header per nome colonna, campi vuoti -> null.
+  // RFC4180 minimo: virgolette doppie ("" = escape), BOM, NaN/Infinity -> null.
+  function stripBom(s) {
+    return (s && s.charCodeAt(0) === 0xFEFF) ? s.slice(1) : s;
+  }
+  function toNumOrNull(raw) {
+    if (raw == null) return null;
+    const s = String(raw).trim();
+    if (s === '') return null;
+    const v = Number(s);
+    return isFinite(v) ? v : null;
+  }
+  function splitCsvLine(line) {
+    const out = [];
+    let cur = '', quoted = false;
+    for (let i = 0; i < line.length; i++) {
+      const c = line[i];
+      if (quoted) {
+        if (c === '"') {
+          if (line[i + 1] === '"') { cur += '"'; i++; }
+          else { quoted = false; }
+        } else { cur += c; }
+      } else if (c === '"') {
+        quoted = true;
+      } else if (c === ',') {
+        out.push(cur); cur = '';
+      } else { cur += c; }
+    }
+    out.push(cur);
+    return out;
+  }
   function parseCsv(text) {
-    const lines = text.split(/\r?\n/).filter(l => l.trim().length);
+    const lines = stripBom(String(text == null ? '' : text)).split(/\r?\n/).filter(l => l.trim().length);
     let headerIdx = -1, cols = null;
     const rows = [];
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i];
       if (line[0] === '#') continue;
-      const f = line.split(',');
+      const f = splitCsvLine(line);
       if (cols === null) {
         cols = {};
-        f.forEach((name, j) => { cols[name.trim()] = j; });
+        f.forEach((name, j) => { cols[String(name).trim()] = j; });
         continue;
       }
       const r = {};
       for (const c of COLS) {
         const j = cols[c];
-        if (j == null) { r[c] = null; continue; }
-        const raw = f[j];
-        r[c] = (raw == null || raw === '') ? null : Number(raw);
+        r[c] = (j == null) ? null : toNumOrNull(f[j]);
       }
       if (r.t == null || !isFinite(r.t)) continue;
       rows.push(r);
