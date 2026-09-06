@@ -140,7 +140,7 @@ function videoMp4SetupMap(job, pre) {
           if (layers) { const s = layers.find(l => l.type === 'symbol'); if (s) beforeId = s.id; }
         } catch (e) {}
         try { videoTrackAddToMap(job.map, pre.mapPts, videoSegLeansFor(pre.mapPts, pre.rows)); } catch (e) {}
-        videoSceneAddToMap(job.map, beforeId);
+        videoSceneAddToMap(job.map, beforeId, pre.buildings);
       } catch (e) {}
       job.mapReady = true;
       resolve();

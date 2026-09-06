@@ -128,6 +128,12 @@
           <option value="sat">Satellite (cinematografico)</option>
         </select>
       </div>
+      <div class="m-row"><span>Palazzi 3D</span>
+        <select id="videoBuildings">
+          <option value="on" selected>Sì</option>
+          <option value="off">No (solo terreno)</option>
+        </select>
+      </div>
       <div class="m-row"><span>Formato</span>
         <select id="videoFormat">
           <option value="webm" selected>WebM (compatibile)</option>
@@ -155,12 +161,13 @@
 <script src="js/geo.js"></script>
 <script src="js/parse.js"></script>
 <script src="js/draw.js"></script>
+<script src="js/share.js"></script>
 <script>
 /* Shim viewer→video: els/toast/canvasTheme locali (niente dipendenza dall'app).
    toast riusa il box #err del viewer; canvasTheme legge le --c-* già in :root. */
 var els = {
   videoModal: null, videoRes: null, videoSpeed: null, videoType: null,
-  videoStyle: null, videoFormat: null, videoAudio: null,
+  videoStyle: null, videoBuildings: null, videoFormat: null, videoAudio: null,
   videoProg: null, videoStatus: null, videoStart: null, videoCancel: null,
 };
 function viewerBindEls() {

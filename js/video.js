@@ -226,8 +226,10 @@ function startVideoRender(s) {
   // Image+cache-buster prima del render: eventi maplibre non segnalano tile
   // fallite (§6.4 doc). Se ko → liberty + avviso, mai render appeso.
   const wantSat = !!(els.videoStyle && els.videoStyle.value === 'sat');
+  // Palazzi 3D: acceso di default (select assente = vecchia UI = acceso).
+  const buildings = !(els.videoBuildings && els.videoBuildings.value === 'off');
   const pre = { mime, res, mult, rows, track, mapPts, spark, dist, tEnd, speedMax,
-    slow: buildSlowZones(rows, mult), sat: false };
+    slow: buildSlowZones(rows, mult), sat: false, buildings };
   // Giro senza GPS (solo IMU, es. rulli): la mappa 3D centrerebbe l'Italia
   // di default e centrerebbe il nulla. Forza 2D e spiega perché.
   if (!videoHasGps(pre)) {

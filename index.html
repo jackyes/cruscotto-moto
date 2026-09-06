@@ -578,6 +578,12 @@
           <option value="sat">Satellite (cinematografico)</option>
         </select>
       </div>
+      <div class="m-row"><span>Palazzi 3D</span>
+        <select id="videoBuildings">
+          <option value="on" selected>Sì</option>
+          <option value="off">No (solo terreno)</option>
+        </select>
+      </div>
       <div class="m-row"><span>Formato</span>
         <select id="videoFormat">
           <option value="webm" selected>WebM (compatibile)</option>
@@ -1037,7 +1043,8 @@ const els = {
   navBackroads: $('navBackroads'), navNoFerry: $('navNoFerry'),
   btnImportCam: $('btnImportCam'), camFile: $('camFile'), btnViewer: $('btnViewer'),
   videoModal: $('videoModal'), videoRes: $('videoRes'), videoSpeed: $('videoSpeed'), videoType: $('videoType'),
-  videoStyle: $('videoStyle'), videoFormat: $('videoFormat'), videoAudio: $('videoAudio'),
+  videoStyle: $('videoStyle'), videoBuildings: $('videoBuildings'),
+  videoFormat: $('videoFormat'), videoAudio: $('videoAudio'),
   videoProg: $('videoProg'), videoStatus: $('videoStatus'),
   videoStart: $('videoStart'), videoCancel: $('videoCancel'),
   videoCard: $('videoCard'), videoCardPrevWrap: $('videoCardPrevWrap'),

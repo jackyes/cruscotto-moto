@@ -219,18 +219,43 @@ function videoSatAddToMap(map) {
   } catch (e) {}
 }
 
-function videoSceneAddToMap(map, beforeId) {
+/* Pura: id dei layer estrusi (i palazzi 3D) presenti nello stile. Scan per
+   tipo invece dell'id cablato 'building-3d': se liberty rinomina il layer
+   l'interruttore continua a funzionare, e uno stile con più estrusi
+   (es. building-3d + landmark) si spegne tutto insieme. */
+function videoBuildingLayerIds(layers) {
+  const out = [];
+  for (const l of (layers || [])) {
+    if (l && l.type === 'fill-extrusion' && l.id) out.push(l.id);
+  }
+  return out;
+}
+
+/* buildings: false spegne i palazzi 3D (default acceso). In centro città gli
+   estrusi coprono la traccia e mangiano frame rate; in montagna non c'è nulla
+   da spegnere, quindi resta una scelta dell'utente, non un automatismo. */
+function videoSceneAddToMap(map, beforeId, buildings) {
   const B = VIDEO3D_CONF.buildings;
+  const show = buildings !== false;
   try {
     map.addLayer({ id: 'rilievo-ombreggiato', type: 'hillshade',
       source: 'dem', paint: videoHillPaint() }, beforeId);
   } catch (e) {}
+  let ids = [];
   try {
-    if (map.getLayer && map.getLayer('building-3d')) {
-      map.setPaintProperty('building-3d', 'fill-extrusion-color', B.color);
-      map.setPaintProperty('building-3d', 'fill-extrusion-opacity', B.opacity);
-    }
+    const st = map.getStyle ? map.getStyle() : null;
+    ids = videoBuildingLayerIds(st && st.layers);
   } catch (e) {}
+  if (!ids.length) ids = ['building-3d'];
+  for (const id of ids) {
+    try {
+      if (!(map.getLayer && map.getLayer(id))) continue;
+      map.setLayoutProperty(id, 'visibility', show ? 'visible' : 'none');
+      if (!show) continue;
+      map.setPaintProperty(id, 'fill-extrusion-color', B.color);
+      map.setPaintProperty(id, 'fill-extrusion-opacity', B.opacity);
+    } catch (e) {}
+  }
 }
 
 /* Avanza percorso fatto + scia. Scia = setData su cambio idx; percorso fatto =
@@ -534,7 +559,7 @@ function initVideoRender3D(pre) {
       if (pre.sat) { try { videoSatAddToMap(map); } catch (e) {} }
       try { videoTrackAddToMap(map, pre.mapPts, job.segLeans); } catch (e) {}
       // Rilievo ombreggiato + tinta edifici (stesso beforeId: la scia resta sopra).
-      videoSceneAddToMap(map, beforeId);
+      videoSceneAddToMap(map, beforeId, pre.buildings);
       job.mapReady = true;
       beginVideoCapture(job, canvas, pre.mime);
     } catch (e) {

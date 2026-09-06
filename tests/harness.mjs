@@ -76,6 +76,7 @@ const exportLine = `
   mp4ConfigFor, engineToneFor, windGainFor, mp4FrameStepUs,
   videoMapOptions, videoMapPixelRatio, videoSkyOptions, videoSkyVisible,
   videoTrackGeoJson, videoTrailRange, videoExtremesForJob, videoCometPaint, videoHillPaint,
+  videoBuildingLayerIds, videoSceneAddToMap,
   hudFont, hudCang, runningExtremes, leanScaleFor, leanGaugeModel,
   hudGdot, rectsOverlap, hudMotoBox, hudLayout, hudPanel, hudText,
   fmtDurH, climbMeters, countCurves, leanHistogram, posterStats, projectTrackXY,
