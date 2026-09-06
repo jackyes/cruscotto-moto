@@ -1871,7 +1871,9 @@ ensureNotFinalized_fn = function() {
     throw new Error("Cannot add new video or audio chunks after the file has been finalized.");
   }
 };
-export {
+// Esposto come globale (classic script, niente import dinamico: il dynamic
+// import() ha MIME/module trap su alcuni host statici e serve a zero CSP).
+globalThis.Mp4Muxer = {
   ArrayBufferTarget,
   FileSystemWritableFileStreamTarget,
   Muxer,

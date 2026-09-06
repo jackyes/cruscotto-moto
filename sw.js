@@ -9,7 +9,7 @@
 
 'use strict';
 
-const CACHE_VERSION = 'v9';
+const CACHE_VERSION = 'v10';
 const SHELL_CACHE = 'cruscotto-shell-' + CACHE_VERSION;
 const LIB_CACHE   = 'cruscotto-lib-' + CACHE_VERSION;
 const TILE_CACHE  = 'cruscotto-tiles-' + CACHE_VERSION;
@@ -169,23 +169,22 @@ self.addEventListener('fetch', event => {
   }
 
   if (url.origin === self.location.origin) {
+    // Rete prima: il codice app va servito fresco quando online (il
+    // cache-first serviva versioni stantie di js/*, es. il muxer MP4 con
+    // il vecchio import → "Muxer non caricato"). Offline → cache.
     event.respondWith(
       caches.open(SHELL_CACHE).then(async cache => {
-        const hit = await cache.match(req);
-        if (hit) {
-          // Aggiornamento in background: la prossima apertura avrà la versione nuova.
-          fetch(req).then(async res => {
-            if (res && res.ok) {
-              try { await cache.put(req, res.clone()); } catch (_) {}
-            }
-          }).catch(() => {});
-          return hit;
+        try {
+          const res = await fetch(req);
+          if (res && res.ok) {
+            try { await cache.put(req, res.clone()); } catch (_) {}
+          }
+          return res;
+        } catch (e) {
+          const hit = await cache.match(req);
+          if (hit) return hit;
+          throw e;
         }
-        const res = await fetch(req);
-        if (res && res.ok) {
-          try { await cache.put(req, res.clone()); } catch (_) {}
-        }
-        return res;
       })
     );
   }

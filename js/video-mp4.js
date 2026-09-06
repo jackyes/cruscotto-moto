@@ -30,17 +30,13 @@ function videoMp4Supported() {
   return typeof VideoEncoder !== 'undefined' && typeof VideoFrame !== 'undefined';
 }
 
-/* Carica il muxer vendored (stessa origine). import() dinamico diretto: il
-   wrapper new Function chiedeva 'unsafe-eval' e la CSP dell'app (script-src
-   senza unsafe-eval) lo bloccava sempre → MP4 morto. .js invece di .mjs:
-   import() lo tratta comunque da modulo, e .js ha MIME text/javascript
-   ovunque (Pages statiche servono .mjs come text/plain). La vm dei test
-   non chiama mai loadMp4Muxer, quindi l'import non viene risolto. */
-let _mp4MuxerPromise = null;
+/* Muxer vendored: classic script → globale Mp4Muxer (niente import dinamico:
+   MIME/module trap su host statici + CSP zero-unsafe-eval). Caricato come
+   <script src> prima di questo file. Se manca (offline senza precache),
+   l'export MP4 cade sul WebM con toast chiaro. */
 function loadMp4Muxer() {
-  if (_mp4MuxerPromise) return _mp4MuxerPromise;
-  _mp4MuxerPromise = import('./js/vendor/mp4-muxer.js');
-  return _mp4MuxerPromise;
+  const g = (typeof globalThis !== 'undefined' && globalThis.Mp4Muxer) ? globalThis.Mp4Muxer : null;
+  return g && g.Muxer ? Promise.resolve(g) : Promise.reject(new Error('Mp4Muxer non presente'));
 }
 
 /* Audio motore+vento: osc saw (pitch da velocità) + rumore bianco filtrato.
