@@ -292,9 +292,14 @@ async function startVideoRenderMp4(pre, mode) {
     if (mode === '3d') startVideoRender3D(pre); else startVideoRender2D(pre);
     return;
   }
-  const Muxer = await loadMp4Muxer().catch(() => null);
+  let Muxer = null;
+  try { Muxer = await loadMp4Muxer(); }
+  catch (e) {
+    toast('Muxer MP4 non caricato: ' + (e && e.message ? e.message : 'errore') + '. Riprova WebM.', 'err', 6000);
+    return;
+  }
   if (!Muxer || !Muxer.Muxer) {
-    toast('Muxer MP4 non caricato (offline?), riprova WebM.', 'err', 6000);
+    toast('Muxer MP4 non valido (export mancante), riprova WebM.', 'err', 6000);
     return;
   }
   startVideoRenderMp4Inner(pre, mode, Muxer);

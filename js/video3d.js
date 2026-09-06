@@ -179,26 +179,29 @@ function videoTrackAddToMap(map, mapPts, segLeans) {
 
 /* Rilievo + edifici dopo il terrain (try/catch dedicati: un id mancante nello
    stile remoto non deve buttare in 2D un render sano). */
-/* Layer liberty da nascondere in modalità satellite: i fill opachi (acqua,
-   edifici, landuse/landcover/park) coprirebbero il raster Esri. Restano
-   strade/labels/waterway per il contesto. Guardia per layer: id mancanti
-   nello stile remoto non devono buttare in 2D un render sano. */
-const VIDEO3D_SAT_HIDE = ['background', 'natural_earth', 'park', 'park_outline',
+/* Layer liberty da nascondere in modalità satellite: i fill opachi piatti
+   (acqua, landuse/landcover/park, footprint edifici 2D) coprirebbero il raster
+   Esri. Si tengono building-3d (estrusi 3D sopra il satellite, cinematico),
+   strade/labels/waterway per il contesto. Guardia per layer: id mancanti nello
+   stile remoto non devono buttare in 2D un render sano. */
+const VIDEO3D_SAT_HIDE = ['natural_earth', 'park', 'park_outline',
   'landuse_residential', 'landcover_wood', 'landcover_grass', 'landcover_ice',
   'landcover_wetland', 'landuse_pitch', 'landuse_track', 'landuse_cemetery',
   'landuse_hospital', 'landuse_school', 'water', 'landcover_sand',
-  'aeroway_fill', 'building', 'building-3d', 'road_area_pattern'];
+  'aeroway_fill', 'building', 'road_area_pattern'];
 
 function videoSatHideBaseLayers(map) {
+  // background: layer di tipo background NON ha layout 'visibility' (solo
+  // paint). Si azzera l'opacità altrimenti il #f8f4f0 copre tutto il satellite.
+  try { if (map.getLayer && map.getLayer('background')) map.setPaintProperty('background', 'background-opacity', 0); } catch (e) {}
   for (const id of VIDEO3D_SAT_HIDE) {
     try { if (map.getLayer && map.getLayer(id)) map.setLayoutProperty(id, 'visibility', 'none'); } catch (e) {}
   }
 }
 
 /* Satellite opzionale: raster Esri come base (sotto strade/labels), liberty
-   base (fill opachi) nascosto. Prima fix: si metteva SOTTO il liberty opaco
-   e restava invisibile. Idempotente, try/catch: stile remoto senza layer o
-   tile bloccate → si resta su liberty, niente throw. */
+   base (background trasparente + fill piatti nascosti). Idempotente, try/catch:
+   stile remoto senza layer o tile bloccate → si resta su liberty, niente throw. */
 function videoSatAddToMap(map) {
   try {
     map.addSource('video-sat', { type: 'raster', tileSize: 256, maxzoom: 19,
@@ -506,12 +509,14 @@ function initVideoRender3D(pre) {
         if (layers) { const s = layers.find(l => l.type === 'symbol'); if (s) beforeId = s.id; }
       } catch (e) {}
       // Sottofondo terra (§6.7 doc): sotto il raster, i buchi tile leggono
-      // come terreno lontano invece che voragini. Fallisce silenzioso se
-      // lo stile non accetta background custom.
-      try {
-        map.addLayer({ id: 'video-ground', type: 'background',
-          paint: { 'background-color': VIDEO3D_CONF.ground } });
-      } catch (e) {}
+      // come terreno lontano invece che voragini. In satellite no: il raster
+      // Esri è opaco e il fondo scuro coprirebbe l'immagine.
+      if (!pre.sat) {
+        try {
+          map.addLayer({ id: 'video-ground', type: 'background',
+            paint: { 'background-color': VIDEO3D_CONF.ground } });
+        } catch (e) {}
+      }
       // Satellite opzionale: raster Esri come base + liberty fill nascosti.
       if (pre.sat) { try { videoSatAddToMap(map); } catch (e) {} }
       try { videoTrackAddToMap(map, pre.mapPts, job.segLeans); } catch (e) {}

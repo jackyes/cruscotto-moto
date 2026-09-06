@@ -68,12 +68,15 @@ test('conf satellite: tile z/y/x Esri, attribution presente', () => {
   assert.ok(VIDEO3D_CONF.demAttr.length > 0);
 });
 
-test('VIDEO3D_SAT_HIDE: nasconde i fill opachi liberty, tiene strade/labels', () => {
+test('VIDEO3D_SAT_HIDE: nasconde i fill piatti, tiene edifici 3D e strade/labels', () => {
   const hide = api.VIDEO3D_SAT_HIDE;
   assert.ok(Array.isArray(hide) && hide.length > 10, 'lista corposa');
-  for (const id of ['background', 'water', 'building', 'building-3d', 'landcover_wood', 'landcover_grass', 'park']) {
+  for (const id of ['water', 'building', 'landcover_wood', 'landcover_grass', 'park', 'landuse_residential']) {
     assert.ok(hide.includes(id), 'manca ' + id);
   }
+  // Edifici 3D (cinematico) e background NON in lista (background → opacity 0).
+  assert.ok(!hide.includes('building-3d'), 'building-3d resta visibile');
+  assert.ok(!hide.includes('background'), 'background si gestisce via paint, non visibility');
   // Strade, labels, waterway NON vanno nascosti: contesto sopra il satellite.
   for (const keep of ['road', 'waterway', 'place', 'label']) {
     assert.ok(!hide.some(id => id === keep), 'non nascondere ' + keep);
