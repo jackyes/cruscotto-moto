@@ -89,7 +89,15 @@ function navRenderBanner() {
   const k = nv.nextMan;
   if (k >= nv.man.length) { el.style.display = 'none'; return; }
   const m = nv.man[k];
-  el.appendChild(document.createTextNode(navIcon(m) + ' '));
+  /* Mini-HUD: velocita' live prima della manovra. Il banner e' l'unico elemento
+     sempre visibile in marcia su qualsiasi tab (anche Navigatore), cosi' la
+     velocita' c'e' senza tornare in Dashboard. tabIndex + aria-label per SR. */
+  const v = document.createElement('span'); v.className = 'nb-speed';
+  const kmh = Math.round(typeof state !== 'undefined' && state.speedKph ? state.speedKph : 0);
+  v.textContent = kmh + ' km/h';
+  v.setAttribute('aria-label', 'Velocità ' + kmh + ' chilometri orari');
+  el.appendChild(v);
+  el.appendChild(document.createTextNode(' ' + navIcon(m) + ' '));
   const d = document.createElement('span'); d.className = 'nb-dist';
   d.textContent = navFmtShort(nv.distToNext); el.appendChild(d);
   const st = document.createElement('span'); st.className = 'nb-street';
