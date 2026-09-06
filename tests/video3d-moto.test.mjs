@@ -40,6 +40,7 @@ function mockTHREE() {
     AmbientLight: light, HemisphereLight: light,
     DirectionalLight: DirLight,
     MeshStandardMaterial: mat,
+    MeshPhysicalMaterial: mat,
     ShadowMaterial: mat,
     BoxGeometry: geom, CylinderGeometry: geom, SphereGeometry: geom,
     TorusGeometry: geom, PlaneGeometry: geom,
@@ -66,6 +67,9 @@ test('initVideoMoto3D: ombre off di default, rider+dischi+cavalletto presenti', 
   assert.ok(parts.includes('rider'));
   assert.ok(parts.includes('stand'));
   assert.equal(parts.filter(p => p === 'brake-disc').length, 2, 'un disco per ruota');
+  assert.equal(parts.filter(p => p === 'rider-leg').length, 2, 'due gambe rider');
+  assert.equal(parts.filter(p => p === 'rider-arm').length, 2, 'due braccia rider');
+  assert.equal(parts.filter(p => p === 'backpack').length, 1, 'zaino rider');
   disposeVideoMoto3D(moto);
 });
 

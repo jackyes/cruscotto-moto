@@ -653,13 +653,19 @@ function initVideoMoto3D(THREE, W, H, quality) {
   camera.position.set(0, 3.0, 6.5);
   camera.lookAt(0, 0.55, 0);
 
-  scene.add(new THREE.AmbientLight(0xffffff, 0.9));
-  scene.add(new THREE.HemisphereLight(0xffffff, 0x223344, 0.4));
-  const dir = new THREE.DirectionalLight(0xffffff, 1.4);
-  dir.position.set(4, 8, 3);
+  scene.add(new THREE.AmbientLight(0xffffff, 0.35));
+  scene.add(new THREE.HemisphereLight(0xffffff, 0x223344, 0.5));
+  const dir = new THREE.DirectionalLight(0xffffff, 1.6);
+  dir.position.set(2, 6, 5);
   dir.castShadow = shadows;
   if (shadows && dir.shadow && dir.shadow.mapSize) dir.shadow.mapSize.set(1024, 1024);
   scene.add(dir);
+  const rimLight = new THREE.DirectionalLight(0xbfd7ff, 0.7);
+  rimLight.position.set(-4, 4, -3);
+  scene.add(rimLight);
+  const fillLight = new THREE.DirectionalLight(0xffffff, 0.35);
+  fillLight.position.set(-1, 2, 6);
+  scene.add(fillLight);
   if (shadows && THREE.PlaneGeometry && THREE.ShadowMaterial) {
     const ground = new THREE.Mesh(
       new THREE.PlaneGeometry(14, 14),
@@ -677,18 +683,23 @@ function initVideoMoto3D(THREE, W, H, quality) {
 
   const M = {
     tire:    new THREE.MeshStandardMaterial({ color: 0x0b0f14, roughness: 0.9 }),
-    rim:     new THREE.MeshStandardMaterial({ color: 0xccd1d8, roughness: 0.25, metalness: 0.9 }),
-    chrome:  new THREE.MeshStandardMaterial({ color: 0xdfe3e8, roughness: 0.15, metalness: 1.0 }),
-    frame:   new THREE.MeshStandardMaterial({ color: 0x222831, roughness: 0.5, metalness: 0.6 }),
-    accent:  new THREE.MeshStandardMaterial({ color: 0x0ea5e9, roughness: 0.3, metalness: 0.35 }),
+    rim:     new THREE.MeshStandardMaterial({ color: 0xccd1d8, roughness: 0.25, metalness: 0.9, envMapIntensity: 1.4 }),
+    chrome:  new THREE.MeshStandardMaterial({ color: 0xdfe3e8, roughness: 0.15, metalness: 1.0, envMapIntensity: 1.5 }),
+    frame:   new THREE.MeshStandardMaterial({ color: 0x222831, roughness: 0.5, metalness: 0.6, envMapIntensity: 1.1 }),
+    // Vernice: clearcoat (wet paint) se disponibile, altrimenti standard. Guardato:
+    // il mock nei test non espone MeshPhysicalMaterial → cade sul fallback.
+    accent:  THREE.MeshPhysicalMaterial
+      ? new THREE.MeshPhysicalMaterial({ color: 0x0ea5e9, roughness: 0.32, metalness: 0.0, clearcoat: 1.0, clearcoatRoughness: 0.12, envMapIntensity: 1.0 })
+      : new THREE.MeshStandardMaterial({ color: 0x0ea5e9, roughness: 0.3, metalness: 0.35 }),
     seat:    new THREE.MeshStandardMaterial({ color: 0x14181d, roughness: 0.95 }),
-    exhaust: new THREE.MeshStandardMaterial({ color: 0x9aa0a8, roughness: 0.35, metalness: 1.0 }),
+    exhaust: new THREE.MeshStandardMaterial({ color: 0x9aa0a8, roughness: 0.35, metalness: 1.0, envMapIntensity: 1.4 }),
     head:    new THREE.MeshStandardMaterial({ color: 0xfff6d8, emissive: 0xfff2b0, emissiveIntensity: 1.2, roughness: 0.3 }),
     tail:    new THREE.MeshStandardMaterial({ color: 0x300000, emissive: 0xff2222, emissiveIntensity: 1.5 }),
     glass:   new THREE.MeshStandardMaterial({ color: 0x9fd4e8, roughness: 0.1, metalness: 0.1, transparent: true, opacity: 0.35 }),
-    disc:    new THREE.MeshStandardMaterial({ color: 0x8b9096, roughness: 0.2, metalness: 1.0 }),
+    disc:    new THREE.MeshStandardMaterial({ color: 0x8b9096, roughness: 0.2, metalness: 1.0, envMapIntensity: 1.2 }),
     suit:    new THREE.MeshStandardMaterial({ color: 0x1c2733, roughness: 0.8 }),
-    helmet:  new THREE.MeshStandardMaterial({ color: 0x0ea5e9, roughness: 0.25, metalness: 0.4 }),
+    helmet:  new THREE.MeshStandardMaterial({ color: 0x0ea5e9, roughness: 0.25, metalness: 0.4, envMapIntensity: 1.2 }),
+    chain:   new THREE.MeshStandardMaterial({ color: 0x1a1d21, roughness: 0.5, metalness: 0.8 }),
   };
 
   const add = (geom, mat, x, y, z, rx = 0, ry = 0, rz = 0, parent) => {
@@ -708,7 +719,9 @@ function initVideoMoto3D(THREE, W, H, quality) {
     const spin = new THREE.Group();          // ruota intera rotola attorno all'asse
     axle.add(spin);
     wheels.push(spin);
-    spin.add(new THREE.Mesh(new THREE.CylinderGeometry(0.42, 0.42, 0.16, 32), M.tire));
+    const tire = new THREE.Mesh(new THREE.TorusGeometry(0.34, 0.08, 12, 40), M.tire);
+    tire.rotation.x = Math.PI / 2;
+    spin.add(tire);
     spin.add(new THREE.Mesh(new THREE.CylinderGeometry(0.30, 0.30, 0.15, 32), M.rim));
     const disc = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.16, 0.17, 24), M.disc);
     disc.userData.videoPart = 'brake-disc';
@@ -723,6 +736,16 @@ function initVideoMoto3D(THREE, W, H, quality) {
     }
   }
   wheel(-0.70); wheel(+0.70);                // posteriore / anteriore
+
+  // corona posteriore + catena (lato sinistro) + pinze freno + tubi sottotelaio
+  const sprocket = new THREE.Mesh(new THREE.TorusGeometry(0.15, 0.02, 8, 24), M.chain);
+  sprocket.rotation.x = Math.PI / 2;
+  wheels[0].add(sprocket);
+  add(new THREE.BoxGeometry(0.015, 0.06, 0.68), M.chain, -0.08, 0.42, -0.35);
+  add(new THREE.BoxGeometry(0.05, 0.11, 0.06), M.chrome, 0, 0.53, -0.70);
+  add(new THREE.BoxGeometry(0.05, 0.11, 0.06), M.chrome, 0, 0.53, 0.70);
+  add(new THREE.CylinderGeometry(0.02, 0.02, 0.35, 8), M.frame, -0.10, 0.88, -0.30, 0.3);
+  add(new THREE.CylinderGeometry(0.02, 0.02, 0.35, 8), M.frame, 0.10, 0.88, -0.30, -0.3);
 
   // forcellone + mono
   add(new THREE.BoxGeometry(0.06, 0.10, 0.55), M.frame, 0, 0.72, -0.25, 0.12);
@@ -753,9 +776,12 @@ function initVideoMoto3D(THREE, W, H, quality) {
   const tank = new THREE.Mesh(new THREE.SphereGeometry(0.32, 24, 18), M.accent);
   tank.scale.set(0.22, 0.16, 0.34); tank.position.set(0, 1.08, 0.20); bike.add(tank);
 
-  // sella + codino
-  add(new THREE.BoxGeometry(0.40, 0.14, 0.55), M.seat, 0, 0.92, -0.32);
-  add(new THREE.BoxGeometry(0.32, 0.20, 0.35), M.accent, 0, 1.00, -0.60);
+  // sella + codino (sagomati, non box)
+  add(new THREE.BoxGeometry(0.38, 0.10, 0.52), M.seat, 0, 0.92, -0.32);
+  const hump = new THREE.Mesh(new THREE.SphereGeometry(0.20, 20, 14), M.accent);
+  hump.scale.set(0.9, 0.6, 1.0); hump.position.set(0, 1.02, -0.48); bike.add(hump);
+  const codino = new THREE.Mesh(new THREE.CapsuleGeometry(0.13, 0.24, 4, 12), M.accent);
+  codino.rotation.x = Math.PI / 2; codino.position.set(0, 1.00, -0.62); bike.add(codino);
 
   // carenatura / muso + parabrezza
   add(new THREE.BoxGeometry(0.34, 0.50, 0.50), M.accent, 0, 1.00, 0.55, -0.18);
@@ -765,12 +791,17 @@ function initVideoMoto3D(THREE, W, H, quality) {
   add(new THREE.CylinderGeometry(0.10, 0.10, 0.06, 20), M.head, 0, 0.95, 0.85, Math.PI / 2);
   add(new THREE.TorusGeometry(0.10, 0.02, 8, 20), M.chrome, 0, 0.95, 0.85, Math.PI / 2);
 
-  // parafango anteriore (mezza ciambella)
+  // parafango anteriore + posteriore (mezza ciambella)
   add(new THREE.TorusGeometry(0.46, 0.05, 12, 24, Math.PI), M.accent, 0, 0.72, 0.70, Math.PI / 2);
+  add(new THREE.TorusGeometry(0.47, 0.05, 12, 24, Math.PI), M.accent, 0, 0.72, -0.70, Math.PI / 2);
 
   // scarico
   add(new THREE.CylinderGeometry(0.05, 0.05, 0.8, 12), M.exhaust, 0.12, 0.55, -0.10, 0.4);
   add(new THREE.CylinderGeometry(0.09, 0.09, 0.45, 16), M.exhaust, 0.12, 0.50, -0.55, Math.PI / 2);
+  // terminale scarico: tappo + bordo + uscita (visibile da dietro)
+  add(new THREE.CylinderGeometry(0.065, 0.065, 0.03, 16), M.disc, 0.12, 0.50, -0.775, Math.PI / 2);
+  add(new THREE.TorusGeometry(0.065, 0.012, 8, 16), M.chrome, 0.12, 0.50, -0.775);
+  add(new THREE.CylinderGeometry(0.04, 0.04, 0.04, 12), M.tire, 0.12, 0.50, -0.78, Math.PI / 2);
 
   // luce posteriore + targa + pedane
   add(new THREE.BoxGeometry(0.14, 0.05, 0.03), M.tail, 0, 0.95, -0.78);
@@ -793,8 +824,72 @@ function initVideoMoto3D(THREE, W, H, quality) {
     : new THREE.CylinderGeometry(0.16, 0.20, 0.55, 12);
   add(torsoGeom, M.suit, 0, 0.35, 0, 0.15, 0, 0, rider);
   add(new THREE.SphereGeometry(0.14, 20, 16), M.helmet, 0, 0.72, 0.05, 0, 0, 0, rider);
+  // dettagli rider visibili da dietro: gambe, stivali, braccia, zaino, collo, spoiler
+  for (const s of [-1, 1]) {
+    const leg = add(new THREE.CapsuleGeometry(0.055, 0.5, 4, 8), M.suit, 0.16 * s, -0.25, 0.09, 0, 0, 0, rider);
+    leg.userData.videoPart = 'rider-leg';
+    add(new THREE.BoxGeometry(0.09, 0.05, 0.16), M.tire, 0.20 * s, -0.66, 0.18, 0, 0, 0, rider);
+    const arm = add(new THREE.CapsuleGeometry(0.045, 0.55, 4, 8), M.suit, 0.20 * s, 0.42, 0.50, 1.2, 0, 0, rider);
+    arm.userData.videoPart = 'rider-arm';
+  }
+  const backpack = add(new THREE.BoxGeometry(0.34, 0.42, 0.16), M.helmet, 0, 0.40, -0.22, 0, 0, 0, rider);
+  backpack.userData.videoPart = 'backpack';
+  add(new THREE.CylinderGeometry(0.07, 0.07, 0.06, 10), M.suit, 0, 0.58, 0.02, 0, 0, 0, rider); // collo
+  add(new THREE.BoxGeometry(0.16, 0.035, 0.06), M.helmet, 0, 0.86, -0.145, 0, 0, 0, rider); // spoiler casco
 
   scene.add(moto);
+
+  // IBL: env map procedurale (equirect → PMREM) così cromo/metalli/vernice
+  // riflettono qualcosa invece che nero. Guardato: il mock nei test non ha
+  // PMREMGenerator/CanvasTexture, e il canvas del harness non ha getContext.
+  let envTex = null, shadowTex = null;
+  if (THREE.PMREMGenerator && THREE.CanvasTexture && THREE.EquirectangularReflectionMapping) {
+    const c = document.createElement('canvas');
+    c.width = 256; c.height = 128;
+    const g = c.getContext && c.getContext('2d');
+    if (g) {
+      const grd = g.createLinearGradient(0, 0, 0, 128);
+      grd.addColorStop(0, '#eef4f8');
+      grd.addColorStop(0.45, '#9fb4c0');
+      grd.addColorStop(0.55, '#5a6570');
+      grd.addColorStop(1, '#2a2f36');
+      g.fillStyle = grd; g.fillRect(0, 0, 256, 128);
+      g.fillStyle = 'rgba(255,255,255,0.9)';
+      g.fillRect(40, 18, 176, 10);
+      g.fillRect(80, 38, 96, 6);
+      const tex = new THREE.CanvasTexture(c);
+      tex.mapping = THREE.EquirectangularReflectionMapping;
+      const pmrem = new THREE.PMREMGenerator(renderer);
+      const rt = pmrem.fromEquirectangular(tex);
+      scene.environment = rt.texture;
+      tex.dispose(); pmrem.dispose();
+      envTex = rt.texture;
+    }
+  }
+
+  // Ombra di contatto: disco gradiente sempre-on, niente shadowMap (costa su
+  // telefono) e niente piano castShadow. Su moto (yaw), non bike: non rolla.
+  if (THREE.CanvasTexture && THREE.MeshBasicMaterial && THREE.PlaneGeometry) {
+    const c = document.createElement('canvas');
+    c.width = c.height = 128;
+    const g = c.getContext && c.getContext('2d');
+    if (g) {
+      const grd = g.createRadialGradient(64, 64, 6, 64, 64, 62);
+      grd.addColorStop(0, 'rgba(0,0,0,0.6)');
+      grd.addColorStop(0.55, 'rgba(0,0,0,0.28)');
+      grd.addColorStop(1, 'rgba(0,0,0,0)');
+      g.fillStyle = grd; g.fillRect(0, 0, 128, 128);
+      const tex = new THREE.CanvasTexture(c);
+      const mat = new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthWrite: false });
+      const shadow = new THREE.Mesh(new THREE.PlaneGeometry(1.7, 0.9), mat);
+      shadow.rotation.x = -Math.PI / 2;
+      shadow.position.y = 0.005;
+      shadow.renderOrder = -1;
+      shadow.userData.videoPart = 'contact-shadow';
+      moto.add(shadow);
+      shadowTex = tex;
+    }
+  }
 
   // Registra tutto il disposable per disposeVideoMoto3D: traverse a fine vita
   // non basta se i materiali condivisi (M.*) non sono referenziati dai mesh
@@ -805,6 +900,8 @@ function initVideoMoto3D(THREE, W, H, quality) {
     if (o.material) (Array.isArray(o.material) ? o.material : [o.material]).forEach(m => disposables.add(m));
   });
   Object.values(M).forEach(m => disposables.add(m));
+  if (envTex) disposables.add(envTex);
+  if (shadowTex) disposables.add(shadowTex);
   return { renderer, scene, camera, bike, wheels, rider, shadows, _disposables: [...disposables] };
 }
 
