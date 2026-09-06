@@ -2,7 +2,7 @@
 <html lang="it" data-theme="dark">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <meta name="theme-color" content="#0a0e14" id="metaTheme">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -155,11 +155,23 @@
   .rec-badge { display: none; color: var(--bad); font-weight: 800; font-size: 13px; white-space: nowrap; }
   .rec-badge.on { display: inline; }
   #topTime { color: var(--text); font-weight: 800; font-size: 15px; }
+  /* Ingranaggio impostazioni: stesso tocco dei controlli mappa, apre Storico+scroll. */
+  #btnSettings { background: var(--surface-2); color: var(--text); border: 1px solid var(--line); border-radius: 12px; min-height: 44px; min-width: 44px; font-size: 18px; cursor: pointer; touch-action: manipulation; }
   #btnLogTop {
     background: var(--accent); color: var(--accent-ink); border: 1px solid var(--accent);
     border-radius: 12px; padding: 10px 16px; font-size: 14px; font-weight: 800; cursor: pointer;
     min-height: 44px; touch-action: manipulation; white-space: nowrap;
   }
+  /* Modalita' Guida: token ingranditi per guanti/vibrazione, solo layout, mai colori. */
+  body.guida {
+    --tap: 56px;
+    --font-hud: clamp(56px, 20vw, 120px);
+  }
+  body.guida #btnLogTop { min-height: var(--tap); padding: 12px 20px; font-size: 16px; }
+  body.guida .speed-val { font-size: var(--font-hud); }
+  body.guida nav.tabbar button { min-height: 60px; }
+  body.guida .card-session, body.guida .card-accel { display: none; }
+  body.guida .map-ctrl button { min-height: 48px; min-width: 48px; }
   #btnLogTop.rec { background: var(--bad); color: var(--bad-ink); border-color: var(--bad); }
 
   /* ============ Panels ============ */
@@ -214,6 +226,7 @@
   #gauge .gauge-deg { fill: var(--text-2); }
   #gauge .gauge-peak { fill: var(--accent); }
   .lean-dir { font-size: 15px; color: var(--text-2); font-weight: 800; letter-spacing: 3px; min-height: 1.2em; text-align: center; }
+  #leanCalibBtn { background: var(--accent); color: var(--accent-ink); border: 1px solid var(--accent); border-radius: 10px; padding: 8px 18px; font-size: 14px; font-weight: 800; letter-spacing: 2px; cursor: pointer; min-height: 44px; }
   .lean-dir.right { color: var(--accent); }
   .lean-dir.left { color: var(--good); }
   .lean-max { display: flex; justify-content: space-between; width: 100%; font-size: 13px; color: var(--text-2); margin-top: 4px; }
@@ -320,12 +333,18 @@
   .empty { color: var(--text-2); font-size: 14px; text-align: center; padding: 24px 0; }
 
   /* ============ Modal render video ============ */
-  .modal-overlay {
-    position: fixed; inset: 0; background: rgba(0,0,0,.55);
-    display: flex; align-items: center; justify-content: center;
-    z-index: 400; padding: 16px;
+  dialog.modal-overlay {
+    border: none; padding: 16px; background: transparent;
+    max-width: none; max-height: none;
   }
-  .modal-overlay[hidden] { display: none; }
+  dialog.modal-overlay::backdrop { background: rgba(0,0,0,.55); }
+  dialog.modal-overlay[hidden] { display: none; }
+  /* Fallback browser senza <dialog>: classe open-fb simula overlay. */
+  dialog.modal-overlay.open-fb {
+    position: fixed; inset: 0; z-index: 400;
+    display: flex; align-items: center; justify-content: center;
+    background: rgba(0,0,0,.55);
+  }
   .modal {
     background: var(--surface); color: var(--text); border: 1px solid var(--line);
     border-radius: 18px; padding: 18px; width: 100%; max-width: 420px;
@@ -400,12 +419,15 @@
     position: fixed; top: 58px; left: 50%; transform: translateX(-50%);
     z-index: 150; background: var(--surface-2); color: var(--text);
     border: 1px solid var(--accent); border-radius: 14px;
-    padding: 10px 16px; font-size: 17px; font-weight: 800; text-align: center;
+    padding: 12px 18px; font-size: 17px; font-weight: 800; text-align: center;
     max-width: 92%; box-shadow: var(--shadow); line-height: 1.25;
   }
   .nav-banner .nb-dist { color: var(--accent); }
-  .nav-banner .nb-street { display: block; font-size: 13px; font-weight: 600; color: var(--text-2); margin-top: 2px; }
-  .nav-banner .nb-then { display: block; font-size: 12px; font-weight: 700; color: var(--warn); margin-top: 3px; }
+  /* XXL in marcia: distanza manovra leggibile a colpo d'occhio con guanti e vibrazione. */
+  body.guida .nav-banner { font-size: 20px; padding: 14px 20px; }
+  body.guida .nav-banner .nb-dist { font-size: 30px; display: block; line-height: 1.1; }
+  .nav-banner .nb-street { display: block; font-size: 13px; font-weight: 600; color: var(--text-2); margin-top: 2px; max-width: 88vw; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .nav-banner .nb-then { display: block; font-size: 12px; font-weight: 700; color: var(--warn); margin-top: 3px; max-width: 88vw; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .nav-banner.off { border-color: var(--bad); }
   body.map-fullscreen .nav-banner { top: 10px; }
 
@@ -540,17 +562,18 @@
     <div class="top-spacer"></div>
     <span class="rec-badge" id="recBadge">● REC</span>
     <span id="topTime">00:00</span>
+    <button id="btnSettings" title="Impostazioni" aria-label="Impostazioni">⚙</button>
     <button id="btnLogTop">▶ Start</button>
   </header>
 
-  <div id="navBanner" class="nav-banner" style="display:none;"></div>
-  <div id="camAlert" class="cam-alert" style="display:none;"></div>
-  <div id="toasts" class="toast-wrap"></div>
+  <div id="navBanner" class="nav-banner" role="status" aria-live="polite" style="display:none;"></div>
+  <div id="camAlert" class="cam-alert" role="alert" style="display:none;"></div>
+  <div id="toasts" class="toast-wrap" role="status" aria-live="polite"></div>
   <div id="secWarn" class="warnbar" style="display:none;"></div>
 
-  <div id="videoModal" class="modal-overlay" hidden>
+  <dialog id="videoModal" class="modal-overlay" aria-labelledby="videoModalTitle" hidden>
     <div class="modal">
-      <h2>Export video</h2>
+      <h2 id="videoModalTitle">Export video</h2>
       <div class="m-row"><span>Risoluzione</span>
         <select id="videoRes">
           <option value="720" selected>1280×720 (720p)</option>
@@ -611,7 +634,7 @@
         </div>
       </div>
     </div>
-  </div>
+  </dialog>
 
   <button id="permBtn" style="display:none; width:100%; background:var(--warn); color:var(--warn-ink); border-color:var(--warn);">
     Consenti sensori (motion/orientation)
@@ -744,7 +767,7 @@
         </div>
         <div class="sess-detail" id="sessionDetail" style="display:none;"></div>
       </div>
-      <details>
+      <details id="settingsPanel" hidden>
         <summary>Impostazioni</summary>
         <div class="set-row">
           <span>Orientamento montaggio</span>
@@ -859,6 +882,7 @@
 
       <details id="diagPanel">
         <summary>Diagnostica vibrazioni</summary>
+        <div class="bench-out" id="diagVerdict" role="status" style="margin-bottom:8px;">Stato sensori: in attesa di dati…</div>
         <div class="diag-grid">
           <div><span class="k">Sensore</span><b id="dgHz">—</b></div>
           <div><span class="k">Vibrazione RMS</span><b id="dgVib">—</b></div>
@@ -1017,7 +1041,7 @@
 const $ = id => document.getElementById(id);
 const els = {
   gpsDot: $('gpsDot'), gpsTxt: $('gpsTxt'), recBadge: $('recBadge'), topTime: $('topTime'),
-  btnLogTop: $('btnLogTop'),
+  btnLogTop: $('btnLogTop'), btnSettings: $('btnSettings'), settingsPanel: $('settingsPanel'),
   speedVal: $('speedVal'), leanVal: $('leanVal'), leanDir: $('leanDir'),
   maxLeanL: $('maxLeanL'), maxLeanR: $('maxLeanR'),
   latVal: $('latVal'), lonVal: $('lonVal'), vertVal: $('vertVal'),
@@ -1643,6 +1667,13 @@ function init() {
     }
   });
 
+  // Ingranaggio header: porta allo Storico e apre le Impostazioni (restano li',
+  // ma raggiungibili con un tap invece di scroll + cerca-details).
+  els.btnSettings.addEventListener('click', () => {
+    switchTab('history');
+    els.settingsPanel.open = true;
+    setTimeout(() => { try { els.settingsPanel.scrollIntoView({ block: 'start' }); } catch (e) {} }, 60);
+  });
   els.btnFullscreen.addEventListener('click', toggleFullscreen);
   els.btnDemo.addEventListener('click', () => {
     state.demo = !state.demo;
@@ -1801,6 +1832,7 @@ function init() {
   els.btnMapFull.addEventListener('click', () => {
     const full = document.body.classList.toggle('map-fullscreen');
     els.btnMapFull.textContent = full ? '✕' : '⛶';
+    updateGuidaMode();
     if (state.mapType === 'leaflet' && state.map) setTimeout(() => { state.map.invalidateSize(); applyMapRotation(); }, 60);
     else if (state.mapType === 'canvas') drawCanvasMap();
   });

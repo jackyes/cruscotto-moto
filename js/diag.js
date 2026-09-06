@@ -4,6 +4,34 @@ function sampleCharts(now) {
   pushBounded(state.chartBuf, { t: now, speedKph: state.speedKph, lean: state.lean, latG: state.latG, lonG: state.lonG }, null, CHART_WINDOW, e => e.t);
 }
 
+/* Pura: tick "belli" 1/2/5x10^k per griglie orizzontali (specchio viewer). */
+function diagTicks(min, max, n) {
+  const count = Math.max(2, n || 4);
+  if (!isFinite(min) || !isFinite(max) || max <= min) return [min];
+  const raw = (max - min) / (count - 1);
+  const mag = Math.pow(10, Math.floor(Math.log10(raw)));
+  const norm = raw / mag;
+  const step = (norm > 5 ? 10 : norm > 2 ? 5 : norm > 1 ? 2 : 1) * mag;
+  const out = [];
+  for (let v = Math.ceil(min / step) * step; v <= max + 1e-9; v += step) {
+    const r = Math.round(v * 1e9) / 1e9;
+    out.push(r === 0 ? 0 : r);
+  }
+  return out.length ? out : [min];
+}
+
+/* Pura: min/max/zero-line per i 3 grafici live, testabile senza canvas. */
+function diagChartScale(field, buf) {
+  if (field === 'speedKph') {
+    let maxSp = 80;
+    for (const d of buf) if (d.speedKph > maxSp) maxSp = d.speedKph;
+    maxSp = Math.ceil(maxSp / 20) * 20 + 20;
+    return { min: 0, max: maxSp, zero: false };
+  }
+  if (field === 'lean') return { min: -60, max: 60, zero: true };
+  return { min: -1.2, max: 1.2, zero: true };
+}
+
 function drawChart(canvas, data, field, color, min, max, zeroLine) {
   const ctx = canvas.getContext('2d');
   const dpr = window.devicePixelRatio || 1;
@@ -12,41 +40,65 @@ function drawChart(canvas, data, field, color, min, max, zeroLine) {
   canvas.width = w * dpr; canvas.height = h * dpr;
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   ctx.fillStyle = canvasTheme.get('c-bg'); ctx.fillRect(0, 0, w, h);
-  if (!data.length) return;
+  if (!data.length) return { min: null, max: null };
   const t0 = data[0].t, t1 = data[data.length - 1].t;
   const span = Math.max(1, t1 - t0);
   const X = t => ((t - t0) / span) * w;
   const pad = 8;
   const Y = v => h - pad - ((v - min) / (max - min)) * (h - 2 * pad);
 
-  // linea zero (solo se nel range)
-  ctx.strokeStyle = canvasTheme.get('c-grid'); ctx.lineWidth = 1;
-  if (zeroLine && min < 0 && max > 0) {
-    const y0 = Y(0);
-    ctx.beginPath(); ctx.moveTo(0, y0); ctx.lineTo(w, y0); ctx.stroke();
+  // Griglia orizzontale con label + asse zero marcato (prima solo zero line:
+  // senza scala i G erano illeggibili al sole).
+  ctx.lineWidth = 1;
+  for (const tv of diagTicks(min, max, 4)) {
+    const y = Y(tv);
+    ctx.strokeStyle = tv === 0 ? canvasTheme.get('c-axis') : canvasTheme.get('c-grid');
+    ctx.beginPath(); ctx.moveTo(30, y); ctx.lineTo(w, y); ctx.stroke();
+    ctx.fillStyle = canvasTheme.get('c-axis'); ctx.font = '10px system-ui'; ctx.textAlign = 'left';
+    try { ctx.fillText(String(tv), 2, y - 2); } catch (e) {}
   }
 
   ctx.strokeStyle = color; ctx.lineWidth = 2; ctx.lineJoin = 'round';
   ctx.beginPath();
-  data.forEach((d, i) => { const x = X(d.t), y = Y(d[field]); i ? ctx.lineTo(x, y) : ctx.moveTo(x, y); });
+  let dMin = Infinity, dMax = -Infinity;
+  data.forEach((d, i) => {
+    const v = d[field];
+    if (v != null && isFinite(v)) { if (v < dMin) dMin = v; if (v > dMax) dMax = v; }
+    const x = X(d.t), y = Y(v); i ? ctx.lineTo(x, y) : ctx.moveTo(x, y);
+  });
   ctx.stroke();
+  return { min: isFinite(dMin) ? dMin : null, max: isFinite(dMax) ? dMax : null };
 }
 
 function drawCharts() {
   const buf = state.chartBuf;
-  let maxSp = 80;
-  for (const d of buf) if (d.speedKph > maxSp) maxSp = d.speedKph;
-  maxSp = Math.ceil(maxSp / 20) * 20 + 20;
-  drawChart(els.chSpeed, buf, 'speedKph', canvasTheme.get('c-accent'), 0, maxSp, false);
+  const sc = diagChartScale('speedKph', buf);
+  drawChart(els.chSpeed, buf, 'speedKph', canvasTheme.get('c-accent'), sc.min, sc.max, sc.zero);
   drawChart(els.chLean, buf, 'lean', canvasTheme.get('c-good'), -60, 60, true);
-  drawChart(els.chLat, buf, 'latG', canvasTheme.get('c-warn'), -1.2, 1.2, true);
-  els.chSpeedMax.textContent = maxSp + ' km/h';
+  const lat = drawChart(els.chLat, buf, 'latG', canvasTheme.get('c-warn'), -1.2, 1.2, true);
+  // Min/max live sul grafico G: il numero resta anche senza tooltip.
+  els.chSpeedMax.textContent = sc.max + ' km/h';
+  try {
+    let lbl = document.getElementById('chLatMinMax');
+    if (lbl) lbl.textContent = (lat.min == null ? '—' : lat.min.toFixed(2) + '/' + lat.max.toFixed(2) + ' G live');
+  } catch (e) {}
 }
 
 const avg = a => a.reduce((s, v) => s + v, 0) / (a.length || 1);
 
 
+/* Livello Utente della diagnostica: una riga di verdetto sempre visibile,
+   i 17 numeri restano per il livello Esperto. Pura sul verdetto, testabile. */
+function diagVerdict(state) {
+  if (!state.calib && !state.demo) return 'Non calibrato: premi Calibra a moto ferma.';
+  const vib = state.vibG || 0;
+  if (vib < 0.15) return 'Sensori OK — vibrazione bassa, lettura affidabile.';
+  if (vib < 0.35) return 'Vibrazione media — lettura valida, verifica il supporto.';
+  return 'Vibrazione alta — la piega potrebbe degradare, smorza il supporto.';
+}
+
 function updateDiag() {
+  if (els.diagVerdict) els.diagVerdict.textContent = 'Stato sensori: ' + diagVerdict(state);
   if (!els.diagPanel.open) return;
   els.dgHz.textContent = state.sensorHz ? state.sensorHz.toFixed(0) + ' Hz' : '—';
   els.dgVib.textContent = state.vibG.toFixed(3) + ' g';

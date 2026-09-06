@@ -32,6 +32,7 @@ function startLog() {
   clearInterval(sampleTimer);
   sampleTimer = setInterval(sampleTick, SAMPLE_MS);
   setLogButton(true);
+  updateGuidaMode();
 }
 
 async function stopLog() {
@@ -41,6 +42,7 @@ async function stopLog() {
   resetLogAcc();
   state.session.endWall = Date.now();
   setLogButton(false);
+  updateGuidaMode();
   await flushLog();
   await saveSession();
 }

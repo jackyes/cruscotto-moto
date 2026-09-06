@@ -157,18 +157,37 @@ function videoHasGps(pre) {
   return !!(mp && mp.length >= 2);
 }
 
+/* <dialog> nativo: Esc/focus trap gratis, fallback .open-fb. Ricorda chi
+   aveva il focus per restituirlo alla chiusura (Batch 4 a11y). */
+let videoModalReturnFocus = null;
+
 function openVideoModal(s) {
   stopVideoRender();
   els.videoModal._session = s;
   els.videoStart.disabled = false;
   els.videoProg.style.width = '0%';
   els.videoStatus.textContent = 'Pronto.';
+  try { videoModalReturnFocus = document.activeElement; } catch (e) { videoModalReturnFocus = null; }
   els.videoModal.hidden = false;
+  const d = els.videoModal;
+  if (typeof d.showModal === 'function' && !d.open) { try { d.showModal(); } catch (e) {} }
+  else d.classList.add('open-fb');
+  try { els.videoStart.focus(); } catch (e) {}
+  if (!d._cancelWired) {
+    d._cancelWired = true;
+    d.addEventListener('cancel', () => { stopVideoRender(); els.videoModal._session = null; });
+    d.addEventListener('close', () => { els.videoModal._session = null; });
+  }
 }
 
 function closeVideoModal() {
-  els.videoModal.hidden = true;
-  els.videoModal._session = null;
+  const d = els.videoModal;
+  d.hidden = true;
+  d._session = null;
+  d.classList.remove('open-fb');
+  if (d.open && typeof d.close === 'function') { try { d.close(); } catch (e) {} }
+  try { if (videoModalReturnFocus && videoModalReturnFocus.focus) videoModalReturnFocus.focus(); } catch (e) {}
+  videoModalReturnFocus = null;
 }
 
 function startVideoRender(s) {

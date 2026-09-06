@@ -103,40 +103,6 @@ function navRenderBanner() {
   el.style.display = 'block';
 }
 
-function navRenderBanner() {
-  const nv = state.nav, el = els.navBanner;
-  if (!el) return;
-  if (!nv || nv.status === 'IDLE' || nv.status === 'ARRIVED' && nv.bannerDone) {
-    el.style.display = 'none'; return;
-  }
-  el.textContent = '';
-  el.classList.toggle('off', nv.status === 'OFF_NONET' || nv.status === 'OFF_MANUAL' || nv.status === 'REROUTING');
-  if (nv.status === 'REROUTING') { el.appendChild(document.createTextNode('⟳ Ricalcolo…')); el.style.display = 'block'; return; }
-  if (nv.status === 'ARRIVED') { el.appendChild(document.createTextNode('⚑ Arrivato')); el.style.display = 'block'; return; }
-  if (nv.status === 'OFF_NONET' || nv.status === 'OFF_MANUAL') {
-    const b = nv.snapLat != null ? bearing({ lat: nv.lastLat, lon: nv.lastLon }, { lat: nv.snapLat, lon: nv.snapLon }) : null;
-    el.appendChild(document.createTextNode(
-      (nv.status === 'OFF_NONET' ? '⚠ Senza rete · ' : '⚠ Fuori percorso · ') +
-      'rientro a ' + navFmtShort(nv.offDist || 0) + (b != null ? ' verso ' + Math.round(b) + '°' : '')));
-    el.style.display = 'block'; return;
-  }
-  const k = nv.nextMan;
-  if (k >= nv.man.length) { el.style.display = 'none'; return; }
-  const m = nv.man[k];
-  el.appendChild(document.createTextNode(navIcon(m) + ' '));
-  const d = document.createElement('span'); d.className = 'nb-dist';
-  d.textContent = navFmtShort(nv.distToNext); el.appendChild(d);
-  const st = document.createElement('span'); st.className = 'nb-street';
-  st.textContent = m.text || (m.streets.join(', '));
-  el.appendChild(st);
-  if (k + 1 < nv.man.length && (nv.sMan[k + 1] - nv.sMan[k]) < NAV_CHAIN_MIN_M) {
-    const t2 = document.createElement('span'); t2.className = 'nb-then';
-    t2.textContent = 'poi ' + navIcon(nv.man[k + 1]) + ' ' + navShortCue(nv.man[k + 1].text);
-    el.appendChild(t2);
-  }
-  el.style.display = 'block';
-}
-
 function renderNavPanel() {
   const nv = state.nav;
   if (els.navDestTxt) {

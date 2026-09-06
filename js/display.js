@@ -101,18 +101,34 @@ function setTxt(el, s) {
   el.textContent = s;
 }
 
+/* Modalita' Guida: attiva quando registri o sei in mappa fullscreen.
+   Solo layout ingrandito via classe body.guida, nessun cambio di logica. */
+function updateGuidaMode() {
+  const on = !!(state.logging || document.body.classList.contains('map-fullscreen'));
+  document.body.classList.toggle('guida', on);
+}
+
 function updateDisplay() {
   setTxt(els.speedVal, Math.round(state.speedKph));
 
   if (state.demo || state.calib) {
     els.leanVal.textContent = Math.abs(state.lean).toFixed(1);
     if (Math.abs(state.lean) < 1) { els.leanDir.textContent = ' '; els.leanDir.className = 'lean-dir'; }
-    else if (state.lean > 0) { els.leanDir.textContent = 'DESTRA'; els.leanDir.className = 'lean-dir right'; }
-    else { els.leanDir.textContent = 'SINISTRA'; els.leanDir.className = 'lean-dir left'; }
+    else if (state.lean > 0) { els.leanDir.textContent = 'DESTRA ▶'; els.leanDir.className = 'lean-dir right'; }
+    else { els.leanDir.textContent = '◀ SINISTRA'; els.leanDir.className = 'lean-dir left'; }
   } else {
+    // Non calibrato: CALIBRA e' un bottone che porta dritto a startCalibration.
     els.leanVal.textContent = '--';
-    els.leanDir.textContent = 'CALIBRA';
+    els.leanDir.textContent = '';
     els.leanDir.className = 'lean-dir';
+    if (!els.leanDir.firstChild) {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.id = 'leanCalibBtn';
+      b.textContent = 'CALIBRA';
+      b.addEventListener('click', () => startCalibration());
+      els.leanDir.appendChild(b);
+    }
   }
   setNeedle(state.lean);
   setPeaks(state.session.maxLeanR, Math.abs(state.session.maxLeanL));
