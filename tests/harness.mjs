@@ -80,7 +80,8 @@ const exportLine = `
   hudFont, hudCang, runningExtremes, leanScaleFor, leanGaugeModel,
   hudGdot, rectsOverlap, hudMotoBox, hudLayout, hudPanel, hudText,
   fmtDurH, climbMeters, countCurves, leanHistogram, posterStats, projectTrackXY,
-  posterMoments, posterLayout, buildPosterModel, posterTrackXY
+  posterMoments, posterLayout, posterLayoutFor, posterSizeFor, posterTitle, POSTER_FORMATS,
+  buildPosterModel, posterTrackXY
 };
 `;
 

@@ -632,6 +632,13 @@
       </div>
       <div class="m-progress"><div id="videoProg"></div></div>
       <div class="m-status" id="videoStatus">Pronto.</div>
+      <div class="m-row"><span>Card PNG</span>
+        <select id="videoCardFmt" aria-label="Formato card">
+          <option value="portrait" selected>4:5 (consigliata)</option>
+          <option value="square">1:1</option>
+          <option value="story">9:16 Storia</option>
+        </select>
+      </div>
       <div class="m-btns">
         <button id="videoCancel">Annulla</button>
         <button id="videoCard">Card PNG</button>
@@ -1082,7 +1089,7 @@ const els = {
   videoFormat: $('videoFormat'), videoAudio: $('videoAudio'),
   videoProg: $('videoProg'), videoStatus: $('videoStatus'),
   videoStart: $('videoStart'), videoCancel: $('videoCancel'),
-  videoCard: $('videoCard'), videoCardPrevWrap: $('videoCardPrevWrap'),
+  videoCard: $('videoCard'), videoCardFmt: $('videoCardFmt'), videoCardPrevWrap: $('videoCardPrevWrap'),
   videoCardPrev: $('videoCardPrev'), videoCardShare: $('videoCardShare'),
   videoCardDl: $('videoCardDl'),
   btnCenter: $('btnCenter'), btnFollow: $('btnFollow'), btnTrackUp: $('btnTrackUp'), btnNavMute: $('btnNavMute'), compassOffsetSel: $('compassOffset'),
@@ -1652,28 +1659,38 @@ function init() {
     closeVideoModal();
   });
   // Card PNG: anteprima <img blob:> (la CSP accetta img blob:), poi share/download.
-  els.videoCard.addEventListener('click', () => {
+  // Suffisso formato nel filename: 4x5 / 1x1 / 9x16 (l'archivio resta ordinabile).
+  const cardFmtSuffix = () => ({ portrait: '4x5', square: '1x1', story: '9x16' }[(els.videoCardFmt || {}).value] || '4x5');
+  const genVideoCard = () => {
     const s = els.videoModal._session;
     if (!s) return;
+    const fmt = (els.videoCardFmt || {}).value || 'portrait';
     makeShareCard(s, (url, blob) => {
       if (!url) { toast('Card non generata: nessun dato.', 'err'); return; }
+      if (els.videoCardPrev.src && els.videoCardPrev.src.startsWith('blob:')) {
+        try { URL.revokeObjectURL(els.videoCardPrev.src); } catch (e) {}
+      }
       els.videoCardPrev.src = url;
       els.videoCardPrevWrap.hidden = false;
       els.videoCardPrevWrap._blob = blob;
-    });
+    }, { format: fmt });
+  };
+  els.videoCard.addEventListener('click', genVideoCard);
+  if (els.videoCardFmt) els.videoCardFmt.addEventListener('change', () => {
+    if (!els.videoCardPrevWrap.hidden) genVideoCard();
   });
   els.videoCardDl.addEventListener('click', () => {
     const b = els.videoCardPrevWrap._blob;
-    if (b) downloadBlob('cruscotto_card_' + stamp() + '.png', b, 'image/png');
+    if (b) downloadBlob('cruscotto_card_' + cardFmtSuffix() + '_' + stamp() + '.png', b, 'image/png');
   });
   els.videoCardShare.addEventListener('click', async () => {
     const b = els.videoCardPrevWrap._blob;
     if (!b) return;
-    const f = new File([b], 'cruscotto_card.png', { type: 'image/png' });
+    const f = new File([b], 'cruscotto_card_' + cardFmtSuffix() + '.png', { type: 'image/png' });
     if (navigator.share && navigator.canShare && navigator.canShare({ files: [f] })) {
       try { await navigator.share({ files: [f], title: 'Cruscotto Moto' }); } catch (e) {}
     } else {
-      downloadBlob('cruscotto_card_' + stamp() + '.png', b, 'image/png');
+      downloadBlob('cruscotto_card_' + cardFmtSuffix() + '_' + stamp() + '.png', b, 'image/png');
       toast('Condivisione non supportata: PNG scaricato.', 'err');
     }
   });

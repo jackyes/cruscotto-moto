@@ -25,6 +25,7 @@ function extractViewerScript(html) {
   stripBom, toNumOrNull, splitCsvLine, showError, sessionDur, hasLeaflet,
   viewerStats, splitLaps, buildFilteredCsv, exportFilteredCsv, renderRows, renderLapTable,
   viewerVideoRows, openViewerVideo, startViewerVideo,
+  parseCsvMeta, viewerCardSession,
 };`;
 }
 

@@ -176,6 +176,11 @@
       <div class="m-btns">
         <button class="btn" id="videoPresetReel" type="button">Preset reel 9:16</button>
         <button class="btn" id="btnCard" type="button">Card PNG</button>
+        <select id="cardFmt" aria-label="Formato card">
+          <option value="portrait" selected>4:5</option>
+          <option value="square">1:1</option>
+          <option value="story">9:16</option>
+        </select>
         <button class="btn" id="videoCancel" type="button">Annulla</button>
         <button class="btn primary" id="videoStart" type="button">Avvia render</button>
       </div>
@@ -761,7 +766,7 @@ const canvasTheme = {
     const reader = new FileReader();
     reader.onerror = () => { showError('Errore di lettura del file.'); };
     reader.onload = () => {
-      try { render(parseCsv(String(reader.result))); }
+      try { metaFile = parseCsvMeta(String(reader.result)); render(parseCsv(String(reader.result))); }
       catch (e) { showError('Errore di lettura: ' + e.message); }
     };
     reader.readAsText(file, 'utf-8');
@@ -904,17 +909,42 @@ const canvasTheme = {
     }
   }
 
+  /* Pura: meta dai commenti `#` del CSV (stesso formato di csvMeta in app:
+     `# sessione: ISO`, `# max_speed_kmh:`, `# distanza_km:`). Tollerante,
+     mai throw: CSV vecchi o senza header -> campi null. */
+  function parseCsvMeta(text) {
+    const out = { startISO: null, maxSpeed: null, distKm: null };
+    try {
+      const lines = String(text == null ? '' : text).split(/\r?\n/);
+      for (const line of lines) {
+        if (!line || line[0] !== '#') continue;
+        let m = line.match(/#\s*sessione:\s*(\S+)/i);
+        if (m && !isNaN(Date.parse(m[1]))) out.startISO = m[1];
+        m = line.match(/#\s*max_speed_kmh:\s*([\d.]+)/i);
+        if (m && isFinite(Number(m[1]))) out.maxSpeed = Number(m[1]);
+        m = line.match(/#\s*distanza_km:\s*([\d.]+)/i);
+        if (m && isFinite(Number(m[1]))) out.distKm = Number(m[1]);
+      }
+    } catch (e) {}
+    return out;
+  }
+
   // Card PNG nel viewer: stesso motore dell'app (makeShareCard), righe adattate.
-  let cardBlobUrl = null, cardBlob = null;
+  let cardBlobUrl = null, cardBlob = null, metaFile = { startISO: null, maxSpeed: null, distKm: null };
   function viewerCardSession() {
     const rows = viewerVideoRows(currentRows);
     const st = viewerStats(currentRows);
-    return { rows, track: rows, meta: { maxSpeed: st.vmax, distKm: st.dist } };
+    return { rows, track: rows, meta: {
+      maxSpeed: st.vmax != null ? st.vmax : metaFile.maxSpeed,
+      distKm: st.dist != null ? st.dist : metaFile.distKm,
+      startISO: metaFile.startISO, duration: sessionDur(currentRows),
+    } };
   }
   function makeViewerCard() {
     if (typeof makeShareCard !== 'function') { showError('Motore card non caricato.'); return; }
     if (!currentRows.length) { showError('Carica prima un file .csv.'); return; }
     $('videoStatus').textContent = 'Genero card…';
+    const fmt = ($('cardFmt') || {}).value || 'portrait';
     makeShareCard(viewerCardSession(), (url, blob) => {
       if (!url) { $('videoStatus').textContent = 'Card non riuscita.'; return; }
       if (cardBlobUrl) try { URL.revokeObjectURL(cardBlobUrl); } catch (e) {}
@@ -922,7 +952,7 @@ const canvasTheme = {
       $('cardImg').src = url; $('cardPrev').href = url;
       $('cardWrap').hidden = false;
       $('videoStatus').textContent = 'Card pronta.';
-    });
+    }, { format: fmt });
   }
 
   // Stima attesa render: durata giro / moltiplicatore (il render e' realtime).

@@ -4,7 +4,8 @@ import assert from 'node:assert';
 import { api } from './harness.mjs';
 
 const { fmtDurH, climbMeters, countCurves, leanHistogram, posterStats,
-  projectTrackXY, posterMoments, posterLayout, buildPosterModel } = api;
+  projectTrackXY, posterMoments, posterLayout, posterLayoutFor, posterSizeFor,
+  posterTitle, POSTER_FORMATS, buildPosterModel } = api;
 
 const R = o => Object.assign({ t: 0, speedKmh: 0, lean: 0, latG: 0, lonG: 0, alt: 100 }, o);
 
@@ -115,4 +116,39 @@ test('posterLayout + buildPosterModel: box dentro card, modello piatto', () => {
   assert.ok(!JSON.stringify(m).includes('NaN'));
   assert.equal(m.spark.length, 2);
   assert.equal(m.nPts, 2);
+});
+
+test('posterSizeFor: 3 formati + fallback portrait', () => {
+  assert.deepEqual(posterSizeFor('square'), { w: 1080, h: 1080 });
+  assert.deepEqual(posterSizeFor('portrait'), { w: 1080, h: 1350 });
+  assert.deepEqual(posterSizeFor('story'), { w: 1080, h: 1920 });
+  assert.deepEqual(posterSizeFor('bogus'), { w: 1080, h: 1350 });
+  assert.deepEqual(posterSizeFor(undefined), { w: 1080, h: 1350 });
+  assert.ok(POSTER_FORMATS.square && POSTER_FORMATS.portrait && POSTER_FORMATS.story);
+});
+
+test('posterTitle: data/ora da startISO, fallback e ISO invalido', () => {
+  assert.match(posterTitle({ startISO: '2026-04-12T07:30:00.000Z' }), /12\/4\/2026/);
+  assert.equal(posterTitle({}), 'Giro in moto');
+  assert.equal(posterTitle({ startISO: 'non-una-data' }), 'Giro in moto');
+  assert.equal(posterTitle(null), 'Giro in moto');
+});
+
+test('posterLayoutFor: invarianti box x3 formati', () => {
+  for (const fmt of ['square', 'portrait', 'story']) {
+    const s = posterSizeFor(fmt);
+    const L = posterLayoutFor(fmt);
+    for (const k of ['header', 'map', 'stats', 'strip', 'spark', 'hist', 'moments', 'foot']) {
+      const r = L[k];
+      assert.ok(r.x >= 0 && r.y >= 0 && r.x + r.w <= s.w && r.y + r.h <= s.h + 1, fmt + '/' + k);
+    }
+    assert.ok(L.moments.h >= 0, fmt + '/moments non negativo');
+    assert.ok(L.map.h > L.spark.h, fmt + '/map > spark');
+  }
+});
+
+test('buildPosterModel: gLat/decel/tLean20 senza NaN anche su rows=[]', () => {
+  const m = buildPosterModel([], [], {});
+  assert.ok(isFinite(m.st.gLat) && isFinite(m.st.decel) && isFinite(m.st.tLean20));
+  assert.ok(!JSON.stringify(m).includes('NaN'));
 });

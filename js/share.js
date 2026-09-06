@@ -166,26 +166,74 @@ function posterMoments(rows) {
   ];
 }
 
-/* Pura: layout card per formato (1080x1350 di default). Rettangoli, mai testo. */
+/* Pura: formati card (dimensioni fisse, niente dipendenze). Portrait 4:5 =
+   default feed/WhatsApp; square 1:1 per griglia/archivio; story 9:16 per storie. */
+const POSTER_FORMATS = {
+  square: { w: 1080, h: 1080, label: '1:1' },
+  portrait: { w: 1080, h: 1350, label: '4:5' },
+  story: { w: 1080, h: 1920, label: '9:16' },
+};
+
+/* Pura: dimensioni da chiave formato, fallback portrait su input ignoto. */
+function posterSizeFor(fmt) {
+  const f = POSTER_FORMATS[fmt];
+  return f ? { w: f.w, h: f.h } : { w: POSTER_FORMATS.portrait.w, h: POSTER_FORMATS.portrait.h };
+}
+
+/* Pura: titolo card da stats (data/ora startISO o fallback). Mai throw su ISO invalido. */
+function posterTitle(st) {
+  if (st && st.startISO) {
+    const d = new Date(st.startISO);
+    if (!isNaN(d.getTime())) {
+      return d.getDate() + '/' + (d.getMonth() + 1) + '/' + d.getFullYear() +
+        ' ' + String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
+    }
+  }
+  return 'Giro in moto';
+}
+
+/* Pura: layout card flessibile su qualsiasi W/H. Rettangoli, mai testo.
+   Budget verticale: header/footer proporzionali, poi residuo ripartito
+   map (flessibile, min 28%H) > stats > strip > spark ~= hist > legenda/moments
+   (riempie resto, min 0). Su square l'altezza scarsa comprime hist e moments. */
 function posterLayout(W, H) {
   const pad = Math.round(W * 0.06);
+  const gap = Math.round(pad / 2);
   const headH = Math.round(H * 0.10), footH = Math.round(H * 0.05);
-  const mapH = Math.round(H * 0.38);
   const y0 = pad;
   const header = { x: pad, y: y0, w: W - 2 * pad, h: headH };
-  const map = { x: pad, y: y0 + headH + pad / 2, w: W - 2 * pad, h: mapH };
-  const statsY = map.y + map.h + pad / 2;
-  const statH = Math.round(H * 0.085);
-  const stats = { x: pad, y: statsY, w: W - 2 * pad, h: statH };
-  const sparkY = statsY + statH + pad / 2;
-  const sparkH = Math.round(H * 0.10);
-  const spark = { x: pad, y: sparkY, w: W - 2 * pad, h: sparkH };
-  const histY = sparkY + sparkH + pad / 2;
-  const hist = { x: pad, y: histY, w: W - 2 * pad, h: Math.round(H * 0.10) };
-  const momY = hist.y + hist.h + pad / 2;
+  let y = y0 + headH + gap;
   const foot = { x: pad, y: H - pad - footH, w: W - 2 * pad, h: footH };
-  const moments = { x: pad, y: momY, w: W - 2 * pad, h: Math.max(0, foot.y - momY - pad / 2) };
-  return { pad, header, map, stats, spark, hist, moments, foot };
+  const avail = Math.max(0, foot.y - gap - y);
+  // Quote desiderate (frazioni di H); moments prende il resto.
+  const wantStats = Math.round(H * 0.085);
+  const wantStrip = Math.round(H * 0.045);
+  const wantSpark = Math.round(H * 0.10);
+  const wantHist = Math.round(H * 0.10);
+  const minMap = Math.round(H * 0.28);
+  let mapH = avail - wantStats - wantStrip - wantSpark - wantHist - 4 * gap;
+  let statH = wantStats, stripH = wantStrip, sparkH = wantSpark, histH = wantHist;
+  if (mapH < minMap) {
+    // Altezza scarsa (square): comprimi hist poi moments; map resta min.
+    const short = minMap - mapH;
+    const cutHist = Math.min(histH - Math.round(H * 0.05), short);
+    histH -= Math.max(0, cutHist);
+    mapH = minMap;
+  }
+  if (mapH < 0) mapH = 0;
+  const map = { x: pad, y, w: W - 2 * pad, h: mapH }; y += mapH + gap;
+  const stats = { x: pad, y, w: W - 2 * pad, h: statH }; y += statH + gap;
+  const strip = { x: pad, y, w: W - 2 * pad, h: stripH }; y += stripH + gap;
+  const spark = { x: pad, y, w: W - 2 * pad, h: sparkH }; y += sparkH + gap;
+  const hist = { x: pad, y, w: W - 2 * pad, h: histH }; y += histH + gap;
+  const moments = { x: pad, y, w: W - 2 * pad, h: Math.max(0, foot.y - gap - y) };
+  return { pad, header, map, stats, strip, spark, hist, moments, foot };
+}
+
+/* Pura: layout da chiave formato (dimensioni da posterSizeFor). */
+function posterLayoutFor(fmt) {
+  const s = posterSizeFor(fmt);
+  return posterLayout(s.w, s.h);
 }
 
 /* Pura: compone tutto in un modello piatto serializzabile (test su numeri). */
@@ -202,47 +250,50 @@ function buildPosterModel(rows, track, meta) {
   return { st, hist, moments, spark, nPts: (track || []).length };
 }
 
-/* ctx-only: disegna la card. Colori per parametro (mai videoColor dentro). */
+/* ctx-only: disegna la card. Colori per parametro (mai videoColor dentro).
+   Tipografia scalata da W (solo system-ui, CSP-safe); margini safe 6%W per crop WhatsApp. */
 function drawSharePoster(ctx, model, layout, W, H, C) {
   ctx.fillStyle = C.bg; ctx.fillRect(0, 0, W, H);
   const { st, hist, moments, spark } = model;
   const pad = layout.pad;
 
-  // Intestazione: data + durata.
-  let title = 'Giro in moto';
-  if (st.startISO) {
-    const d = new Date(st.startISO);
-    title = d.getDate() + '/' + (d.getMonth() + 1) + '/' + d.getFullYear() +
-      ' ' + String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
-  }
+  // Intestazione: data + durata (titolo puro da posterTitle, testabile).
+  const title = posterTitle(st);
   ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
   ctx.fillStyle = C.txt; ctx.font = 'bold ' + Math.round(W * 0.055) + 'px system-ui';
   ctx.fillText(title, pad, layout.header.y + layout.header.h * 0.45);
   ctx.fillStyle = C.sub; ctx.font = Math.round(W * 0.038) + 'px system-ui';
   ctx.fillText(st.dur + '  ·  ' + st.km.toFixed(1) + ' km', pad, layout.header.y + layout.header.h * 0.85);
 
-  // Sagoma traccia (nessuna tile: niente rete, niente attribuzione).
-  ctx.strokeStyle = C.accent; ctx.lineWidth = Math.max(3, W * 0.006);
-  ctx.lineJoin = 'round'; ctx.lineCap = 'round';
-  if (model._xy && model._xy.length >= 4) {
+  // Sagoma traccia con glow economico: passaggio largo alpha + core pieno
+  // (nessuna tile: niente rete, niente attribuzione, iOS-safe).
+  if (model._xy && model._xy.length >= 4 && layout.map.h > 0) {
     const L = layout.map, p2 = Math.max(8, L.w * 0.06);
+    const trace = () => {
+      ctx.beginPath();
+      for (let k = 0; k < model._xy.length; k += 2) {
+        const x = L.x + p2 + model._xy[k] * (L.w - 2 * p2);
+        const y = L.y + p2 + model._xy[k + 1] * (L.h - 2 * p2);
+        k ? ctx.lineTo(x, y) : ctx.moveTo(x, y);
+      }
+    };
     ctx.save();
     ctx.beginPath(); ctx.rect(L.x, L.y, L.w, L.h); ctx.clip();
-    ctx.beginPath();
-    for (let k = 0; k < model._xy.length; k += 2) {
-      const x = L.x + p2 + model._xy[k] * (L.w - 2 * p2);
-      const y = L.y + p2 + model._xy[k + 1] * (L.h - 2 * p2);
-      k ? ctx.lineTo(x, y) : ctx.moveTo(x, y);
-    }
-    ctx.stroke();
+    ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+    ctx.globalAlpha = 0.25; ctx.strokeStyle = C.accent;
+    ctx.lineWidth = Math.max(3, W * 0.006) * 2.4;
+    trace(); ctx.stroke();
+    ctx.globalAlpha = 1; ctx.strokeStyle = C.accent;
+    ctx.lineWidth = Math.max(3, W * 0.006);
+    trace(); ctx.stroke();
     ctx.restore();
   }
 
-  // 6 tile statistiche.
+  // 6 tile statistiche, prima = hero Vmax con bordo accent.
   const tiles = [
-    [String(Math.round(st.vmax)), 'Vmax km/h'], [st.vAvg.toFixed(0), 'media km/h'],
-    [st.leanR + '°', 'piega D'], [st.leanL + '°', 'piega S'],
-    [st.nCurve + '', 'curve'], [st.dPlus != null ? Math.round(st.dPlus) + ' m' : '—', 'dislivello'],
+    [String(Math.round(st.vmax)), 'Vmax km/h', true], [st.vAvg.toFixed(0), 'media km/h', false],
+    [st.leanR + '°', 'piega D', false], [st.leanL + '°', 'piega S', false],
+    [st.nCurve + '', 'curve', false], [st.dPlus != null ? Math.round(st.dPlus) + ' m' : '—', 'dislivello', false],
   ];
   const tw = layout.stats.w / 3, th = layout.stats.h / 2;
   ctx.textAlign = 'center';
@@ -251,14 +302,31 @@ function drawSharePoster(ctx, model, layout, W, H, C) {
     const cy = layout.stats.y + Math.floor(k / 3) * th;
     ctx.fillStyle = C.card;
     rrPath(ctx, cx - tw / 2 + 3, cy + 3, tw - 6, th - 6, 10); ctx.fill();
+    if (td[2]) { ctx.strokeStyle = C.accent; ctx.lineWidth = 3; rrPath(ctx, cx - tw / 2 + 3, cy + 3, tw - 6, th - 6, 10); ctx.stroke(); }
     ctx.fillStyle = C.txt; ctx.font = 'bold ' + Math.round(W * 0.05) + 'px system-ui';
     ctx.fillText(td[0], cx, cy + th * 0.55);
     ctx.fillStyle = C.sub; ctx.font = Math.round(W * 0.03) + 'px system-ui';
     ctx.fillText(td[1], cx, cy + th * 0.85);
   });
 
+  // Striscia dati extra (campi gia' in posterStats, prima non disegnati).
+  if (layout.strip && layout.strip.h > 0) {
+    const s = layout.strip;
+    const gTxt = st.gLat > 0 ? st.gLat.toFixed(1) + ' g lat' : '—';
+    const dTxt = st.decel > 0.5 ? st.decel.toFixed(1) + ' m/s²' : '—';
+    const pTxt = st.tLean20 > 0 ? fmtDurH(st.tLean20) + ' in piega' : '—';
+    ctx.fillStyle = C.sub; ctx.font = Math.round(W * 0.032) + 'px system-ui';
+    ctx.fillText(gTxt + '   ·   ' + dTxt + ' frenata   ·   ' + pTxt,
+      s.x + s.w / 2, s.y + s.h * 0.65);
+  }
+
+  // Etichette sezione sopra spark/hist.
+  ctx.textAlign = 'left'; ctx.fillStyle = C.sub;
+  ctx.font = 'bold ' + Math.round(W * 0.028) + 'px system-ui';
+  if (layout.spark.h > 0) ctx.fillText('VELOCITÀ', layout.spark.x, layout.spark.y - 6);
   // Sparkline velocità con marker Vmax.
   drawMiniSpark(ctx, layout.spark, spark, C);
+  if (layout.hist.h > 0) ctx.fillText('PIEGA D/S', layout.hist.x, layout.hist.y - 6);
   // Istogramma piega D/S.
   drawMiniHist(ctx, layout.hist, hist, C);
   // Momenti.
@@ -314,13 +382,18 @@ function drawMiniHist(ctx, box, hist, C) {
   ctx.fillStyle = C.sub; ctx.fillRect(box.x, box.y + box.h / 2 - 1, box.w, 2);
 }
 
-/* Thin wrapper: genera la card 1080x1350 e chiama cb(url, blob). */
-function makeShareCard(s, cb) {
+/* Thin wrapper: genera la card nel formato chiesto e chiama cb(url, blob).
+   opts.format in {'square','portrait','story'}, default 'portrait' (caller
+   esistenti invariati). 2° arg funzione = ancora (s, cb). */
+function makeShareCard(s, cb, opts) {
   const rows = (s && s.rows) || [], track = (s && s.track) || [], meta = (s && s.meta) || {};
   if (!rows.length && !track.length) { cb(null, null); return; }
-  const W = 1080, H = 1350;
+  const fmt = opts && typeof opts.format === 'string' ? opts.format : 'portrait';
+  const size = posterSizeFor(fmt);
+  const W = size.w, H = size.h;
   const model = buildPosterModel(rows, track, meta);
   model._xy = posterTrackXY(track.length ? track : rows, W, H);
+  model.format = POSTER_FORMATS[fmt] ? fmt : 'portrait';
   const layout = posterLayout(W, H);
   const cs = getComputedStyle(document.documentElement);
   const css = n => (cs.getPropertyValue(n) || '').trim();

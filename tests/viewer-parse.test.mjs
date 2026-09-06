@@ -3,7 +3,7 @@ import assert from 'node:assert';
 import { loadViewer } from './viewer-harness.mjs';
 
 const { __viewer } = loadViewer().sandbox;
-const { parseCsv, stripBom, toNumOrNull, splitCsvLine, COLS } = __viewer;
+const { parseCsv, parseCsvMeta, stripBom, toNumOrNull, splitCsvLine, COLS } = __viewer;
 
 test('splitCsvLine: virgole quotate + escape ""', () => {
   assert.deepEqual(splitCsvLine('a,"b,c",d'), ['a', 'b,c', 'd']);
@@ -48,4 +48,22 @@ test('parseCsv: commenti # e righe senza t scartate', () => {
   const rows = parseCsv(csv);
   assert.equal(rows.length, 1);
   assert.equal(rows[0].t, 2);
+});
+
+test('parseCsvMeta: header # reali -> startISO/maxSpeed/distKm', () => {
+  const csv = '# cruscotto-moto export\n# sessione: 2026-04-12T07:30:00.000Z\n' +
+    '# max_lean_D: 32.0, max_lean_S: 28.0\n# max_speed_kmh: 132.5\n# distanza_km: 48.210\n' +
+    't,speed_kmh\n0,80\n';
+  const m = parseCsvMeta(csv);
+  assert.equal(m.startISO, '2026-04-12T07:30:00.000Z');
+  assert.equal(m.maxSpeed, 132.5);
+  assert.equal(m.distKm, 48.21);
+});
+
+test('parseCsvMeta: senza header -> null, mai throw', () => {
+  const m = parseCsvMeta('t,speed_kmh\n0,80\n1,90\n');
+  assert.deepEqual(m, { startISO: null, maxSpeed: null, distKm: null });
+  assert.deepEqual(parseCsvMeta(''), { startISO: null, maxSpeed: null, distKm: null });
+  assert.deepEqual(parseCsvMeta(null), { startISO: null, maxSpeed: null, distKm: null });
+  assert.deepEqual(parseCsvMeta('# sessione: non-una-data\n'), { startISO: null, maxSpeed: null, distKm: null });
 });
