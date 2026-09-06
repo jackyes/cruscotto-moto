@@ -49,8 +49,11 @@ function mockTHREE() {
 }
 
 test('videoRiderLean: 30% contro-piega, clamp ±60°', () => {
-  assert.ok(Math.abs(videoRiderLean(30) - (30 * Math.PI / 180) * 0.3) < 1e-9);
-  assert.ok(Math.abs(videoRiderLean(-30) - (-30 * Math.PI / 180) * 0.3) < 1e-9);
+  // Segno opposto alla piega della moto (bike ruota di +lean): il busto resta
+  // piu' verticale invece di sommarsi alla piega.
+  assert.ok(Math.abs(videoRiderLean(30) + (30 * Math.PI / 180) * 0.3) < 1e-9);
+  assert.ok(Math.abs(videoRiderLean(-30) + (-30 * Math.PI / 180) * 0.3) < 1e-9);
+  assert.ok(videoRiderLean(30) < 0, 'piega a destra -> contro-piega negativa');
   assert.equal(videoRiderLean(90), videoRiderLean(60));
   assert.equal(videoRiderLean(0), 0);
   assert.equal(videoRiderLean(NaN), 0);

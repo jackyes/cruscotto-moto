@@ -669,12 +669,12 @@ function videoDampAngle(curDeg, targetDeg, dtSim, tau) {
 }
 
 /* Pura: contro-piega busto rider (30% della piega, clamp ±60°).
-   Il rider è figlio di bike (che piega di -lean): con +0.3lean il busto
-   resta più verticale, come un pilota vero che sporge. */
+   Il rider è figlio di bike (che ruota di +lean nel frame locale): con
+   -0.3lean il busto resta più verticale, come un pilota vero che sporge. */
 function videoRiderLean(leanDeg) {
   if (!isFinite(leanDeg)) return 0;
   const cl = Math.max(-60, Math.min(60, leanDeg));
-  return (cl * Math.PI / 180) * 0.3;
+  return -(cl * Math.PI / 180) * 0.3;
 }
 
 function initVideoMoto3D(THREE, W, H, quality) {
@@ -1043,7 +1043,11 @@ function drawVideoFrame3D(job, dt) {
 
   // Moto: piega + rotolamento ruote (dt reale, non per-frame).
   const leanRad = (r.lean || 0) * Math.PI / 180;
-  moto.bike.rotation.z = -leanRad;           // piega positiva (destra) = top verso destra
+  // Il gruppo padre ha rotation.y = PI (muso via dalla camera), che gia' ribalta
+  // l'asse di rollio: il meno qui lo ribaltava una seconda volta e la moto si
+  // coricava all'esterno della curva, contro l'ago dell'HUD. Con +leanRad la
+  // piega positiva (destra) porta il top a destra schermo, vista da dietro.
+  moto.bike.rotation.z = leanRad;
   if (moto.rider) moto.rider.rotation.z = videoRiderLean(r.lean || 0);
   const spin = videoWheelSpin(r.speedKmh || 0, dt == null ? 1 / 30 : dt);
   for (const w of moto.wheels) w.rotation.y += spin;
