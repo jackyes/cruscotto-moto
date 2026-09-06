@@ -91,7 +91,8 @@ test('viewerVideoRows: snake_case CSV → camelCase video', () => {
 });
 
 test('viewer video: script js/* inclusi + els locali', () => {
-  for (const s of ['js/geo.js', 'js/parse.js', 'js/draw.js', 'js/video.js', 'js/video3d.js', 'js/video-mp4.js']) {
+  for (const s of ['js/geo.js', 'js/parse.js', 'js/draw.js', 'js/video.js', 'js/video3d.js',
+    'js/video-offline.js', 'js/video-mp4.js', 'js/video-webm.js']) {
     assert.ok(html.includes('<script src="' + s + '">'), s);
   }
   assert.ok(html.includes('id="btnVideo"'), 'bottone Crea video');

@@ -59,6 +59,23 @@ test('hudPanel: funziona senza roundRect (fallback arcTo x4)', () => {
   assert.equal(calls.stroke, 1);
 });
 
+test('hudPanel: gradiente in cache per ctx (stessa geometria/colori -> una sola createLinearGradient)', () => {
+  const ctx = mockCtx();
+  let calls = 0;
+  const realCreate = ctx.createLinearGradient;
+  ctx.createLinearGradient = (...a) => { calls++; return realCreate(...a); };
+  hudPanel(ctx, 0, 0, 100, 50, 8, 'rgba(0,0,0,.42)', 'rgba(0,0,0,.30)');
+  hudPanel(ctx, 10, 0, 100, 50, 8, 'rgba(0,0,0,.42)', 'rgba(0,0,0,.30)'); // x diverso, stessa y/h/colori
+  assert.equal(calls, 1, 'stessa geometria/colori: gradiente riusato, non ricreato');
+  hudPanel(ctx, 0, 200, 100, 50, 8, 'rgba(0,0,0,.42)', 'rgba(0,0,0,.30)'); // y diversa -> nuovo gradiente
+  assert.equal(calls, 2);
+  const ctx2 = mockCtx();
+  let calls2 = 0;
+  ctx2.createLinearGradient = (...a) => { calls2++; return realCreate(...a); };
+  hudPanel(ctx2, 0, 0, 100, 50, 8, 'rgba(0,0,0,.42)', 'rgba(0,0,0,.30)');
+  assert.equal(calls2, 1, 'ctx diverso: cache non condivisa cross-job');
+});
+
 test('runningExtremes: monotoni, null/NaN non avvelenano', () => {
   const rows = [{ lean: 0, speedKmh: 0 }, { lean: 20, speedKmh: 50 },
     { lean: null, speedKmh: null }, { lean: NaN, speedKmh: NaN },

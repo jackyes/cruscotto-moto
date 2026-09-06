@@ -282,6 +282,16 @@ function startVideoRender(s) {
       return;
     }
     if (wantMp4) toast('MP4 non supportato qui, uso WebM.', 'err', 6000);
+    // WebM offline (WebCodecs + webm-muxer, niente captureStream): molto più
+    // veloce del realtime perché non è legato al wall-clock. Se il browser
+    // non ha WebCodecs o il muxer non è caricato, cade da solo sul realtime
+    // esistente (startVideoRenderWebmOffline gestisce il fallback).
+    if (typeof videoWebmOfflineSupported === 'function' && videoWebmOfflineSupported()) {
+      startVideoRenderWebmOffline(pre, mode).catch(() => {
+        if (mode === '3d') startVideoRender3D(pre); else startVideoRender2D(pre);
+      });
+      return;
+    }
     if (mode === '3d') { startVideoRender3D(pre); return; }
     startVideoRender2D(pre);
   };

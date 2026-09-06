@@ -1,15 +1,19 @@
 'use strict';
 /* js/video-mp4.js: export MP4 (WebCodecs + mp4-muxer vendored) + audio motore.
-   Ordine: dopo js/video3d.js (riusa pre/makeVideoCanvas/drawVideoFrame),
-   prima di js/share.js. Tutto impuro qui resta non testato in harness:
-   solo le pure (mp4ConfigFor/engineToneFor/windGainFor) vanno nell'export. */
+   Ordine: dopo js/video-offline.js (loop di encode condiviso con il WebM
+   offline) e js/video3d.js (riusa pre/makeVideoCanvas/drawVideoFrame), prima
+   di js/share.js. Tutto impuro qui resta non testato in harness: solo le
+   pure (mp4ConfigFor/engineToneFor/windGainFor/mp4FrameStepUs) vanno
+   nell'export. */
 
-/* Pura: config encode da risoluzione (stesso budget bitrate del WebM). */
+/* Pura: config encode da risoluzione (stesso budget bitrate del WebM).
+   hardwareAcceleration:'prefer-hardware' è solo un hint: se il browser lo
+   rifiuta, videoOfflinePickEncoderConfig ripiega su 'no-preference'. */
 function mp4ConfigFor(W, H) {
   const w = isFinite(W) && W > 0 ? Math.round(W) : 1280;
   const h = isFinite(H) && H > 0 ? Math.round(H) : 720;
   return { codec: 'avc1.640028', width: w, height: h,
-    bitrate: videoBitrateFor(w), framerate: 30 };
+    bitrate: videoBitrateFor(w), framerate: 30, hardwareAcceleration: 'prefer-hardware' };
 }
 
 /* Pura: frequenza motore da velocità (saw 60 Hz fermo → ~320 a 120 km/h). */
@@ -95,112 +99,23 @@ function videoAudioClose(ag) {
   try { ag.ctx.close(); } catch (e) {}
 }
 
-/* Pura: passo frame dal framerate (30 fps → 33333 µs). */
+/* Pura: passo frame dal framerate (30 fps → 33333 µs). Wrapper sottile sulla
+   generica in video-offline.js (nome storico mantenuto per l'export test). */
 function mp4FrameStepUs(fps) {
-  const f = isFinite(fps) && fps > 0 ? fps : 30;
-  return Math.round(1e6 / f);
+  return videoOfflineFrameStepUs(fps);
 }
 
-/* Prepara il job 3D per il loop MP4: riusa video3DBuildJob (stessa mappa+moto
-   del realtime), aspetta style.load + guardia 6 s (load aspetta le tile e
-   hanga offline: §6.3 doc replay). */
+/* Prepara il job 3D per il loop MP4: wrapper sottile su videoOfflineSetupMap
+   (generica in video-offline.js, condivisa col loop WebM offline). */
 function videoMp4SetupMap(job, pre) {
-  return new Promise((resolve, reject) => {
-    const canvas = makeVideoCanvas(pre.res);
-    const ctx = canvas.getContext('2d');
-    let j3 = null;
-    try { j3 = video3DBuildJob(pre, canvas, ctx); }
-    catch (e) { try { canvas.parentNode && canvas.parentNode.removeChild(canvas); } catch (e2) {} reject(e); return; }
-    job.canvas = j3.canvas; job.ctx = j3.ctx;
-    job.map = j3.map; job.container = j3.container; job.moto = j3.moto;
-    job.keyframes = j3.keyframes; job.extremes = j3.extremes; job.hud = j3.hud;
-    job.mapReady = false;
-    if (job.cancelled) { cleanupVideoJob(job); reject(new Error('cancel')); return; }
-    let done = false;
-    const ok = () => {
-      if (done) return; done = true;
-      clearTimeout(timer);
-      try {
-        job.map.addSource('dem', {
-          type: 'raster-dem',
-          tiles: VIDEO3D_CONF.demTiles,
-          encoding: VIDEO3D_CONF.demEncoding, tileSize: 256, maxzoom: 15,
-        });
-        // Stesso ordine del realtime (§6.2): posiziona → setTerrain → riposiziona.
-        const first = pre.mapPts.length ? pre.mapPts[0] : { lat: 42.5, lon: 12.5 };
-        try { job.map.jumpTo({ center: [first.lon, first.lat], zoom: VIDEO3D_CONF.camera.zoom, pitch: VIDEO3D_CONF.camera.pitch, bearing: 0 }); } catch (e) {}
-        job.map.setTerrain({ source: 'dem', exaggeration: 1.5 });
-        try { job.map.jumpTo({ center: [first.lon, first.lat], zoom: VIDEO3D_CONF.camera.zoom, pitch: VIDEO3D_CONF.camera.pitch, bearing: 0 }); } catch (e) {}
-        if (typeof job.map.setSky === 'function') { try { job.map.setSky(videoSkyOptions()); } catch (e) {} }
-        // Satellite opzionale: stessa base + liberty nascosto del realtime.
-        if (pre.sat) { try { videoSatAddToMap(job.map); } catch (e) {} }
-        let beforeId = null;
-        try {
-          const layers = job.map.getStyle ? job.map.getStyle().layers : null;
-          if (layers) { const s = layers.find(l => l.type === 'symbol'); if (s) beforeId = s.id; }
-        } catch (e) {}
-        try { videoTrackAddToMap(job.map, pre.mapPts, videoSegLeansFor(pre.mapPts, pre.rows)); } catch (e) {}
-        videoSceneAddToMap(job.map, beforeId, pre.buildings);
-      } catch (e) {}
-      job.mapReady = true;
-      resolve();
-    };
-    const timer = setTimeout(ok, 6000);
-    try { job.map.on('style.load', ok); } catch (e) { ok(); }
-    try { job.map.on('error', () => { if (!job.mapReady && !job.cancelled) { /* resta: guardia chiude */ } }); } catch (e) {}
-  });
+  return videoOfflineSetupMap(job, pre);
 }
 
 /* Loop offline: disegna ogni frame e lo passa a VideoEncoder con timestamp
-   manuale (più veloce del realtime, niente captureStream). Ritorna promise. */
+   manuale (più veloce del realtime, niente captureStream). Wrapper sottile
+   sul loop generico in video-offline.js (condiviso col WebM offline). */
 async function videoMp4Loop(job, W, H) {
-  const enc = job.mp4.enc, ag = job.mp4.ag;
-  const stepUs = mp4FrameStepUs(30);
-  const rows = job.rows;
-  if (!rows.length) return;
-  const t0 = rows[0].t;
-  // Avanzamento per indice (salta le soste), clock HUD da t reale (§2.3 doc).
-  const total = rows.length;
-  let vf = null;
-  try { vf = new VideoFrame(job.canvas, { timestamp: 0, duration: stepUs }); } catch (e) { vf = null; }
-  if (vf) { try { vf.close(); } catch (e) {} }
-  for (let k = 0; k < total; k++) {
-    if (job.cancelled) return;
-    const r = rows[k] || {};
-    job.tSim = r.t;
-    drawVideoFrame(job, 1 / 30);
-    const ts = Math.round(((isFinite(r.t) ? r.t : t0) - t0) * 1e6);
-    let frame = null;
-    try { frame = new VideoFrame(job.canvas, { timestamp: Math.max(0, ts), duration: stepUs }); }
-    catch (e) { continue; }
-    // Backpressure: se l'encoder è saturo aspetta (niente OOM su giri lunghi).
-    try {
-      if (enc.encodeQueueSize > 8) {
-        const cur = job.mp4.frame;
-        await new Promise(res => {
-          let n = 0;
-          const tick = () => {
-            if (job.cancelled || enc.encodeQueueSize <= 4 || ++n > 200) { res(); return; }
-            setTimeout(tick, 10);
-          };
-          tick();
-        });
-        void cur;
-      }
-      enc.encode(frame, { keyFrame: job.mp4.frame % 150 === 0 });
-    } catch (e) {}
-    try { frame.close(); } catch (e) {}
-    job.mp4.frame++;
-    void ag;
-    // Nota: l'audio MP4 si sintetizza dopo in videoMp4MuxAudio (niente graph
-    // live durante l'encode: suonerebbe dalle casse senza finire nel file).
-    // UI viva: yield ogni 15 frame + progress (loop da migliaia di frame).
-    if (job.mp4.frame % 15 === 0) {
-      els.videoProg.style.width = Math.round((k / Math.max(1, total - 1)) * 100) + '%';
-      els.videoStatus.textContent = 'Encode MP4 ' + Math.round((k / Math.max(1, total - 1)) * 100) + '%';
-      await new Promise(res => setTimeout(res, 0));
-    }
-  }
+  await videoOfflineLoop(job, job.mp4, { fps: 30, keyframeEvery: 150, label: 'MP4' });
   void W; void H;
 }
 
@@ -276,14 +191,11 @@ async function startVideoRenderMp4(pre, mode) {
     if (mode === '3d') startVideoRender3D(pre); else startVideoRender2D(pre);
     return;
   }
-  let cfgOk = true;
-  try {
-    if (VideoEncoder.isConfigSupported) {
-      const sup = await VideoEncoder.isConfigSupported(mp4ConfigFor(pre.res[0], pre.res[1]));
-      cfgOk = !!(sup && sup.supported);
-    }
-  } catch (e) { cfgOk = true; }
-  if (!cfgOk) {
+  // Hint hardware ('prefer-hardware'): se il browser lo rifiuta, ripiega su
+  // 'no-preference' prima di arrendersi (videoOfflinePickEncoderConfig).
+  const picked = await videoOfflinePickEncoderConfig(mp4ConfigFor(pre.res[0], pre.res[1]));
+  const mp4Cfg = picked.cfg;
+  if (!picked.supported) {
     toast('H.264 non supportato, uso WebM.', 'err', 6000);
     if (mode === '3d') startVideoRender3D(pre); else startVideoRender2D(pre);
     return;
@@ -311,12 +223,11 @@ async function startVideoRenderMp4(pre, mode) {
     toast('Muxer MP4 non valido (export mancante), riprova WebM.', 'err', 6000);
     return;
   }
-  await startVideoRenderMp4Inner(pre, m, Muxer);
+  await startVideoRenderMp4Inner(pre, m, Muxer, mp4Cfg);
 }
 
-async function startVideoRenderMp4Inner(pre, mode, Muxer) {
+async function startVideoRenderMp4Inner(pre, mode, Muxer, cfg) {
   const W = pre.res[0], H = pre.res[1];
-  const cfg = mp4ConfigFor(W, H);
   const muted = !!(els.videoAudio && els.videoAudio.value === 'off');
   const muxerOpts = {
     target: new Muxer.ArrayBufferTarget(),

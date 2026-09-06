@@ -9,7 +9,7 @@
 
 'use strict';
 
-const CACHE_VERSION = 'v11';
+const CACHE_VERSION = 'v12';
 const SHELL_CACHE = 'cruscotto-shell-' + CACHE_VERSION;
 const LIB_CACHE   = 'cruscotto-lib-' + CACHE_VERSION;
 const TILE_CACHE  = 'cruscotto-tiles-' + CACHE_VERSION;
@@ -42,8 +42,11 @@ const SHELL = [
   './js/nav-map.js',
   './js/log-session.js',
   './js/video3d.js',
+  './js/video-offline.js',
   './js/video-mp4.js',
   './js/vendor/mp4-muxer.js',
+  './js/video-webm.js',
+  './js/vendor/webm-muxer.js',
   './js/map.js',
   './js/diag.js',
   './js/ui-core.js',

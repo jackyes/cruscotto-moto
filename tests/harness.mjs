@@ -74,6 +74,7 @@ const exportLine = `
   videoMapBounds, videoLeanBin, videoMapProj, videoLeanAtPoint,
   videoMapBgKey,
   mp4ConfigFor, engineToneFor, windGainFor, mp4FrameStepUs,
+  webmConfigFor, webmCodecCandidates, videoOfflineFrameStepUs,
   videoMapOptions, videoMapPixelRatio, videoSkyOptions, videoSkyVisible,
   videoTrackGeoJson, videoTrailRange, videoExtremesForJob, videoCometPaint, videoHillPaint,
   videoBuildingLayerIds, videoSceneAddToMap,
@@ -143,6 +144,10 @@ const localStorageMock = (() => {
 
 const sandbox = {
   console,
+  // Node non li mette nella vm sandbox in automatico (non sono globali
+  // ECMAScript, sono aggiunte del runtime): servono a js/vendor/webm-muxer.js
+  // (SubtitleEncoder li usa a livello di modulo, quindi ad ogni load).
+  TextEncoder, TextDecoder,
   performance: { now: () => Date.now() },
   setTimeout,
   clearTimeout,

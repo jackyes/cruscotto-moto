@@ -43,12 +43,32 @@ function hudFont(weight, px) {
   return weight + ' ' + p + 'px system-ui';
 }
 
+/* Cache dei gradienti per ctx: geometria/colori dei pannelli HUD sono
+   pressoché statici per sessione di export (stesso layout, stessi colori),
+   quindi ricreare il CanvasGradient a ogni frame (4x/frame in video3d.js)
+   è spreco puro. WeakMap su ctx: ogni job di export ha un ctx nuovo, niente
+   leak cross-job. */
+const _hudGradCache = typeof WeakMap === 'function' ? new WeakMap() : null;
+
 /* Pannello con gradiente verticale + hairline chiara in alto. Senza
    createLinearGradient (mock dei test) ripiega sul piatto, mai crash. */
 function hudPanel(ctx, x, y, w, h, r, top, bottom) {
   if (typeof ctx.createLinearGradient === 'function') {
-    const g = ctx.createLinearGradient(0, y, 0, y + h);
-    g.addColorStop(0, top); g.addColorStop(1, bottom);
+    let g = null;
+    let m = null;
+    const key = _hudGradCache ? (y + '|' + h + '|' + top + '|' + bottom) : null;
+    if (_hudGradCache) {
+      m = _hudGradCache.get(ctx);
+      if (m) g = m.get(key);
+    }
+    if (!g) {
+      g = ctx.createLinearGradient(0, y, 0, y + h);
+      g.addColorStop(0, top); g.addColorStop(1, bottom);
+      if (_hudGradCache) {
+        if (!m) { m = new Map(); _hudGradCache.set(ctx, m); }
+        m.set(key, g);
+      }
+    }
     ctx.fillStyle = g;
   } else {
     ctx.fillStyle = bottom;
