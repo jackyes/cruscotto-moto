@@ -288,6 +288,19 @@ async function startVideoRenderMp4(pre, mode) {
     if (mode === '3d') startVideoRender3D(pre); else startVideoRender2D(pre);
     return;
   }
+  // Il 3D gira su maplibre+three caricati da CDN al volo: nel ramo WebM li
+  // carica startVideoRender3D, qui vanno chiesti a mano. Senza, la prima
+  // esportazione MP4 3D moriva in video3DBuildJob (maplibregl undefined).
+  // Se la CDN non risponde si resta su MP4, ma in 2D (non serve nessuna lib).
+  let m = mode;
+  if (m === '3d' && typeof ensureVideo3DLibs === 'function') {
+    try { await ensureVideo3DLibs(t => { els.videoStatus.textContent = t; }); }
+    catch (e) {
+      if (videoJob && videoJob.cancelled) return;
+      toast((e && e.message ? e.message : 'Mappa 3D non disponibile') + ', MP4 in 2D.', 'err', 6000);
+      m = '2d';
+    }
+  }
   let Muxer = null;
   try { Muxer = await loadMp4Muxer(); }
   catch (e) {
@@ -298,7 +311,7 @@ async function startVideoRenderMp4(pre, mode) {
     toast('Muxer MP4 non valido (export mancante), riprova WebM.', 'err', 6000);
     return;
   }
-  startVideoRenderMp4Inner(pre, mode, Muxer);
+  await startVideoRenderMp4Inner(pre, m, Muxer);
 }
 
 async function startVideoRenderMp4Inner(pre, mode, Muxer) {
@@ -316,14 +329,25 @@ async function startVideoRenderMp4Inner(pre, mode, Muxer) {
   if (!muted && typeof AudioEncoder !== 'undefined') {
     muxerOpts.audio = { codec: 'aac', sampleRate: 44100, numberOfChannels: 1 };
   }
-  const muxer = new Muxer.Muxer(muxerOpts);
-  const enc = new VideoEncoder({
-    output: (chunk, meta) => muxer.addVideoChunk(chunk, meta),
-    error: () => {},
-  });
-  enc.configure(cfg);
-  const canvas = makeVideoCanvas(pre.res);
-  const ctx = canvas.getContext('2d');
+  // configure() tira su risoluzioni/profili non supportati: senza guardia
+  // usciva come promise rejection muta (modale appesa su "Encode MP4…").
+  let muxer = null, enc = null, encErr = null;
+  try {
+    muxer = new Muxer.Muxer(muxerOpts);
+    enc = new VideoEncoder({
+      output: (chunk, meta) => muxer.addVideoChunk(chunk, meta),
+      error: e => { encErr = encErr || e; },
+    });
+    enc.configure(cfg);
+  } catch (e) {
+    try { if (enc) enc.close(); } catch (e2) {}
+    toast('Encoder MP4 non configurabile: ' + (e && e.message ? e.message : e) + '. Riprova WebM.', 'err', 8000);
+    return;
+  }
+  // In 3D il canvas master lo crea videoMp4SetupMap (con la mappa): crearlo
+  // anche qui lasciava un canvas orfano nel DOM a ogni export.
+  const canvas = mode === '3d' ? null : makeVideoCanvas(pre.res);
+  const ctx = canvas ? canvas.getContext('2d') : null;
   // Niente graph live durante l'encode offline (suonerebbe dalle casse):
   // l'audio si sintetizza dopo in videoMp4MuxAudio. ag resta per compat.
   const job = {
@@ -344,7 +368,9 @@ async function startVideoRenderMp4Inner(pre, mode, Muxer) {
     cleanupVideoJob(job);
     videoJob = null;
     closeVideoModal();
-    toast('Encode MP4 fallito, riprova WebM.', 'err', 6000);
+    const why = (e && e.message ? e.message : String(e)) ||
+      (encErr && encErr.message ? encErr.message : 'errore');
+    toast('Encode MP4 fallito: ' + why + '. Riprova WebM.', 'err', 8000);
     return;
   }
   try { await enc.flush(); enc.close(); } catch (e) {}
@@ -353,12 +379,21 @@ async function startVideoRenderMp4Inner(pre, mode, Muxer) {
     els.videoStatus.textContent = 'Audio MP4…';
     try { await videoMp4MuxAudio(muxer, pre.rows); } catch (e) {}
   }
-  muxer.finalize();
-  const blob = new Blob([muxer.target.buffer], { type: 'video/mp4' });
+  let blob = null;
+  try {
+    muxer.finalize();
+    blob = new Blob([muxer.target.buffer], { type: 'video/mp4' });
+  } catch (e) {
+    cleanupVideoJob(job);
+    videoJob = null;
+    closeVideoModal();
+    toast('Muxing MP4 fallito: ' + (e && e.message ? e.message : e) + '. Riprova WebM.', 'err', 8000);
+    return;
+  }
   cleanupVideoJob(job);
   videoJob = null;
   closeVideoModal();
-  if (job.cancelled || !blob.size) { toast('Render annullato.', 'err'); return; }
+  if (job.cancelled || !blob || !blob.size) { toast('Render annullato.', 'err'); return; }
   downloadBlob('cruscotto_video_' + stamp() + '.mp4', blob, 'video/mp4');
   toast('Video MP4 esportato.', 'ok');
 }

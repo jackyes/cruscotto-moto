@@ -64,7 +64,7 @@ const exportLine = `
   navPersistRoute, navRestore, fetchWithTimeout, navTick, navMaybeReroute, navTryOsrm,
   buildCameraKeyframes, disposeVideoMoto3D, videoWheelSpin, videoTrackIndexForRow,
   requestVideoFallback, clearVideoTimers, trackVideoTimer,
-  VIDEO3D_CONF, VIDEO3D_SAT_HIDE, loadVideo3DScript, initVideoMoto3D, videoRiderLean, videoCameraFor,
+  VIDEO3D_CONF, VIDEO3D_SAT_HIDE, loadVideo3DScript, ensureVideo3DLibs, initVideoMoto3D, videoRiderLean, videoCameraFor,
   drawVideoHUD3D, videoColorKey, canvasTheme, videoColor, resetVideoColors, HUD3D_COLORS,
   videoHasGps, videoResFor, videoBitrateFor, videoFrameLayout,
   buildSlowZones, slowMultAt, shakeAmpFor, shakeOffset, speedLinesFor,

@@ -392,51 +392,64 @@ function clearVideoTimers(job) {
   job._timers = [];
 }
 
+/* Carica maplibre+three (CDN, SRI, fallback versione) e risolve quando i
+   globali ci sono. Estratto da startVideoRender3D perché anche l'export MP4
+   3D ne ha bisogno: prima li dava per scontati e al primo render MP4 3D
+   video3DBuildJob trovava maplibregl undefined → "Encode MP4 fallito".
+   Rifiuta con il motivo già pronto per il toast (rete lenta / non disponibile). */
+function ensureVideo3DLibs(onStatus) {
+  return new Promise((resolve, reject) => {
+    if (window.maplibregl && window.THREE) { resolve(); return; }
+    const say = t => { try { if (onStatus) onStatus(t); } catch (e) {} };
+    say('Carico motore 3D');
+    const css = document.createElement('link');
+    css.rel = 'stylesheet'; css.href = VIDEO3D_CONF.css;
+    document.head.appendChild(css);
+    const missing = VIDEO3D_CONF.libs.filter(l => !window[l.global]);
+
+    // Feedback: pallini animati, così si capisce che sta lavorando.
+    let dots = 1;
+    const tick = setInterval(() => {
+      dots = (dots % 3) + 1;
+      say('Carico motore 3D' + '.'.repeat(dots));
+    }, 400);
+
+    let done = 0, settled = false;
+    const settle = () => {
+      if (settled) return;
+      if (++done < missing.length) return;
+      settled = true;
+      clearInterval(tick);
+      clearTimeout(timeout);
+      if (window.maplibregl && window.THREE) resolve();
+      else reject(new Error('Mappa 3D non disponibile'));
+    };
+
+    // Rete lenta / CDN bloccata: niente attesa infinita.
+    const timeout = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      clearInterval(tick);
+      reject(new Error('Dipendenze 3D non caricate (rete lenta?)'));
+    }, VIDEO3D_CONF.timeouts.cdnMs);
+
+    if (!missing.length) { settle(); return; }
+    for (const lib of missing) loadVideo3DScript(lib.url, settle, settle, lib.integrity);
+  });
+}
+
 function startVideoRender3D(pre) {
-  if (window.maplibregl && window.THREE) {
+  const start = () => {
     try { initVideoRender3D(pre); }
     catch (e) { requestVideoFallback(pre, null, 'Errore motore 3D: ' + (e && e.message ? e.message : e) + '. Uso il render 2D.'); }
-    return;
-  }
-  els.videoStatus.textContent = 'Carico motore 3D';
-  const css = document.createElement('link');
-  css.rel = 'stylesheet'; css.href = VIDEO3D_CONF.css;
-  document.head.appendChild(css);
-  const missing = VIDEO3D_CONF.libs.filter(l => !window[l.global]);
-
-  // Feedback: pallini animati, così si capisce che sta lavorando.
-  let dots = 1;
-  const tick = setInterval(() => {
-    dots = (dots % 3) + 1;
-    els.videoStatus.textContent = 'Carico motore 3D' + '.'.repeat(dots);
-  }, 400);
-
-  let done = 0, settled = false;
-  const pre2 = pre;
-  const settle = () => {
-    if (settled) return;
-    if (++done < missing.length) return;
-    settled = true;
-    clearInterval(tick);
-    clearTimeout(timeout);
-    if (videoJob && videoJob.cancelled) return;
-    if (window.maplibregl && window.THREE) {
-      try { initVideoRender3D(pre2); }
-      catch (e) { requestVideoFallback(pre2, null, 'Errore motore 3D: ' + (e && e.message ? e.message : e) + '. Uso il render 2D.'); }
-    } else {
-      requestVideoFallback(pre2, null, 'Mappa 3D non disponibile, uso il render 2D.');
-    }
   };
-
-  // Rete lenta / CDN bloccata: niente attesa infinita.
-  const timeout = setTimeout(() => {
-    if (settled) return;
-    settled = true;
-    clearInterval(tick);
-    requestVideoFallback(pre, null, 'Dipendenze 3D non caricate (rete lenta?), uso il render 2D.');
-  }, VIDEO3D_CONF.timeouts.cdnMs);
-
-  for (const lib of missing) loadVideo3DScript(lib.url, settle, settle, lib.integrity);
+  if (window.maplibregl && window.THREE) { start(); return; }
+  ensureVideo3DLibs(t => { els.videoStatus.textContent = t; }).then(() => {
+    if (videoJob && videoJob.cancelled) return;
+    start();
+  }, e => {
+    requestVideoFallback(pre, null, (e && e.message ? e.message : 'Mappa 3D non disponibile') + ', uso il render 2D.');
+  });
 }
 
 /* Costruisce job 3D (mappa+moto) senza avviare capture: riusato dal render
