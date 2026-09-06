@@ -176,7 +176,14 @@ function openVideoModal(s) {
   if (!d._cancelWired) {
     d._cancelWired = true;
     d.addEventListener('cancel', () => { stopVideoRender(); els.videoModal._session = null; });
-    d.addEventListener('close', () => { els.videoModal._session = null; });
+    // Esc chiude il <dialog> senza passare da closeVideoModal: senza rimettere
+    // [hidden] l'overlay restava dipinto sopra la pagina (la regola CSS non
+    // guarda [open], apposta, per reggere un js/video.js stantio in cache).
+    d.addEventListener('close', () => {
+      d._session = null;
+      d.hidden = true;
+      d.classList.remove('open-fb');
+    });
   }
 }
 

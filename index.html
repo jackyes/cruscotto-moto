@@ -339,7 +339,12 @@
   }
   dialog.modal-overlay::backdrop { background: rgba(0,0,0,.55); }
   dialog.modal-overlay[hidden] { display: none; }
-  /* Fallback browser senza <dialog>: classe open-fb simula overlay. */
+  /* L'overlay dipende solo da [hidden], mai da showModal(): un <dialog> senza
+     [open] e' display:none da UA stylesheet, quindi con un js/video.js
+     stantio in cache (che fa solo hidden=false) il bottone Export video
+     restava muto, senza errori in console. Stessa regola copre il fallback
+     .open-fb dei browser senza <dialog>. */
+  dialog.modal-overlay:not([hidden]),
   dialog.modal-overlay.open-fb {
     position: fixed; inset: 0; z-index: 400;
     display: flex; align-items: center; justify-content: center;
