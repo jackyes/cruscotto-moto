@@ -44,8 +44,8 @@ test('renderLapTable: 2 giri -> tabella visibile con righe', () => {
   const laps = sandbox.__viewer.splitLaps([R(0), R(1), R(2, { gap: 1 }), R(3)]);
   sandbox.__viewer.renderLapTable(laps);
   assert.equal(ids.laps.hidden, false);
-  assert.ok(ids.lapsBody.innerHTML.includes('<tr>'), 'righe tabella presenti');
-  assert.equal(ids.lblLaps.textContent, '2 giri');
+  assert.ok(ids.lapsBody.innerHTML.includes('<tr'), 'righe tabella presenti');
+  assert.ok(ids.lblLaps.textContent.startsWith('2 giri'), 'conteggio giri in label');
   sandbox.__viewer.renderLapTable([laps[0]]);
   assert.equal(ids.laps.hidden, true, 'giro singolo -> tabella nascosta');
 });

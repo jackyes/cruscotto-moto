@@ -2,7 +2,9 @@
 <html lang="it">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0d131b">
+<meta name="color-scheme" content="dark light">
 <title>Cruscotto Moto · Viewer CSV</title>
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha384-sHL9NAb7lN7rfvG5lfHpm643Xkcjzp4jFvuavGOndn6pjVqS6ny56CAt3nsEVT4H" crossorigin="anonymous">
 <style>
@@ -16,6 +18,18 @@
     --c-txt: #e6edf5; --c-route: #a78bfa;
     --c-acc-lat: #38bdf8; --c-acc-lon: #fbbf24; --c-acc-vert: #a78bfa;
     color-scheme: dark;
+  }
+  /* Tema chiaro: specchio dei token app (index.html light) per uso al sole. */
+  :root[data-theme="light"] {
+    --bg: #eef2f6; --surface: #ffffff; --surface-2: #e7edf3;
+    --line: #c6d2dd; --text: #0b1522; --text-2: #34424f;
+    --accent: #0069c2; --good: #00794a; --bad: #c1272d; --warn: #8a5700;
+    --acc-lat: #0069c2; --acc-lon: #8a5700; --acc-vert: #5b2fb8;
+    --c-bg: #ffffff; --c-grid: #d5dfe8; --c-axis: #5b6c7b;
+    --c-accent: #0069c2; --c-good: #00794a; --c-bad: #c1272d;
+    --c-txt: #0b1522; --c-route: #5b2fb8;
+    --c-acc-lat: #0069c2; --c-acc-lon: #8a5700; --c-acc-vert: #5b2fb8;
+    color-scheme: light;
   }
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body {
@@ -50,6 +64,9 @@
   .btn.primary { background: var(--accent); border-color: var(--accent); color: #06121c; }
   .modal { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 14px 16px; margin-bottom: 12px; }
   .modal[hidden] { display: none; }
+  /* Modale come overlay fisso: non spinge piu' il layout quando si apre. */
+  #videoModal.modal { position: fixed; inset: auto 12px 12px 12px; z-index: 100; max-width: 560px; margin: 0 auto; box-shadow: 0 12px 40px rgba(0,0,0,.5); max-height: 88dvh; overflow-y: auto; }
+  @media (min-width: 600px) { #videoModal.modal { left: 50%; right: auto; transform: translateX(-50%); width: 560px; } }
   .modal h2 { font-size: 15px; margin-bottom: 10px; }
   .m-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 8px; font-size: 13px; font-weight: 600; }
   .m-row select { background: var(--surface-2); color: var(--text); border: 1px solid var(--line); border-radius: 8px; padding: 6px 8px; font-size: 13px; max-width: 60%; }
@@ -73,21 +90,26 @@
 <div class="wrap">
   <header>
     <h1>CRUSCOTTO·MOTO <span>Viewer CSV</span></h1>
+    <span style="flex:1"></span>
+    <button class="btn" id="btnTheme" type="button" title="Tema chiaro/scuro">☀/☾</button>
   </header>
+  <div class="stats" id="sessMeta" hidden style="margin-bottom:12px;"></div>
 
   <label class="drop" id="drop" for="file">Trascina qui il file <b>.csv</b> esportato dall'app<br>
     <span style="font-size:12px;">oppure tocca per sceglierlo</span></label>
   <input type="file" id="file" accept=".csv,text/csv,text/plain">
 
-  <div class="err" id="err" hidden role="alert"></div>
+  <div class="err" id="err" hidden role="alert" aria-live="assertive"></div>
 
   <main id="main" hidden>
     <div class="stats" id="stats"></div>
+    <div class="chart" id="chartTipBox" hidden><div class="clbl"><span>Valori al cursore</span><span id="chartTipTime"></span></div><div id="chartTip" style="font-size:13px;font-variant-numeric:tabular-nums;line-height:1.5;"></div></div>
     <div id="map" class="hidden"></div>
     <div class="chart"><div class="clbl"><span>Velocità</span><span id="lblVmax"></span></div><canvas id="cSpeed"></canvas></div>
     <div class="chart"><div class="clbl"><span>Piega</span><span>±60°</span></div><canvas id="cLean"></canvas></div>
     <div class="chart"><div class="clbl"><span>Accelerazioni (G)</span><span>lat / lon / vert</span></div><canvas id="cAcc"></canvas></div>
-    <div class="chart"><div class="clbl"><span>Vibrazione / giroscopio</span><span>vib_g / gyro dps</span></div><canvas id="cVib"></canvas></div>
+    <div class="chart"><div class="clbl"><span>Vibrazione (g)</span><span id="lblVib"></span></div><canvas id="cVib"></canvas></div>
+    <div class="chart"><div class="clbl"><span>Giroscopio rollio (dps)</span><span id="lblGyro"></span></div><canvas id="cGyro"></canvas></div>
     <div class="chart"><div class="clbl"><span>Quota</span><span>m</span></div><canvas id="cAlt"></canvas></div>
     <div class="laps" id="laps" hidden>
       <div class="clbl"><span>Giri</span><span id="lblLaps"></span></div>
@@ -95,9 +117,11 @@
     </div>
     <div class="rowbtn">
       <button class="btn" id="btnOverlay" type="button">Confronta 2° file…</button>
+      <button class="btn" id="btnOverlayClear" type="button" hidden>Rimuovi confronto ✕</button>
       <button class="btn" id="btnExport" type="button">Esporta CSV filtrato</button>
-      <button class="btn" id="btnVideo" type="button">Crea video…</button>
+      <button class="btn primary" id="btnVideo" type="button">Crea video…</button>
     </div>
+    <div class="hint" id="overlayLbl" hidden></div>
     <input type="file" id="file2" accept=".csv,text/csv,text/plain" hidden>
     <div class="modal" id="videoModal" hidden>
       <h2>Export video</h2>
@@ -147,11 +171,15 @@
         </select>
       </div>
       <div class="m-progress"><div id="videoProg"></div></div>
-      <div class="m-status" id="videoStatus">Pronto.</div>
+      <div class="m-status" id="videoStatus" role="status" aria-live="polite">Pronto.</div>
+      <div class="m-status" id="videoSummary" style="font-weight:700;color:var(--text);"></div>
       <div class="m-btns">
+        <button class="btn" id="videoPresetReel" type="button">Preset reel 9:16</button>
+        <button class="btn" id="btnCard" type="button">Card PNG</button>
         <button class="btn" id="videoCancel" type="button">Annulla</button>
         <button class="btn primary" id="videoStart" type="button">Avvia render</button>
       </div>
+      <div class="m-status" id="cardWrap" hidden><a id="cardPrev" href="#" target="_blank" rel="noopener"><img id="cardImg" alt="Anteprima card giro" style="max-width:100%;border-radius:8px;"></a><div><button class="btn" id="btnCardShare" type="button">Condividi</button> <button class="btn" id="btnCardDl" type="button">Scarica PNG</button></div></div>
     </div>
     <div class="hint">Grafici e statistiche generati localmente nel browser. Nessun dato inviato altrove.</div>
   </main>
@@ -176,8 +204,16 @@ function viewerBindEls() {
     try { els[k] = document.getElementById(id); } catch (e) { els[k] = null; }
   }
 }
+/* Banner errore persistente (#err via showError) per errori veri;
+   avvisi transitori in #videoStatus quando la modale e' aperta, mai in #err. */
 function toast(msg, kind, ms) {
   try {
+    const st = document.getElementById('videoStatus');
+    const modal = document.getElementById('videoModal');
+    if (st && modal && !modal.hidden) {
+      st.textContent = String(msg == null ? '' : msg);
+      return;
+    }
     const box = document.getElementById('err');
     if (!box) return;
     box.hidden = false;
@@ -377,7 +413,9 @@ const canvasTheme = {
       ctx.beginPath(); ctx.moveTo(0, y0); ctx.lineTo(w, y0); ctx.stroke();
     }
 
-    const paintRows = (rs, gy, series) => {
+    // tOff sui datasets: allinea il confronto su t0 (i due file hanno
+    // t dall'avvio diversi, senza offset il confronto e' sfalsato).
+    const paintRows = (rs, gy, series, tOff) => {
       for (const s of series) {
         ctx.strokeStyle = s.color; ctx.lineWidth = 1.5; ctx.lineJoin = 'round';
         ctx.setLineDash(s.dash || []);
@@ -386,8 +424,8 @@ const canvasTheme = {
         const ds = downsampleMinMax(rs, 2000, r => gy(r, s.key));
         for (const r of ds) {
           const v = gy(r, s.key);
-          if (v == null || !isFinite(v)) { started = false; continue; }
-          const px = g.X(r.t), py = g.Y(v);
+          if (v == null || !isFinite(v) || r.t == null) { started = false; continue; }
+          const px = g.X(r.t + (tOff || 0)), py = g.Y(v);
           started ? ctx.lineTo(px, py) : ctx.moveTo(px, py);
           started = true;
         }
@@ -395,8 +433,8 @@ const canvasTheme = {
         ctx.setLineDash([]);
       }
     };
-    paintRows(rows, getY, o.series || []);
-    for (const d of (o.datasets || [])) paintRows(d.rows || [], d.getY || getY, d.series || []);
+    paintRows(rows, getY, o.series || [], 0);
+    for (const d of (o.datasets || [])) paintRows(d.rows || [], d.getY || getY, d.series || [], d.tOff || 0);
   }
 
   function getCss(name) {
@@ -464,26 +502,42 @@ const canvasTheme = {
   }
 
   function renderRows(rows) {
+    // Zoom giro: disegna solo le righe del giro scelto, statistiche sulla vista.
+    if (zoomLap != null && rows === currentRows) {
+      const laps = splitLaps(rows);
+      if (laps[zoomLap]) rows = laps[zoomLap].rows;
+      else zoomLap = null;
+    }
     const n = rows.length;
     if (!n) { showError('Nessuna riga valida nel CSV.'); return; }
     showError(null);
+    bindCrosshair();
 
     // statistiche (pura: riusabile nei test, vedi viewerStats)
     const st = viewerStats(rows);
     const { vmax, leanR, leanL, dist, trackPts, vavg, vibMax, gapCount } = st;
     const dur = sessionDur(rows);
 
-    const stat = (v, k) => '<div class="stat"><div class="v">' + v + '</div><div class="k">' + k + '</div></div>';
+    // Gerarchia stat: 4 primarie grandi (durata/vmax/piega/km), resto secondario.
+    const stat = (v, k, big) => '<div class="stat"' + (big ? ' style="border-color:var(--accent);"' : '') + '><div class="v"' + (big ? ' style="font-size:28px;"' : '') + '>' + v + '</div><div class="k">' + k + '</div></div>';
     $('stats').innerHTML =
-      stat(fmtDur(dur), 'durata') +
-      stat(Math.round(vmax), 'km/h max') +
+      stat(fmtDur(dur), 'durata', true) +
+      stat(Math.round(vmax), 'km/h max', true) +
+      stat(Math.max(Math.abs(leanR), Math.abs(leanL)).toFixed(0) + '°', 'piega max', true) +
+      stat(dist.toFixed(2), 'km', true) +
       stat(Math.round(vavg), 'km/h med') +
       stat(Math.abs(leanR).toFixed(0) + '°', 'piega D') +
       stat(Math.abs(leanL).toFixed(0) + '°', 'piega S') +
-      stat(dist.toFixed(2), 'km') +
       stat(vibMax != null ? vibMax.toFixed(2) + 'g' : '—', 'vib max') +
-      stat(gapCount, 'gap') +
+      stat(gapCount, gapCount === 1 ? 'campione dopo buco sensori' : 'campioni dopo buchi sensori') +
       stat(n, 'campioni');
+    // Header meta sessione: data/durata/km subito dopo l'import.
+    const meta = $('sessMeta');
+    if (meta) {
+      meta.hidden = false;
+      meta.innerHTML = stat(fmtDur(dur), 'durata', true) + stat(dist.toFixed(2), 'km', true) +
+        stat(n, 'campioni', true) + stat(fmtDur(dur), 'sessione', false);
+    }
     $('lblVmax').textContent = Math.round(vmax) + ' km/h';
 
     let altMin = Infinity, altMax = -Infinity;
@@ -503,39 +557,56 @@ const canvasTheme = {
         speedT0 = Math.min(speedT0, overlayRows[0].t);
         speedT1 = Math.max(speedT1, overlayRows[overlayRows.length - 1].t);
       }
+      // Overlay allineato su t0: stesso dominio x, secondo file traslato
+      // di (t0_base - t0_overlay) cosi' i confronti partono insieme.
+      const ovOff = (overlayRows && overlayRows.length && rows.length)
+        ? rows[0].t - overlayRows[0].t : 0;
+      const ovDs = (getY) => (overlayRows && overlayRows.length) ? [{
+        rows: overlayRows, getY, tOff: ovOff,
+        series: [{ key: 'ov', color: getCss('--c-axis'), dash: [5, 4] }],
+      }] : [];
       drawLine($('cSpeed'), rows, (r, k) => r.speed_kmh, {
         min: 0, max: maxV, t0: speedT0, t1: speedT1,
         series: [{ key: 'speed_kmh', color: getCss('--accent') }],
-        datasets: (overlayRows && overlayRows.length) ? [{
-          rows: overlayRows, getY: (r, k) => r.speed_kmh,
-          series: [{ key: 'speed_kmh', color: getCss('--c-axis'), dash: [5, 4] }],
-        }] : [],
+        datasets: ovDs((r, k) => r.speed_kmh),
       });
       // Riferimento piega cinematica (colonna lean_ref, default ricalcolo live:
       // nei CSV veniva ignorata, ora la curva si confronta con la misura).
       drawLine($('cLean'), rows, (r, k) => (k === 'lean_ref' ? r.lean_ref : r.lean_deg), {
-        min: -60, max: 60,
+        min: -60, max: 60, t0: speedT0, t1: speedT1,
         series: [
           { key: 'lean_deg', color: getCss('--good') },
           { key: 'lean_ref', color: getCss('--c-axis'), dash: [5, 4] },
         ],
+        datasets: ovDs((r, k) => r.lean_deg),
       });
       drawLine($('cAcc'), rows, (r, k) => r[k], {
-        min: -1.5, max: 1.5,
+        min: -1.5, max: 1.5, t0: speedT0, t1: speedT1,
         series: [
           { key: 'lat_accel_g', color: getCss('--acc-lat') },
           { key: 'lon_accel_g', color: getCss('--acc-lon') },
           { key: 'vert_accel_g', color: getCss('--acc-vert') }
-        ]
+        ],
+        datasets: ovDs((r, k) => r.lat_accel_g),
       });
-      drawLine($('cVib'), rows, (r, k) => r[k], {
+      // vib_g (frazioni di g) e gyro (decine di dps) su scale separate:
+      // prima condividevano un asse e una delle due curve era piatta.
+      let gyroMax = 0;
+      for (const r of rows) if (r.gyro_roll_dps != null && isFinite(r.gyro_roll_dps)) gyroMax = Math.max(gyroMax, Math.abs(r.gyro_roll_dps));
+      gyroMax = Math.max(30, Math.ceil(gyroMax / 30) * 30);
+      drawLine($('cVib'), rows, (r, k) => r.vib_g, {
         min: 0, max: Math.max(0.5, Math.ceil((st.vibMax || 0) * 2) / 2),
-        series: [
-          { key: 'vib_g', color: getCss('--acc-vert') },
-          { key: 'gyro_roll_dps', color: getCss('--acc-lon') }
-        ]
+        t0: speedT0, t1: speedT1,
+        series: [{ key: 'vib_g', color: getCss('--acc-vert') }],
+        datasets: ovDs((r, k) => r.vib_g),
       });
-      drawLine($('cAlt'), rows, (r, k) => r.alt_m, { min: altMin, max: altMax, series: [{ key: 'alt_m', color: getCss('--acc-vert') }] });
+      drawLine($('cGyro'), rows, (r, k) => r.gyro_roll_dps, {
+        min: -gyroMax, max: gyroMax, t0: speedT0, t1: speedT1,
+        series: [{ key: 'gyro_roll_dps', color: getCss('--acc-lon') }],
+        datasets: ovDs((r, k) => r.gyro_roll_dps),
+      });
+      $('lblVib').textContent = st.vibMax != null ? 'max ' + st.vibMax.toFixed(2) + 'g' : '';
+      $('lblGyro').textContent = '±' + gyroMax + ' dps';
       renderMap(trackPts);
       renderLapTable(splitLaps(rows));
     };
@@ -567,14 +638,71 @@ const canvasTheme = {
   let currentRows = [];
   let overlayRows = null;
 
+  // Giro isolato per zoom: null = intera sessione. Poco stato, riusa paint via renderRows.
+  let zoomLap = null;
+
   function renderLapTable(laps) {
     const box = $('laps'), body = $('lapsBody');
     if (laps.length < 2) { box.hidden = true; body.innerHTML = ''; return; }
-    $('lblLaps').textContent = laps.length + ' giri';
+    $('lblLaps').textContent = laps.length + ' giri — tocca una riga per zoomare';
     body.innerHTML = laps.map((l, i) =>
-      '<tr><td>' + (i + 1) + '</td><td>' + fmtDur(l.dur) + '</td><td>' +
-      Math.round(l.vmax) + '</td><td>' + l.dist.toFixed(2) + '</td></tr>').join('');
+      '<tr data-lap="' + i + '" style="cursor:pointer;' + (zoomLap === i ? 'background:var(--surface-2);' : '') + '"><td>' + (i + 1) + '</td><td>' + fmtDur(l.dur) + '</td><td>' +
+      Math.round(l.vmax) + '</td><td>' + l.dist.toFixed(2) + '</td></tr>').join('') +
+      (zoomLap != null ? '<tr data-lap="all" style="cursor:pointer;"><td colspan="4" style="text-align:center;color:var(--accent);">✕ Mostra tutta la sessione</td></tr>' : '');
     box.hidden = false;
+    // Harness test: body mock senza querySelectorAll — righe non cliccabili, niente crash.
+    const rows = (body.querySelectorAll && typeof body.querySelectorAll === 'function')
+      ? body.querySelectorAll('tr[data-lap]') : [];
+    Array.prototype.forEach.call(rows, tr => {
+      tr.addEventListener('click', () => {
+        const v = tr.getAttribute('data-lap');
+        zoomLap = (v === 'all') ? null : Number(v);
+        renderRows(currentRows);
+      });
+    });
+  }
+
+  // Crosshair sincronizzato: un listener per canvas, tooltip testuale sopra i
+  // grafici con valori di tutte le serie a quell'istante. Touch incluso.
+  function nearestRow(rows, t) {
+    let best = null, bd = Infinity;
+    for (const r of rows) {
+      if (r.t == null || !isFinite(r.t)) continue;
+      const d = Math.abs(r.t - t);
+      if (d < bd) { bd = d; best = r; }
+    }
+    return best;
+  }
+  function bindCrosshair() {
+    const ids = ['cSpeed', 'cLean', 'cAcc', 'cVib', 'cGyro', 'cAlt'];
+    const box = $('chartTipBox'), tip = $('chartTip'), tlbl = $('chartTipTime');
+    if (!box || !tip || bindCrosshair._done) return;
+    bindCrosshair._done = true;
+    const show = (canvas, ev) => {
+      if (!currentRows.length) return;
+      const rect = canvas.getBoundingClientRect();
+      const x = ((ev.touches && ev.touches[0] ? ev.touches[0].clientX : ev.clientX) - rect.left);
+      const t0 = currentRows[0].t, t1 = currentRows[currentRows.length - 1].t;
+      const t = t0 + Math.max(0, Math.min(1, x / Math.max(1, rect.width))) * (t1 - t0);
+      const r = nearestRow(currentRows, t);
+      if (!r) return;
+      box.hidden = false;
+      tlbl.textContent = 't=' + r.t.toFixed(1) + 's';
+      const f = (v, d, u) => (v == null || !isFinite(v)) ? '—' : Number(v).toFixed(d) + u;
+      tip.textContent =
+        f(r.speed_kmh, 0, ' km/h') + ' · piega ' + f(r.lean_deg, 1, '°') +
+        ' · G ' + f(r.lat_accel_g, 2, '') + '/' + f(r.lon_accel_g, 2, '') + '/' + f(r.vert_accel_g, 2, '') +
+        ' · vib ' + f(r.vib_g, 2, 'g') + ' · gyro ' + f(r.gyro_roll_dps, 0, ' dps') +
+        ' · quota ' + f(r.alt_m, 0, ' m');
+    };
+    for (const id of ids) {
+      const c = $(id);
+      // Harness test senza canvas reali: salta i nodi mancanti o senza style.
+      if (!c || !c.style || typeof c.addEventListener !== 'function') continue;
+      c.style.cursor = 'crosshair';
+      c.addEventListener('pointermove', ev => show(c, ev));
+      c.addEventListener('touchmove', ev => show(c, ev), { passive: true });
+    }
   }
 
   // CSV filtrato: solo righe con t valido, colonne COLS, virgola decimale punto.
@@ -603,13 +731,22 @@ const canvasTheme = {
   }
 
   // Wrapper retrocompatibile: i test e handleFile chiamano render().
+  // Aggiorna anche bottone rimozione + legenda nomi file del confronto.
   function render(rows, overlay) {
     currentRows = rows || [];
     if (overlay !== undefined) overlayRows = overlay;
     $('main').hidden = false;
+    const clr = $('btnOverlayClear'), lbl = $('overlayLbl');
+    const hasOv = !!(overlayRows && overlayRows.length);
+    if (clr) clr.hidden = !hasOv;
+    if (lbl) {
+      lbl.hidden = !hasOv;
+      if (hasOv) lbl.textContent = '— base · - - confronto';
+    }
     if (typeof requestAnimationFrame === 'function') requestAnimationFrame(() => renderRows(currentRows));
     else renderRows(currentRows);
   }
+  $('btnOverlayClear').addEventListener('click', () => { render(currentRows, null); });
 
   function fmtDur(sec) {
     const mm = String(Math.floor(sec / 60)).padStart(2, '0');
@@ -658,9 +795,51 @@ const canvasTheme = {
   $('btnExport').addEventListener('click', exportFilteredCsv);
   $('btnOverlay').addEventListener('click', () => fileInput2.click());
   try { viewerBindEls(); } catch (e) {}
+  loadVideoPrefs();
+  for (const id of ['videoRes', 'videoSpeed', 'videoType', 'videoStyle', 'videoBuildings', 'videoFormat', 'videoAudio']) {
+    const el = $(id);
+    if (el) el.addEventListener('change', () => { saveVideoPrefs(); updateVideoSummary(); });
+  }
   $('btnVideo').addEventListener('click', openViewerVideo);
-  $('videoCancel').addEventListener('click', () => { stopVideoRender(); $('videoModal').hidden = true; });
-  $('videoStart').addEventListener('click', startViewerVideo);
+  $('videoCancel').addEventListener('click', () => { saveVideoPrefs(); stopVideoRender(); $('videoModal').hidden = true; });
+  $('videoStart').addEventListener('click', () => { saveVideoPrefs(); startViewerVideo(); });
+  $('videoPresetReel').addEventListener('click', () => {
+    $('videoRes').value = '916'; $('videoFormat').value = 'mp4'; $('videoSpeed').value = '4';
+    saveVideoPrefs(); updateVideoSummary();
+  });
+  $('btnCard').addEventListener('click', makeViewerCard);
+  $('btnCardDl').addEventListener('click', () => {
+    if (!cardBlob) return;
+    const a = document.createElement('a');
+    a.href = cardBlobUrl; a.download = 'card_giro.png';
+    document.body.appendChild(a); a.click(); a.remove();
+  });
+  $('btnCardShare').addEventListener('click', async () => {
+    if (!cardBlob) return;
+    const f = new File([cardBlob], 'card_giro.png', { type: 'image/png' });
+    if (navigator.share && navigator.canShare && navigator.canShare({ files: [f] })) {
+      try { await navigator.share({ files: [f], title: 'Cruscotto Moto' }); } catch (e) {}
+    } else {
+      $('btnCardDl').click();
+    }
+  });
+  // Toggle tema chiaro/scuro persistente (stesso pattern delle prefs video).
+  const THEME_KEY = 'viewerTheme';
+  const applyViewerTheme = t => {
+    document.documentElement.setAttribute('data-theme', t);
+    try { localStorage.setItem(THEME_KEY, t); } catch (e) {}
+    if (typeof canvasTheme !== 'undefined' && canvasTheme.reset) canvasTheme.reset();
+  };
+  try {
+    const saved = localStorage.getItem(THEME_KEY);
+    if (saved === 'light' || saved === 'dark') document.documentElement.setAttribute('data-theme', saved);
+    else if (window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches) document.documentElement.setAttribute('data-theme', 'light');
+  } catch (e) {}
+  $('btnTheme').addEventListener('click', () => {
+    const cur = document.documentElement.getAttribute('data-theme');
+    applyViewerTheme(cur === 'light' ? 'dark' : 'light');
+    if (currentRows.length) renderRows(currentRows);
+  });
 
   /* Adattatore righe viewer (snake_case CSV) → righe app (camelCase video):
      il motore video legge speedKmh/lean/latG/lonG/vertG/vib/lat/lon. */
@@ -688,14 +867,86 @@ const canvasTheme = {
   function openViewerVideo() {
     if (!currentRows.length) { showError('Carica prima un file .csv.'); return; }
     if (typeof startVideoRender !== 'function') { showError('Motore video non caricato (serve rete per MapLibre?).'); return; }
+    // Check capacita' a modale aperta, non a render partito: su iOS/Safari
+    // (niente captureStream/WebM) propone subito la Card PNG alternativa.
+    const noCap = (typeof MediaRecorder === 'undefined' || !HTMLCanvasElement.prototype.captureStream)
+      && !(typeof videoMp4Supported === 'function' && videoMp4Supported());
     $('videoModal').hidden = false;
+    updateVideoSummary();
+    if (noCap) $('videoStatus').textContent = 'Video non supportato qui (iOS/Safari): usa Card PNG qui sotto.';
   }
 
+  // Riepilogo pre-render letto dalle select: niente sorprese su formato/attesa.
+  function updateVideoSummary() {
+    const g = id => { const el = $(id); return el ? (el.options[el.selectedIndex] || {}).text || el.value : '?'; };
+    $('videoSummary').textContent =
+      g('videoRes') + ' · ' + g('videoSpeed') + ' · ' + g('videoType') + ' · ' +
+      g('videoStyle') + ' · ' + g('videoFormat') + videoEtaText();
+  }
+
+  // Scelte video persistenti (come loadSettings/saveSettings dell'app).
+  const VIDEO_PREF_KEY = 'viewerVideoPrefs';
+  function saveVideoPrefs() {
+    try {
+      const o = {};
+      for (const id of ['videoRes', 'videoSpeed', 'videoType', 'videoStyle', 'videoBuildings', 'videoFormat', 'videoAudio']) {
+        const el = $(id); if (el) o[id] = el.value;
+      }
+      localStorage.setItem(VIDEO_PREF_KEY, JSON.stringify(o));
+    } catch (e) {}
+  }
+  function loadVideoPrefs() {
+    let o = null;
+    try { o = JSON.parse(localStorage.getItem(VIDEO_PREF_KEY) || 'null'); } catch (e) {}
+    if (!o) return;
+    for (const id of Object.keys(o)) {
+      const el = $(id); if (el && o[id] != null) el.value = o[id];
+    }
+  }
+
+  // Card PNG nel viewer: stesso motore dell'app (makeShareCard), righe adattate.
+  let cardBlobUrl = null, cardBlob = null;
+  function viewerCardSession() {
+    const rows = viewerVideoRows(currentRows);
+    const st = viewerStats(currentRows);
+    return { rows, track: rows, meta: { maxSpeed: st.vmax, distKm: st.dist } };
+  }
+  function makeViewerCard() {
+    if (typeof makeShareCard !== 'function') { showError('Motore card non caricato.'); return; }
+    if (!currentRows.length) { showError('Carica prima un file .csv.'); return; }
+    $('videoStatus').textContent = 'Genero card…';
+    makeShareCard(viewerCardSession(), (url, blob) => {
+      if (!url) { $('videoStatus').textContent = 'Card non riuscita.'; return; }
+      if (cardBlobUrl) try { URL.revokeObjectURL(cardBlobUrl); } catch (e) {}
+      cardBlobUrl = url; cardBlob = blob;
+      $('cardImg').src = url; $('cardPrev').href = url;
+      $('cardWrap').hidden = false;
+      $('videoStatus').textContent = 'Card pronta.';
+    });
+  }
+
+  // Stima attesa render: durata giro / moltiplicatore (il render e' realtime).
+  function videoEtaText() {
+    if (!currentRows.length) return '';
+    const dur = sessionDur(currentRows);
+    const mult = Number(($('videoSpeed') || {}).value) || 1;
+    const sec = Math.max(1, Math.round(dur / mult));
+    return sec >= 60
+      ? ' (~' + Math.floor(sec / 60) + ' min ' + String(sec % 60).padStart(2, '0') + ' s di attesa)'
+      : ' (~' + sec + ' s di attesa)';
+  }
   function startViewerVideo() {
     const rows = viewerVideoRows(currentRows);
     if (!rows.length) { showError('Nessun dato da renderizzare.'); return; }
-    const s = { rows, track: rows, meta: {} };
-    startVideoRender(s);
+    // Meta reale (vmax/distanza) invece di {}: evita fallback speedMax 60 e
+    // alimenta titolo/distanza del render. Ricalcolato qui, non in renderRows.
+    const st = viewerStats(currentRows);
+    const start = $('videoStart');
+    if (start) start.disabled = true;
+    $('videoStatus').textContent = 'Preparo render' + videoEtaText() + '…';
+    const s = { rows, track: rows, meta: { maxSpeed: st.vmax, distKm: st.dist } };
+    try { startVideoRender(s); }
+    finally { if (start) start.disabled = false; }
   }
   fileInput2.addEventListener('change', e => {
     const f = e.target.files && e.target.files[0];
