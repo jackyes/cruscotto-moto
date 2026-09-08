@@ -158,6 +158,10 @@ function loadSettings() {
   state.navNoFerry = !!s.navNoFerry;
   state.compassOffset = s.compassOffset || 0;
   state.gyroFusion = s.gyroFusion !== false;
+  // Segno del giroscopio imparato a runtime (vedi updateGyroSign): si riusa il
+  // verdetto della sessione precedente, così un avvio già in marcia non riparte
+  // col segno di default sbagliato. Non si persistono lock/score/energy.
+  state.gyroSign = store.get('cruscotto.gyroSign', LEAN_GYRO_SIGN_DEFAULT);
   state.camAhead = s.camAhead !== false;
   state.theme = s.theme || 'dark';
   els.themeSel.value = state.theme;

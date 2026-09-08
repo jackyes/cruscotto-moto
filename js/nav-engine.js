@@ -19,9 +19,20 @@ function navTick(pLat, pLon, acc) {
   let pr = navProject(nv, pLat, pLon, hdg, v, acc, needFull);
   if (!pr) { nv.lastFixAt = now; return; }
   if (needFull && Math.abs(pr.s - nv.sAlong) > 300) {
-    // salto grosso: conferma su due fix prima di adottarlo
-    if (nv.pendingS != null && Math.abs(pr.s - nv.pendingS) < 200) { nv.pendingS = null; }
-    else { nv.pendingS = pr.s; nv.lastFixAt = now; nv.lastLat = pLat; nv.lastLon = pLon; return; }
+    // salto grosso: conferma su due fix prima di adottarlo. Se la conferma non
+    // arriva entro 5 s (GPS che salta, galleria) si adotta comunque, altrimenti
+    // pendingS resterebbe per sempre e sAlong/offDist congelati.
+    if (nv.pendingS != null && Math.abs(pr.s - nv.pendingS) < 200) {
+      nv.pendingS = null; nv.pendingAt = 0;                       // conferma: adotta
+    } else if (nv.pendingS != null && (now - (nv.pendingAt || 0)) <= 5000) {
+      nv.pendingS = pr.s; nv.pendingAt = now;                     // salto diverso: ri-ancora e aspetta
+      nv.lastFixAt = now; nv.lastLat = pLat; nv.lastLon = pLon; return;
+    } else if (nv.pendingS != null) {
+      nv.pendingS = null; nv.pendingAt = 0;                       // stale: adotta per non congelare
+    } else {
+      nv.pendingS = pr.s; nv.pendingAt = now;                     // primo salto: registra e aspetta
+      nv.lastFixAt = now; nv.lastLat = pLat; nv.lastLon = pLon; return;
+    }
   }
   nv.idx = pr.i; nv.segT = pr.t; nv.sAlong = pr.s; nv.offDist = pr.d;
   nv.snapLat = nv.lat[pr.i] + pr.t * (nv.lat[pr.i + 1] - nv.lat[pr.i]);

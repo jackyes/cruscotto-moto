@@ -298,6 +298,10 @@ function updateGyroSign(rollRate, leanAcc, dt, credible) {
   state.gyroSignEnergy = state.gyroSignEnergy * decay + Math.abs(rollRate * dLean) * dt;
   if (state.gyroSignEnergy > GSIGN_MIN_ENERGY && state.gyroSignScore < -0.3 * state.gyroSignEnergy) {
     state.gyroSign = -state.gyroSign;
+    // Persistito: su un device col rotationRate invertito il verdetto va imparato
+    // a passo d'uomo, e senza persistenza a un avvio già in marcia (>3 m/s) il
+    // gate non si apre e la piega resta nel verso sbagliato per tutta la sessione.
+    try { store.set('cruscotto.gyroSign', state.gyroSign); } catch (e) {}
     state.gyroSignScore = 0; state.gyroSignEnergy = 0;
     state.gyroSignLocked = true;
     state._attU = null;                       // la stima precedente e' costruita al contrario

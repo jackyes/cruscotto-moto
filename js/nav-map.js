@@ -8,7 +8,7 @@ function navReset() {
 }
 
 const navSpeak = {
-  voice: null, busy: false, prio: -1, timer: null, primed: false,
+  voice: null, busy: false, prio: -1, timer: null, primed: false, seq: 0,
   ready: false, warned: false, hooked: false, pollTimer: null, pollLeft: 0,
   /* Senza una voce italiana esplicita il motore usa quella di default del sistema:
      u.lang da solo non basta, e "tra 200 metri gira a destra" esce con accento
@@ -81,7 +81,11 @@ const navSpeak = {
     if (this.voice) u.voice = this.voice;
     u.rate = 1.05;
     this.busy = true; this.prio = prio;
-    const done = () => { this.busy = false; this.prio = -1; clearTimeout(this.timer); };
+    // Token di generazione: onend/onerror di un'utterance cancellata arrivano DOPO
+    // lo stato della nuova e azzererebbero busy/prio/watchdog, causando voci
+    // sovrapposte. Se è scattata una say() più recente, la done() vecchia è no-op.
+    const seq = ++this.seq;
+    const done = () => { if (seq !== this.seq) return; this.busy = false; this.prio = -1; clearTimeout(this.timer); };
     u.onend = done; u.onerror = done;
     // onend non e' affidabile su tutti i motori Android: watchdog proporzionale.
     clearTimeout(this.timer);
@@ -91,6 +95,7 @@ const navSpeak = {
   stop() {
     if (!('speechSynthesis' in window)) return;
     try { speechSynthesis.cancel(); } catch (e) {}
+    this.seq++;                              // invalida i done() pendenti della voce cancellata
     this.busy = false; this.prio = -1; clearTimeout(this.timer);
   },
 };

@@ -51,7 +51,7 @@ function osrmText(st) {
     case 'fork': return 'Al bivio tieni ' + (dir || 'la direzione') + su;
     case 'end of road': return 'Alla fine della strada svolta ' + dir + su;
     case 'roundabout': case 'rotary':
-      return 'Alla rotonda prendi la ' + (OSRM_ORD_IT[m.exit] || (m.exit + 'ª')) + ' uscita' + su;
+      return 'Alla rotonda prendi la ' + (m.exit ? (OSRM_ORD_IT[m.exit] || (m.exit + 'ª')) + ' uscita' : 'prima uscita disponibile') + su;
     case 'roundabout turn': return 'Alla rotonda svolta ' + dir + su;
     case 'exit roundabout': case 'exit rotary': return 'Esci dalla rotonda' + su;
     case 'turn':

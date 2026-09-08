@@ -52,6 +52,10 @@ function navBuild(trip) {
   if (!navShapePlausible(aLat, aLon)) throw new Error('shape implausibile (precisione polyline?)');
 
   const n = aLat.length;
+  // Rotta degenere (origine ≈ destinazione): con un solo punto navProject non
+  // itera e il navigatore resterebbe ACTIVE per sempre, muto, senza arrivo né
+  // errore. Si rifiuta subito: il try/catch di navRequestRoute mostra il toast.
+  if (n < 2) throw new Error('rotta degenere: un solo punto');
   const lat = new Float64Array(n), lon = new Float64Array(n);
   for (let i = 0; i < n; i++) { lat[i] = aLat[i]; lon[i] = aLon[i]; }
   const cum = new Float64Array(n);
