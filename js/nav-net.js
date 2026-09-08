@@ -7,7 +7,7 @@ async function navTryOsrm(from, to, hdg) {
     '?steps=true&overview=full&geometries=polyline6';
   // stesso ruolo dell'heading in Valhalla: evita che riparta con un'inversione a U
   if (hdg != null && isFinite(hdg)) url += '&bearings=' + Math.round(hdg) + ',60;';
-  const res = await navGate(() => fetchWithTimeout(url, NAV_TIMEOUT_MS));
+  const res = await navGate(() => fetchWithTimeout(url, NAV_OSRM_TIMEOUT_MS));
   const j = await res.json();
   if (!res.ok || !j || j.code !== 'Ok') throw new Error('OSRM ' + ((j && (j.code || j.message)) || res.status));
   return navFromOsrm(j);
@@ -146,6 +146,14 @@ async function navRequestRoute(from, to, hdg, why) {
     if (prev && prev.man) {
       // Mai cancellare la rotta salvata: la linea vecchia resta l'informazione piu'
       // utile che si abbia, e senza rete e' l'unica.
+      // Fallimento offline/timeout NON è "l'utente devia apposta": il tentativo
+      // era stato accodato al circuit breaker in navMaybeReroute prima di
+      // conoscerne l'esito, e va tolto, altrimenti un tratto senza campo fa
+      // scattare OFF_MANUAL scambiando "niente rete" per "deviazione voluta".
+      // Il pop va fatto SOLO se era un ricalcolo (status REROUTING, push fatto da
+      // navMaybeReroute): nel ramo "ripresa" di navStart (status ACTIVE/IDLE)
+      // nessun push è avvenuto e un pop toglierebbe una voce legittima del log.
+      if (prev.status === 'REROUTING' && prev.rerouteLog && prev.rerouteLog.length) prev.rerouteLog.pop();
       prev.status = 'OFF_NONET';
       prev.lastRerouteEnd = Date.now();
       navSetStatus('Senza rete: percorso non aggiornato. ' + (err ? err.message : ''));

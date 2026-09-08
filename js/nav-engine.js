@@ -91,6 +91,14 @@ function navTick(pLat, pLon, acc) {
       nv.status = 'ARRIVED';
       navSpeak.say('Sei arrivato a destinazione.', 4);
       trigger = null;
+      // Arrivo: la rotta attiva va invalidata, altrimenti navRestore al riavvio
+      // riproporrebbe un giro già concluso. Il banner "Arrivato" deve sparire da
+      // solo: nv.bannerDone non veniva mai impostato, quindi restava per sempre.
+      idb.kvPut('activeRoute', null).catch(() => {});
+      idb.kvPut('navProgress', null).catch(() => {});
+      navRenderBanner();
+      if (nv._arriveTimer) clearTimeout(nv._arriveTimer);
+      nv._arriveTimer = setTimeout(() => { nv.bannerDone = true; navRenderBanner(); }, 8000);
     }
   } else nv.arriveCount = 0;
 

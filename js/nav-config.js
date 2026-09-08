@@ -9,7 +9,7 @@ const NAV_OSRM_HOST = 'https://routing.openstreetmap.de/routed-car/route/v1/driv
 const NAV_GEO_HOST = 'https://photon.komoot.io/api';
 const NAV_API_GAP_MS = 1100;      // 1 req/s con margine, per TUTTE le chiamate
 const NAV_VALHALLA_TIMEOUT_MS = 7000;  // corto: se non risponde si passa a OSRM
-const NAV_TIMEOUT_MS = 20000;
+const NAV_OSRM_TIMEOUT_MS = 8000;      // il fallback non deve reintrodurre i 20 s che il commento dice di voler evitare
 const NAV_GEO_TIMEOUT_MS = 8000;
 
 const NAV_OFF_FIXES = 4;          // fix consecutivi fuori soglia
@@ -153,6 +153,14 @@ function navStart() {
   nv.nextMan = Math.min(k, nv.man.length - 1);
   nv.spoken = 0; nv.preSpoken = {};
   nv.status = 'ACTIVE'; nv.lastGoodAt = Date.now();
+  // Resume manuale: si azzera il circuit breaker dei ricalcoli. Altrimenti, dopo
+  // 6 ricalcoli in 10 minuti (o in OFF_MANUAL), il primo fuori-percorso utile
+  // riporterebbe il navigatore in OFF_MANUAL all'istante, senza nemmeno provare.
+  nv.rerouteLog = [];
+  nv.rerouteStreak = 0;
+  nv.rerouteWait = 0;
+  nv.rerouteAt = 0;
+  nv.travelSinceReroute = 0;
   navSetStatus('Navigazione in corso.');
   navRenderBanner(); renderNavPanel(); navDrawRoute();
 }
