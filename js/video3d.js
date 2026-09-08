@@ -912,7 +912,9 @@ function initVideoMoto3D(THREE, W, H, quality) {
       const rt = pmrem.fromEquirectangular(tex);
       scene.environment = rt.texture;
       tex.dispose(); pmrem.dispose();
-      envTex = rt.texture;
+      // Si tiene il render target, non la sola texture: rt.dispose() libera il
+      // framebuffer GPU; texture.dispose() da sola lo lasciava orfano a ogni export.
+      envTex = rt;
     }
   }
 
@@ -1053,7 +1055,9 @@ function drawVideoFrame3D(job, dt) {
   }
 
   // Moto: piega + rotolamento ruote (dt reale, non per-frame).
-  const leanRad = (r.lean || 0) * Math.PI / 180;
+  // Clamp a ±60° come gli altri consumatori: oltre, la contro-piega del busto
+  // (videoRiderLean) è saturata e il rider appare "incollato" alla moto.
+  const leanRad = Math.max(-60, Math.min(60, r.lean || 0)) * Math.PI / 180;
   // Il gruppo padre ha rotation.y = PI (muso via dalla camera), che gia' ribalta
   // l'asse di rollio: il meno qui lo ribaltava una seconda volta e la moto si
   // coricava all'esterno della curva, contro l'ago dell'HUD. Con +leanRad la

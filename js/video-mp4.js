@@ -301,7 +301,14 @@ async function startVideoRenderMp4Inner(pre, mode, Muxer, cfg) {
   // delle righe, così resta sincrono con il video.
   if (!muted) {
     els.videoStatus.textContent = 'Audio MP4…';
-    try { await videoMp4MuxAudio(muxer, pre.rows, pre.slow, videoOfflineFrameStepUs(30)); } catch (e) {}
+    let audioOk = false;
+    try { audioOk = await videoMp4MuxAudio(muxer, pre.rows, pre.slow, videoOfflineFrameStepUs(30)); } catch (e) {}
+    // Se AudioEncoder c'è e la sintesi fallisce, la traccia audio è già stata
+    // dichiarata nel muxer: avvisa che il file uscirà (quasi) muto, invece di
+    // consegnare un MP4 con traccia audio vuota e nessun segnale.
+    if (!audioOk && typeof AudioEncoder !== 'undefined') {
+      toast('Audio non disponibile: MP4 esportato senza audio.', 'err', 6000);
+    }
   }
   let blob = null;
   try {

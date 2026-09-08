@@ -45,7 +45,13 @@ const idb = {
           };
         }
       };
-      r.onsuccess = e => { idb.db = e.target.result; res(); };
+      r.onsuccess = e => {
+        idb.db = e.target.result;
+        // Un bump di versione da un'altra scheda chiude questa connessione, così la
+        // scheda nuova può fare l'upgrade invece di restare bloccata su schema vecchio.
+        idb.db.onversionchange = () => { try { idb.db.close(); } catch (e2) {} idb.db = null; };
+        res();
+      };
       r.onerror = () => rej(r.error);
       r.onblocked = () => rej(new Error('IndexedDB bloccato da un altra scheda'));
     });
