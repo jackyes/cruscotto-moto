@@ -17,9 +17,16 @@ function parseCamerasFile(text) {
   // CSV: lat,lon[,limite[,nome]] (decimali col punto)
   if (t[0] !== '{' && t[0] !== '[') {
     for (const line of t.split(/\r?\n/)) {
-      const p = line.split(/[,;]/).map(s => s.trim());
+      const L = line.trim();
+      if (!L) continue;
+      // Locale IT: separatore ';', decimale ',' (es. "44,0367;10,1417"). Standard:
+      // separatore ',', decimale '.'. Splittare su entrambi i segni (come prima)
+      // produceva lat=44, lon=367 su un CSV italiano, senza errore.
+      const sep = L.indexOf(';') >= 0 ? ';' : ',';
+      const p = L.split(sep).map(s => s.trim());
       if (p.length < 2) continue;
-      const lat = parseFloat(p[0]); const lon = parseFloat(p[1]);
+      const lat = parseFloat(String(p[0]).replace(',', '.'));
+      const lon = parseFloat(String(p[1]).replace(',', '.'));
       if (isNaN(lat) || isNaN(lon)) continue;
       out.push({ lat, lon, maxspeed: p[2] || '', name: p[3] || '' });
     }

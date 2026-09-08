@@ -105,12 +105,12 @@
     <div class="stats" id="stats"></div>
     <div class="chart" id="chartTipBox" hidden><div class="clbl"><span>Valori al cursore</span><span id="chartTipTime"></span></div><div id="chartTip" style="font-size:13px;font-variant-numeric:tabular-nums;line-height:1.5;"></div></div>
     <div id="map" class="hidden"></div>
-    <div class="chart"><div class="clbl"><span>Velocità</span><span id="lblVmax"></span></div><canvas id="cSpeed"></canvas></div>
-    <div class="chart"><div class="clbl"><span>Piega</span><span>±60°</span></div><canvas id="cLean"></canvas></div>
-    <div class="chart"><div class="clbl"><span>Accelerazioni (G)</span><span>lat / lon / vert</span></div><canvas id="cAcc"></canvas></div>
-    <div class="chart"><div class="clbl"><span>Vibrazione (g)</span><span id="lblVib"></span></div><canvas id="cVib"></canvas></div>
-    <div class="chart"><div class="clbl"><span>Giroscopio rollio (dps)</span><span id="lblGyro"></span></div><canvas id="cGyro"></canvas></div>
-    <div class="chart"><div class="clbl"><span>Quota</span><span>m</span></div><canvas id="cAlt"></canvas></div>
+    <div class="chart"><div class="clbl"><span>Velocità</span><span id="lblVmax"></span></div><canvas id="cSpeed" role="img" aria-label="Grafico velocità (km/h)"></canvas></div>
+    <div class="chart"><div class="clbl"><span>Piega</span><span>±60°</span></div><canvas id="cLean" role="img" aria-label="Grafico angolo di piega (gradi)"></canvas></div>
+    <div class="chart"><div class="clbl"><span>Accelerazioni (G)</span><span>lat / lon / vert</span></div><canvas id="cAcc" role="img" aria-label="Grafico accelerazioni (g)"></canvas></div>
+    <div class="chart"><div class="clbl"><span>Vibrazione (g)</span><span id="lblVib"></span></div><canvas id="cVib" role="img" aria-label="Grafico vibrazione (g)"></canvas></div>
+    <div class="chart"><div class="clbl"><span>Giroscopio rollio (dps)</span><span id="lblGyro"></span></div><canvas id="cGyro" role="img" aria-label="Grafico giroscopio rollio (gradi al secondo)"></canvas></div>
+    <div class="chart"><div class="clbl"><span>Quota</span><span>m</span></div><canvas id="cAlt" role="img" aria-label="Grafico quota (metri)"></canvas></div>
     <div class="laps" id="laps" hidden>
       <div class="clbl"><span>Giri</span><span id="lblLaps"></span></div>
       <table><thead><tr><th>Giro</th><th>Durata</th><th>Vmax</th><th>Km</th></tr></thead><tbody id="lapsBody"></tbody></table>
@@ -294,10 +294,14 @@ const canvasTheme = {
     out.push(cur);
     return out;
   }
+  // Righe scartate (t assente/non numerico) nell'ultimo parseCsv: l'utente deve
+  // sapere se il file era troncato/malformato, altrimenti crede di vedere tutto.
+  let lastDropped = 0;
   function parseCsv(text) {
     const lines = stripBom(String(text == null ? '' : text)).split(/\r?\n/).filter(l => l.trim().length);
     let headerIdx = -1, cols = null;
     const rows = [];
+    let dropped = 0;
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i];
       if (line[0] === '#') continue;
@@ -312,9 +316,10 @@ const canvasTheme = {
         const j = cols[c];
         r[c] = (j == null) ? null : toNumOrNull(f[j]);
       }
-      if (r.t == null || !isFinite(r.t)) continue;
+      if (r.t == null || !isFinite(r.t)) { dropped++; continue; }
       rows.push(r);
     }
+    lastDropped = dropped;
     // nearestRow usa findRowAt (binary search) che assume t crescente: si ordina
     // qui una volta, così anche CSV di terze parti non ordinati restano robusti
     // (grafici, zoom, laps e tooltip assumono già tutti l'ordine temporale).
@@ -658,18 +663,22 @@ const canvasTheme = {
     if (laps.length < 2) { box.hidden = true; body.innerHTML = ''; return; }
     $('lblLaps').textContent = laps.length + ' giri — tocca una riga per zoomare';
     body.innerHTML = laps.map((l, i) =>
-      '<tr data-lap="' + i + '" style="cursor:pointer;' + (zoomLap === i ? 'background:var(--surface-2);' : '') + '"><td>' + (i + 1) + '</td><td>' + fmtDur(l.dur) + '</td><td>' +
+      '<tr data-lap="' + i + '" tabindex="0" role="button" aria-label="Giro ' + (i + 1) + ': durata ' + fmtDur(l.dur) + ', ' + Math.round(l.vmax) + ' km/h, ' + l.dist.toFixed(2) + ' km" style="cursor:pointer;' + (zoomLap === i ? 'background:var(--surface-2);' : '') + '"><td>' + (i + 1) + '</td><td>' + fmtDur(l.dur) + '</td><td>' +
       Math.round(l.vmax) + '</td><td>' + l.dist.toFixed(2) + '</td></tr>').join('') +
-      (zoomLap != null ? '<tr data-lap="all" style="cursor:pointer;"><td colspan="4" style="text-align:center;color:var(--accent);">✕ Mostra tutta la sessione</td></tr>' : '');
+      (zoomLap != null ? '<tr data-lap="all" tabindex="0" role="button" aria-label="Mostra tutta la sessione" style="cursor:pointer;"><td colspan="4" style="text-align:center;color:var(--accent);">✕ Mostra tutta la sessione</td></tr>' : '');
     box.hidden = false;
     // Harness test: body mock senza querySelectorAll — righe non cliccabili, niente crash.
     const rows = (body.querySelectorAll && typeof body.querySelectorAll === 'function')
       ? body.querySelectorAll('tr[data-lap]') : [];
     Array.prototype.forEach.call(rows, tr => {
-      tr.addEventListener('click', () => {
+      const activate = () => {
         const v = tr.getAttribute('data-lap');
         zoomLap = (v === 'all') ? null : Number(v);
         renderRows(currentRows);
+      };
+      tr.addEventListener('click', activate);
+      tr.addEventListener('keydown', ev => {
+        if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); activate(); }
       });
     });
   }
@@ -771,7 +780,12 @@ const canvasTheme = {
     const reader = new FileReader();
     reader.onerror = () => { showError('Errore di lettura del file.'); };
     reader.onload = () => {
-      try { metaFile = parseCsvMeta(String(reader.result)); render(parseCsv(String(reader.result))); }
+      try {
+        metaFile = parseCsvMeta(String(reader.result));
+        const rows = parseCsv(String(reader.result));
+        render(rows);
+        if (lastDropped > 0) showError(lastDropped + ' righe scartate (dati mancanti o file troncato).');
+      }
       catch (e) { showError('Errore di lettura: ' + e.message); }
     };
     reader.readAsText(file, 'utf-8');

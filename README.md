@@ -389,6 +389,21 @@ Il file usa la virgola come separatore. Su Excel italiano potresti vedere tutto 
 - Nomi e limiti degli autovelox (da OSM o da file importati) sono dati di terze parti e vengono inseriti nel DOM come **testo**, mai come HTML.
 - **Da fare**: Leaflet è caricato da CDN senza `integrity`. Per chiudere del tutto il rischio catena di fornitura conviene scaricare `leaflet.js` e `leaflet.css` nella repo e servirli in locale — a quel punto si può stringere la CSP a `script-src 'self'` e togliere `unpkg.com` dalla lista in `sw.js`.
 
+## Test
+
+I test girano col runner nativo di Node (nessun build, nessun framework):
+
+```bash
+node --test
+```
+
+Scopre da solo `tests/*.test.mjs`. **Non** usare `node --test tests/`: con un percorso esplicito
+il runner lo interpreta come file di test e fallisce. Per verificare la sola sintassi dei moduli:
+
+```bash
+for f in $(find js -name '*.js'); do node --check "$f"; done
+```
+
 ## Limiti noti
 
 - **Aliasing della vibrazione**: sopra 30 Hz il contenuto si ripiega nella banda utile e non è più

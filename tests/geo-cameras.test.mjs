@@ -61,6 +61,17 @@ test('parseCamerasFile: CSV (virgole e punto e virgola)', () => {
   assert.deepEqual(semi[0], {lat:45.5, lon:9.2, maxspeed:'70', name:'Roma'});
 });
 
+test('parseCamerasFile: CSV locale italiano (virgola decimale)', () => {
+  const out = parseCamerasFile('44,0367;10,1417;50;Autovelox\n45,5;9,2;;\n');
+  assert.equal(out.length, 2);
+  assert.ok(Math.abs(out[0].lat - 44.0367) < 1e-6);
+  assert.ok(Math.abs(out[0].lon - 10.1417) < 1e-6);
+  assert.equal(out[0].maxspeed, '50');
+  assert.equal(out[0].name, 'Autovelox');
+  assert.ok(Math.abs(out[1].lat - 45.5) < 1e-6);
+  assert.ok(Math.abs(out[1].lon - 9.2) < 1e-6);
+});
+
 test('parseCamerasFile: JSON SCDB e GeoJSON', () => {
   const scdb = parseCamerasFile('[{"lat":45,"lng":9,"vmax":"90","ort":"Milano","strasse":"Via Roma"}]');
   assert.deepEqual(scdb, [{lat:45, lon:9, maxspeed:'90', name:'Milano Via Roma'}]);
