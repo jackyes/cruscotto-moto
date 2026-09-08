@@ -42,13 +42,26 @@ function sampleTick() {
   // ancora scritte su disco cancellerebbe dati mai salvati. Il 10% extra è lo
   // slack che evita di rieseguire lo splice a ogni campione.
   const over = state.rows.length - MAX_ROWS;
-  if (over > 0 && state.flushedRows > 0) {
-    const drop = Math.min(over + Math.ceil(MAX_ROWS * 0.1), state.flushedRows);
-    state.rows.splice(0, drop);
-    state.flushedRows -= drop;
+  if (over > 0) {
+    if (state.flushedRows > 0) {
+      const drop = Math.min(over + Math.ceil(MAX_ROWS * 0.1), state.flushedRows);
+      state.rows.splice(0, drop);
+      state.flushedRows -= drop;
+    } else if ((state._flushFailN || 0) >= 2) {
+      // Rete di sicurezza: se il flush fallisce per quota esaurita e nessuna riga
+      // è più "sicura" da scartare, l'array crescerebbe senza limite fino all'OOM
+      // del tab. Dopo due fallimenti si accetta di scartare le righe più vecchie
+      // non salvabili, segnalandolo una volta.
+      const drop = over + Math.ceil(MAX_ROWS * 0.1);
+      state.rows.splice(0, drop);
+      if (!state._trimWarned) {
+        state._trimWarned = true;
+        toast('Log non salvabile: scarto i campioni più vecchi per evitare il crash.', 'err', 6000);
+      }
+    }
   }
   const nowP = performance.now();
-  if (nowP - lastFlush >= FLUSH_MS) {
+  if (nowP - lastFlush >= FLUSH_MS && nowP >= (state._flushBackoffUntil || 0)) {
     lastFlush = nowP;
     flushLog();
   }
@@ -71,11 +84,18 @@ async function flushLog() {
     // fino a 10.000 punti per il numero di flush.
     await idb.kvPut('activeTrack', { sid: state.sessionId, startWall: state.session.startWall, track: state.track.slice() });
     state.flushedRows = upto;
+    state._flushFailN = 0;
+    state._flushBackoffUntil = 0;
   } catch (e) {
+    state._flushFailN = (state._flushFailN || 0) + 1;
     if (!state._flushWarned) {
       state._flushWarned = true;
       toast('Spazio esaurito: il log non viene più salvato su disco. Esporta il CSV.', 'err', 6000);
     }
+    // Backoff: dopo il primo errore di quota, ritentare ogni 10 s con uno slice
+    // sempre più grande consuma CPU e memoria destinati comunque a fallire.
+    const mult = Math.min(1 << Math.min(state._flushFailN, 4), 16);
+    state._flushBackoffUntil = performance.now() + FLUSH_MS * mult;
   } finally {
     state._flushing = false;
   }

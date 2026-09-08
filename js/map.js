@@ -51,6 +51,10 @@ async function recoverChunks() {
   const rows = [];
   for (const c of chunks) if (c.rows) for (const r of c.rows) rows.push(r);
   if (!rows.length) { idb.clearChunks().catch(() => {}); return; }
+  // Finché l'utente non risponde (Recupera/Scarta), startLog() non deve
+  // cancellare questi chunk: la Promise di recoverChunks si risolve subito e il
+  // bottone Start è già attivo, quindi senza flag un tap lo bruciava subito.
+  state._recoveryPending = true;
   const last = chunks[chunks.length - 1];
   let saved = null;
   try { saved = await idb.kvGet('activeTrack'); } catch (e) {}
@@ -89,11 +93,20 @@ async function recoverChunks() {
       },
       track, rows,
     };
-    try { await idb.put(sess); await idb.clearChunks(); toast('Sessione recuperata.', 'ok'); }
-    catch (e) { toast('Recupero fallito.', 'err'); }
+    try {
+      await idb.put(sess);
+      await idb.clearChunks();
+      state._recoveryPending = false;   // solo a recupero riuscito: i chunk restano protetti
+      toast('Sessione recuperata.', 'ok');
+    }
+    catch (e) {
+      toast('Recupero fallito.', 'err');
+      // _recoveryPending resta true: un successivo Start non cancellerà i chunk
+      // della sessione interrotta che non è stato possibile recuperare.
+    }
     renderHistory();
   });
-  no.addEventListener('click', () => { el.remove(); idb.clearChunks().catch(() => {}); });
+  no.addEventListener('click', () => { state._recoveryPending = false; el.remove(); idb.clearChunks().catch(() => {}); });
 }
 
 function showSessionDetail(s) {

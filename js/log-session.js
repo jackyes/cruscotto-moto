@@ -14,6 +14,9 @@ let lastSampleWall = 0;
 function startLog() {
   state.logging = true;
   state._flushWarned = false;
+  state._trimWarned = false;
+  state._flushFailN = 0;
+  state._flushBackoffUntil = 0;
   state.rows = [];
   state.track = [];
   state._leafN = 0;
@@ -28,7 +31,10 @@ function startLog() {
   };
   lastFlush = performance.now();
   resetLogAcc();
-  idb.clearChunks().catch(() => {});
+  // Se c'è una sessione interrotta da recuperare (toast Recupera/Scarta ancora
+  // aperto), non si cancellano i chunk: un tap su Start prima di rispondere
+  // distruggerebbe per sempre il recupero non ancora visto.
+  if (!state._recoveryPending) idb.clearChunks().catch(() => {});
   clearInterval(sampleTimer);
   sampleTimer = setInterval(sampleTick, SAMPLE_MS);
   setLogButton(true);
