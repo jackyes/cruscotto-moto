@@ -315,6 +315,10 @@ const canvasTheme = {
       if (r.t == null || !isFinite(r.t)) continue;
       rows.push(r);
     }
+    // nearestRow usa findRowAt (binary search) che assume t crescente: si ordina
+    // qui una volta, così anche CSV di terze parti non ordinati restano robusti
+    // (grafici, zoom, laps e tooltip assumono già tutti l'ordine temporale).
+    rows.sort((a, b) => a.t - b.t);
     return rows;
   }
 
@@ -673,13 +677,11 @@ const canvasTheme = {
   // Crosshair sincronizzato: un listener per canvas, tooltip testuale sopra i
   // grafici con valori di tutte le serie a quell'istante. Touch incluso.
   function nearestRow(rows, t) {
-    let best = null, bd = Infinity;
-    for (const r of rows) {
-      if (r.t == null || !isFinite(r.t)) continue;
-      const d = Math.abs(r.t - t);
-      if (d < bd) { bd = d; best = r; }
-    }
-    return best;
+    // La scansione lineare O(n) a ogni pointermove/touchmove (su 6 canvas) era
+    // la parte più pesante dell'interazione più usata: si riusa la binary search
+    // già caricata da js/parse.js (stesso uso in video.js/video3d.js).
+    const i = findRowAt(rows, t);
+    return (i >= 0 && i < rows.length) ? rows[i] : null;
   }
   function bindCrosshair() {
     const ids = ['cSpeed', 'cLean', 'cAcc', 'cVib', 'cGyro', 'cAlt'];

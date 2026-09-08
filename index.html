@@ -1611,8 +1611,29 @@ document.addEventListener('visibilitychange', () => {
 
 /* ============================== Init ============================== */
 function init() {
+  // Errori imprevisti non devono restare silenziosi in moto: un TypeError nel
+  // wiring (id di markup disallineato) prima congelava il cruscotto senza alcun
+  // messaggio visibile.
+  window.addEventListener('error', ev => {
+    try { toast('Errore app: ' + (ev && ev.message ? ev.message : 'sconosciuto'), 'err', 8000); } catch (e) {}
+  });
+  window.addEventListener('unhandledrejection', ev => {
+    const m = ev && ev.reason && (ev.reason.message || ev.reason);
+    try { toast('Errore app: ' + (m || 'promise rifiutata'), 'err', 8000); } catch (e) {}
+  });
+
   loadSettings();
   navSpeak.init();
+
+  // I sottosistemi vitali partono SUBITO e ciascuno in modo indipendente: un
+  // errore nel wiring di una sezione successiva (card PNG, navigatore, ecc.)
+  // non deve più impedire l'avvio di GPS, sensori e del loop principale.
+  try { checkSecureContext(); } catch (e) {}
+  try { initMap(); } catch (e) {}
+  try { setupSensors(); } catch (e) {}
+  try { requestWakeLock(); } catch (e) {}
+  try { requestAnimationFrame(mainLoop); } catch (e) {}
+
   buildGauge();
   applyTheme();
   updateCalibStatus();
@@ -1896,12 +1917,6 @@ function init() {
     await recoverChunks();
     await navRestore();   // dentro il .then(): fuori, _tx() rigetta con "DB non aperto"
   }).catch(() => toast('Storico non disponibile (IndexedDB non accessibile).', 'err', 5000));
-
-  checkSecureContext();
-  initMap();
-  setupSensors();
-  requestWakeLock();
-  requestAnimationFrame(mainLoop);
 
   // Flush opportunistico prima che il sistema possa scaricare la pagina.
   document.addEventListener('visibilitychange', () => {

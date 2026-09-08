@@ -118,16 +118,22 @@ function updateDisplay() {
     else { els.leanDir.textContent = '◀ SINISTRA'; els.leanDir.className = 'lean-dir left'; }
   } else {
     // Non calibrato: CALIBRA e' un bottone che porta dritto a startCalibration.
+    // Si crea UNA volta: la guardia su firstChild era morta perché textContent=''
+    // svuotava i figli prima di valutarla, quindi a 15 Hz il DOM ricreava
+    // bottone+listener a ogni frame (proprio lo scenario che DISPLAY_HZ dovrebbe
+    // evitare: telefono al sole sul manubrio).
     els.leanVal.textContent = '--';
-    els.leanDir.textContent = '';
-    els.leanDir.className = 'lean-dir';
-    if (!els.leanDir.firstChild) {
-      const b = document.createElement('button');
-      b.type = 'button';
-      b.id = 'leanCalibBtn';
-      b.textContent = 'CALIBRA';
-      b.addEventListener('click', () => startCalibration());
-      els.leanDir.appendChild(b);
+    if (!els.leanDir.firstChild || els.leanDir.firstChild.id !== 'leanCalibBtn') {
+      els.leanDir.textContent = '';
+      els.leanDir.className = 'lean-dir';
+      if (!document.getElementById('leanCalibBtn')) {
+        const b = document.createElement('button');
+        b.type = 'button';
+        b.id = 'leanCalibBtn';
+        b.textContent = 'CALIBRA';
+        b.addEventListener('click', () => startCalibration());
+        els.leanDir.appendChild(b);
+      }
     }
   }
   setNeedle(state.lean);
