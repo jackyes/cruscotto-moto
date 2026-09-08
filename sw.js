@@ -5,15 +5,20 @@
    - tenere in cache Leaflet e le tile OSM già viste, così la mappa non sparisce
      appena si perde il segnale.
 
-   Nessuna dipendenza esterna. Alzare CACHE_VERSION forza il rinnovo. */
+   Nessuna dipendenza esterna. Alzare CACHE_VERSION rinnova lo shell (codice app);
+   alzare MAP_VERSION invalida tile/liberty/satellite (cancella quelle scaricate). */
 
 'use strict';
 
-const CACHE_VERSION = 'v12';
+const CACHE_VERSION = 'v12';   // shell (codice app): alzare per forzare il rinnovo
+const MAP_VERSION  = 'v12';    // tile/liberty/satellite: indipendente dallo shell. Parte
+                               // dallo stesso valore del vecchio schema (v12) così il primo
+                               // deploy NON orfanizza le cache già scaricate; va alzato solo
+                               // quando cambia il formato delle tile, non a ogni deploy.
 const SHELL_CACHE = 'cruscotto-shell-' + CACHE_VERSION;
-const LIB_CACHE   = 'cruscotto-lib-' + CACHE_VERSION;
-const TILE_CACHE  = 'cruscotto-tiles-' + CACHE_VERSION;
-const OFM_CACHE   = 'cruscotto-ofm-' + CACHE_VERSION;
+const LIB_CACHE   = 'cruscotto-lib-' + MAP_VERSION;
+const TILE_CACHE  = 'cruscotto-tiles-' + MAP_VERSION;
+const OFM_CACHE   = 'cruscotto-ofm-' + MAP_VERSION;
 const OFM_MAX = 1000;
 
 const SHELL = [
@@ -113,11 +118,24 @@ async function cacheFirst(req, cacheName, opts) {
   return res;
 }
 
+/* fetch con timeout: su rete presente ma lentissima (galleria, zona rurale — il
+   caso comune in moto, non l'offline netto) senza timeout l'app restava bloccata
+   a lungo prima di ripiegare sulla cache già disponibile. */
+async function fetchWithTimeoutSW(req, ms) {
+  const ctl = new AbortController();
+  const t = setTimeout(() => ctl.abort(), ms);
+  try {
+    return await fetch(req, { signal: ctl.signal });
+  } finally {
+    clearTimeout(t);
+  }
+}
+
 /* Navigazioni: rete prima (così un deploy nuovo arriva subito), cache se offline. */
 async function networkFirst(req) {
   const cache = await caches.open(SHELL_CACHE);
   try {
-    const res = await fetch(req);
+    const res = await fetchWithTimeoutSW(req, 2500);
     if (res && res.ok) {
       try { await cache.put(req, res.clone()); } catch (_) {}
     }
@@ -178,7 +196,7 @@ self.addEventListener('fetch', event => {
     event.respondWith(
       caches.open(SHELL_CACHE).then(async cache => {
         try {
-          const res = await fetch(req);
+          const res = await fetchWithTimeoutSW(req, 2500);
           if (res && res.ok) {
             try { await cache.put(req, res.clone()); } catch (_) {}
           }
