@@ -9,6 +9,8 @@ const CHART_WINDOW = 60000;
 const SPEED_DEADBAND_MS = 0.55; // sotto ~2 km/h → 0 (fermo)
 const TRACK_MIN_M = 5;         // distanza minima tra punti traccia (m)
 const GPS_ACC_MAX = 30;        // scarta fix con accuratezza peggiore (m)
+const CAM_ACC_MAX = 60;        // gate accuratezza per gli avvisi autovelox (m): più permissivo
+                               // del gate traccia, qui conta non far scattare un falso banner
 /* --- raggio dati autovelox ---
    Il raggio di query e' impostabile (state.camRadius). Raggio marker e soglia di
    refetch NON sono costanti indipendenti ma derivati: tenerli separati li faceva

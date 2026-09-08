@@ -92,9 +92,12 @@ function propagateSpeed(dt, nowP) {
    valore riportato è però la velocità di GPS_LAG_S secondi prima, quindi la base si
    calcola sull'integrale di ALLORA, non su quello corrente: è così che il ritardo del
    Doppler viene tolto invece di essere ereditato. */
-function correctSpeed(vGps, tFixP) {
+function correctSpeed(vGps, tFixP, noLag) {
   if (state._aInt == null) state._aInt = 0;
-  const past = aIntAt(tFixP - GPS_LAG_S * 1000);
+  // noLag: la velocità derivata da posizione vale "adesso", non GPS_LAG_S prima
+  // come il Doppler; cercare l'integrale 0.6 s indietro inietterebbe un errore
+  // pari all'accelerazione × 0.6 s (~3 m/s a 0.5 g).
+  const past = aIntAt(tFixP - (noLag ? 0 : GPS_LAG_S * 1000));
   state._spBase = vGps - (past != null ? past : state._aInt);
   state._spCorrT = tFixP;
   const v = state._spBase + state._aInt;

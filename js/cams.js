@@ -64,9 +64,15 @@ function camsToDraw() {
   return withD.slice(0, CAM_MARKER_MAX).map(x => x.c);
 }
 
-function checkCameras() {
+function checkCameras(acc) {
   if (!state.camAlerts) return;
   if (state.pos.lat == null) return;
+  // Gate di accuratezza dedicato: un fix da 100-300 m (sottopasso, canyon
+  // urbano, dopo galleria) genererebbe falsi allarmi "autovelox ~80 m" con la
+  // camera reale a 300+, o peggio farebbe saltare un avviso vero perché la
+  // distanza sembra "salire" per rumore. Più permissivo di GPS_ACC_MAX (traccia):
+  // qui conta non far scattare un falso banner, non la precisione della linea.
+  if (acc != null && acc > CAM_ACC_MAX) return;
   const me = { lat: state.pos.lat, lon: state.pos.lon };
   // Solo le celle attorno: niente scansione dell'intero DB a ogni fix.
   const cams = camsNear(me.lat, me.lon, state.camDist * 2 + 500);

@@ -57,6 +57,7 @@ function onGeolocation(pos) {
      accendeva in corsa e mangiava 2 s di rollio VERO come se fosse bias.
      "Velocita' non riportata" e "velocita' zero" adesso sono cose diverse. */
   const nowP = performance.now();
+  const accOk = c.accuracy == null || c.accuracy <= GPS_ACC_MAX;
   if (c.speed != null && c.speed >= 0 && isFinite(c.speed)) {
     state.speedGpsMs = c.speed;
     state.speedGpsT = nowP;
@@ -65,7 +66,26 @@ function onGeolocation(pos) {
     let tFixP = (pos.timestamp ? pos.timestamp - skew : nowP);
     if (!(tFixP > nowP - 5000 && tFixP <= nowP + 500)) tFixP = nowP;
     correctSpeed(c.speed, tFixP);
+  } else if (accOk && state._lastPosFix) {
+    // Fallback da posizione: provider senza velocità Doppler (Wi-Fi/cella, dopo
+    // galleria, background). v = d/dt fra due fix, con fiducia più bassa: niente
+    // compensazione del lag Doppler (la derivata di posizione vale "adesso").
+    const dtS = (nowP - state._lastPosFix.t) / 1000;
+    if (dtS >= 1 && dtS <= 5) {
+      const d = haversine(state._lastPosFix, { lat: c.latitude, lon: c.longitude }) * 1000;
+      const v = d / dtS;
+      // Fiducia più bassa: si accetta solo uno spostamento REALE (d > accuratezza,
+      // altrimenti il jitter del fix da fermo spaccerebbe una velocità falsa da
+      // ~20 km/h) e solo sopra la soglia centripeta — sotto i ~11 km/h la
+      // compensazione non serve comunque.
+      if (d > (c.accuracy || 0) && v >= CENTRIP_MIN_MS && v < 150) {
+        state.speedGpsMs = v;
+        state.speedGpsT = nowP;
+        correctSpeed(v, nowP, true);
+      }
+    }
   }
+  if (accOk) state._lastPosFix = { lat: c.latitude, lon: c.longitude, t: nowP };
   // La deadband non scrive piu' nello stato del filtro: si applica solo al valore
   // esposto, altrimenti rende la velocita' bimodale e rompe ogni test su di essa.
   const shown = (state.speedFusMs < SPEED_DEADBAND_MS) ? 0 : state.speedFusMs;
@@ -88,7 +108,7 @@ function onGeolocation(pos) {
   updateGpsStatus();
 
   maybeLoadCameras(c.latitude, c.longitude);
-  checkCameras();
+  checkCameras(c.accuracy);
   /* Prima del return per accuratezza scarsa piu' sotto: la navigazione deve vedere
      anche i fix imprecisi, per scartarli con criterio proprio invece che non riceverli. */
   if (state.nav) { navTick(c.latitude, c.longitude, c.accuracy); navRenderBanner(); }

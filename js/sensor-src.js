@@ -6,12 +6,23 @@ function setupSensors() {
   if (needPerm) {
     els.permBtn.style.display = 'block';
     els.permBtn.addEventListener('click', async () => {
+      // Su iOS requestPermission() risolve con 'granted'/'denied' senza mai
+      // lanciare: ignorare il valore risolto lasciava l'utente senza sensori per
+      // tutta la sessione (bottone nascosto, nessun errore, serve reload).
+      let granted = true;
       try {
-        if (typeof DeviceOrientationEvent.requestPermission === 'function') await DeviceOrientationEvent.requestPermission();
-        if (typeof DeviceMotionEvent.requestPermission === 'function') await DeviceMotionEvent.requestPermission();
-      } catch (e) {}
-      els.permBtn.style.display = 'none';
-      addListeners();
+        if (typeof DeviceOrientationEvent.requestPermission === 'function')
+          granted = (await DeviceOrientationEvent.requestPermission()) === 'granted' && granted;
+        if (typeof DeviceMotionEvent.requestPermission === 'function')
+          granted = (await DeviceMotionEvent.requestPermission()) === 'granted' && granted;
+      } catch (e) { granted = false; }
+      if (granted) {
+        els.permBtn.style.display = 'none';
+        addListeners();
+      } else {
+        els.permBtn.textContent = 'Permesso negato — tocca per riprovare';
+        toast('Permesso sensori negato: tocca per riprovare o abilitalo nelle impostazioni.', 'err', 6000);
+      }
     });
     return;
   }

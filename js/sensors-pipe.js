@@ -46,6 +46,9 @@ function resetSensorFilters() {
   state.speedFusMs = state.speedMs || 0;
 }
 
+/* Un vettore con una componente non-finito (NaN/Infinity) è un campione difettoso. */
+function finiteVec(v) { return !!(v && isFinite(v.x) && isFinite(v.y) && isFinite(v.z)); }
+
 function processSample(sm) {
   if (state.demo) return;
   const nowP = sm.t;
@@ -75,6 +78,19 @@ function processSample(sm) {
     state.attRef = 'none';
     return;
   }
+
+  /* Campione sporco (NaN/Infinity da Generic Sensor API dopo sospensione/ripresa
+     del sensore): un solo valore non-finito corromperebbe ogni filtro EMA per il
+     resto della sessione (attitudeReference → null, attTrust → 0, piega degradata
+     a sola integrazione giroscopica). L'accelerometro difettoso butta via tutto il
+     campione; giroscopio/lin/grav difettosi si azzerano soltanto. */
+  if (sm.acc && !finiteVec(sm.acc)) {
+    state._attU = null; state._gsPrev = null; state.attRef = 'none';
+    return;
+  }
+  if (sm.gyro && !finiteVec(sm.gyro)) sm.gyro = null;
+  if (sm.lin && !finiteVec(sm.lin)) sm.lin = null;
+  if (sm.grav && !finiteVec(sm.grav)) sm.grav = null;
 
   const ig = sm.acc;
   const m = MOUNT[state.mount];
