@@ -86,6 +86,10 @@ async function startVideoRenderWebmOffline(pre, mode) {
 
 async function startVideoRenderWebmOfflineInner(pre, mode, Muxer, picked) {
   const W = pre.res[0], H = pre.res[1];
+  // Guard sulla RAM (stesso motivo del ramo MP4): bloccare prima di allocare
+  // evita il crash silenzioso del tab mobile.
+  const tooBig = videoOfflineGuard(pre, picked.cfg);
+  if (tooBig) { toast(tooBig, 'err', 8000); return; }
   const muxerOpts = {
     target: new Muxer.ArrayBufferTarget(),
     video: { codec: picked.mux, width: W, height: H, frameRate: 30 },
@@ -112,7 +116,7 @@ async function startVideoRenderWebmOfflineInner(pre, mode, Muxer, picked) {
   const job = {
     mode: mode, running: true, cancelled: false, canvas, ctx,
     rows: pre.rows, track: pre.track, mapPts: pre.mapPts, spark: pre.spark,
-    dist: pre.dist, tEnd: pre.tEnd, mult: 1, speedMax: pre.speedMax,
+    dist: pre.dist, tEnd: pre.tEnd, mult: pre.mult, speedMax: pre.speedMax,
     slow: pre.slow, tSim: pre.rows.length ? pre.rows[0].t : 0,
     webm: { enc, muxer, frame: 0 },
   };
@@ -132,7 +136,18 @@ async function startVideoRenderWebmOfflineInner(pre, mode, Muxer, picked) {
     toast('Encode WebM fallito: ' + why + '.', 'err', 8000);
     return;
   }
-  try { await enc.flush(); enc.close(); } catch (e) {}
+  // Encoder morto a metà: il loop esce con encState.encErr; senza questo controllo
+  // si arrivava a finalize() con un file troncato ma valido e toast di successo.
+  let fail = encErr || job.webm.encErr;
+  try { await enc.flush(); } catch (e) { fail = fail || e; }
+  try { enc.close(); } catch (e) {}
+  if (fail) {
+    cleanupVideoJob(job);
+    videoJob = null;
+    closeVideoModal();
+    toast('Encode WebM fallito: ' + ((fail && fail.message) || fail) + '.', 'err', 8000);
+    return;
+  }
   // Niente audio (fuori scope: il WebM realtime oggi non ne ha comunque).
   let blob = null;
   try {

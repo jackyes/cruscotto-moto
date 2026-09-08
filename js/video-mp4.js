@@ -122,7 +122,7 @@ async function videoMp4Loop(job, W, H) {
 /* Audio AAC sintetico offline: saw motore (engineToneFor) + rumore bianco
    (windGainFor), 44.1 kHz mono. Niente ScriptProcessor: campioni generati
    dagli stessi profili del graph live, timestamp dalla t delle righe. */
-function videoMp4MuxAudio(muxer, rows) {
+function videoMp4MuxAudio(muxer, rows, slow, stepUs) {
   return new Promise(resolve => {
     try {
       if (typeof AudioEncoder === 'undefined' || !rows.length) { resolve(false); return; }
@@ -132,12 +132,15 @@ function videoMp4MuxAudio(muxer, rows) {
         error: () => {},
       });
       aenc.configure({ codec: 'mp4a.40.2', sampleRate: SR, numberOfChannels: 1, bitrate: 128000 });
-      const t0 = rows[0].t;
+      const t0 = rows[0].t, tEnd = rows[rows.length - 1].t;
+      const s = slow || { base: 1 };
+      const stepUs_ = (stepUs && stepUs > 0) ? stepUs : 33333;
+      const stepSec = stepUs_ / 1e6;
+      const SAMP_FRAME = Math.round(SR * stepSec);
       let tsUs = 0, phase = 0;
       // Chunk da 0.5 s: pochi encode, memoria costante.
       const CH = Math.floor(SR / 2);
       let cur = new Float32Array(CH), n = 0;
-      let k = 0;
       const flushCur = () => {
         if (!n) return;
         const data = new AudioData({
@@ -149,32 +152,25 @@ function videoMp4MuxAudio(muxer, rows) {
         try { data.close(); } catch (e) {}
         n = 0;
       };
-      while (k < rows.length) {
-        const r = rows[k] || {};
-        const v = r.speedKmh || 0;
-        const f = engineToneFor(v), g = windGainFor(v);
-        // Durata campione: dt reale alla riga dopo (clamp 0.2 s sui buchi gap).
-        const nxt = rows[k + 1];
-        let dt = nxt ? (nxt.t - r.t) : 0.05;
-        if (!isFinite(dt) || dt <= 0) dt = 0.05;
-        dt = Math.min(dt, 0.2);
-        let samples = Math.round(dt * SR);
-        while (samples > 0) {
-          const room = CH - n;
-          const take = Math.min(room, samples);
-          for (let s = 0; s < take; s++) {
-            phase += f / SR;
-            const saw = ((phase % 1) * 2 - 1) * 0.06;
-            const noise = (Math.random() * 2 - 1) * g;
-            cur[n++] = saw + noise;
-          }
-          samples -= take;
+      // L'audio scorre nel TEMPO VIDEO (stessa progressione tSim di videoOfflineLoop),
+      // non nel tempo delle righe: altrimenti mult/slow-mo desincronizzerebbero
+      // audio e video. Pitch/vento letti dalla riga a tSim via findRowAt.
+      let tSim = t0, k = 0;
+      while (tSim < tEnd) {
+        const i = Math.max(0, findRowAt(rows, tSim));
+        const r = rows[i] || {};
+        const f = engineToneFor(r.speedKmh || 0), g = windGainFor(r.speedKmh || 0);
+        for (let s2 = 0; s2 < SAMP_FRAME; s2++) {
+          phase += f / SR;
+          cur[n++] = ((phase % 1) * 2 - 1) * 0.06 + (Math.random() * 2 - 1) * g;
           if (n >= CH) flushCur();
-          if (job_cancelled_flag()) { try { aenc.close(); } catch (e) {} resolve(false); return; }
         }
+        tSim += stepSec * slowMultAt(tSim, s);
         k++;
+        if (k % 60 === 0 && typeof videoJob !== 'undefined' && videoJob && videoJob.cancelled) {
+          try { aenc.close(); } catch (e) {} resolve(false); return;
+        }
       }
-      function job_cancelled_flag() { return !!(typeof videoJob !== 'undefined' && videoJob && videoJob.cancelled); }
       flushCur();
       aenc.flush().then(() => { try { aenc.close(); } catch (e) {} resolve(true); })
         .catch(() => { try { aenc.close(); } catch (e) {} resolve(false); });
@@ -228,6 +224,10 @@ async function startVideoRenderMp4(pre, mode) {
 
 async function startVideoRenderMp4Inner(pre, mode, Muxer, cfg) {
   const W = pre.res[0], H = pre.res[1];
+  // Guard sulla RAM: ArrayBufferTarget + slice finale = picco ~2-3× la dimensione
+  // del file. Bloccare prima di allocare evita il crash silenzioso del tab mobile.
+  const tooBig = videoOfflineGuard(pre, cfg);
+  if (tooBig) { toast(tooBig, 'err', 8000); return; }
   const muted = !!(els.videoAudio && els.videoAudio.value === 'off');
   const muxerOpts = {
     target: new Muxer.ArrayBufferTarget(),
@@ -264,7 +264,7 @@ async function startVideoRenderMp4Inner(pre, mode, Muxer, cfg) {
   const job = {
     mode: mode, running: true, cancelled: false, canvas, ctx,
     rows: pre.rows, track: pre.track, mapPts: pre.mapPts, spark: pre.spark,
-    dist: pre.dist, tEnd: pre.tEnd, mult: 1, speedMax: pre.speedMax,
+    dist: pre.dist, tEnd: pre.tEnd, mult: pre.mult, speedMax: pre.speedMax,
     slow: pre.slow, tSim: pre.rows.length ? pre.rows[0].t : 0,
     mp4: { enc, muxer, ag: null, frame: 0, _lastV: null },
   };
@@ -284,11 +284,24 @@ async function startVideoRenderMp4Inner(pre, mode, Muxer, cfg) {
     toast('Encode MP4 fallito: ' + why + '. Riprova WebM.', 'err', 8000);
     return;
   }
-  try { await enc.flush(); enc.close(); } catch (e) {}
-  // Audio dopo il video (stessi timestamp t delle righe, niente drift).
+  // Encoder morto a metà: il loop esce con encState.encErr e senza questo
+  // controllo si arrivava a finalize() con un file troncato ma valido, mostrando
+  // il toast di successo per un video rotto.
+  let fail = encErr || job.mp4.encErr;
+  try { await enc.flush(); } catch (e) { fail = fail || e; }
+  try { enc.close(); } catch (e) {}
+  if (fail) {
+    cleanupVideoJob(job);
+    videoJob = null;
+    closeVideoModal();
+    toast('Encode MP4 fallito: ' + ((fail && fail.message) || fail) + '. Riprova WebM.', 'err', 8000);
+    return;
+  }
+  // Audio dopo il video: scorre nel tempo video (mult+slow-mo), non nel tempo
+  // delle righe, così resta sincrono con il video.
   if (!muted) {
     els.videoStatus.textContent = 'Audio MP4…';
-    try { await videoMp4MuxAudio(muxer, pre.rows); } catch (e) {}
+    try { await videoMp4MuxAudio(muxer, pre.rows, pre.slow, videoOfflineFrameStepUs(30)); } catch (e) {}
   }
   let blob = null;
   try {

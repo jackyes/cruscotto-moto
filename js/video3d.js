@@ -141,7 +141,6 @@ function videoSegLeansFor(mapPts, rows) {
 function videoTrackAddToMap(map, mapPts, segLeans) {
   if (!mapPts || !mapPts.length) return;
   const T = VIDEO3D_CONF.trail;
-  map.addSource('giro', { type: 'geojson', data: videoTrackGeoJson(mapPts, 0, mapPts.length) });
   let beforeId = null;
   try {
     const layers = map.getStyle ? map.getStyle().layers : null;
@@ -486,10 +485,22 @@ function video3DBuildJob(pre, canvas, ctx) {
   container.style.cssText = 'position:fixed; left:-9999px; top:0; width:' + W + 'px; height:' + H + 'px;';
   document.body.appendChild(container);
 
-  const first = pre.mapPts.length ? pre.mapPts[0] : { lat: 42.5, lon: 12.5 };
-  const mapOpts = videoMapOptions(first.lat, first.lon);
-  const map = new maplibregl.Map(Object.assign({ container: container }, mapOpts));
-  const moto = initVideoMoto3D(THREE, W, H);
+  let map = null, moto = null;
+  try {
+    const first = pre.mapPts.length ? pre.mapPts[0] : { lat: 42.5, lon: 12.5 };
+    const mapOpts = videoMapOptions(first.lat, first.lon);
+    map = new maplibregl.Map(Object.assign({ container: container }, mapOpts));
+    moto = initVideoMoto3D(THREE, W, H);
+  } catch (e) {
+    // Costruzione fallita a metà (WebGL non ottenibile, CDN lib assente): si
+    // ripulisce ciò che è già stato creato prima di rilanciare, altrimenti
+    // container/canvas/contesti restano orfani e i retry (rete instabile)
+    // esaurirebbero i contesti WebGL del browser mobile.
+    if (moto) { try { disposeVideoMoto3D(moto); } catch (e2) {} }
+    if (map && map.remove) { try { map.remove(); } catch (e2) {} }
+    if (container.parentNode) container.parentNode.removeChild(container);
+    throw e;
+  }
 
   return {
     mode: '3d', running: true, cancelled: false, canvas, ctx,

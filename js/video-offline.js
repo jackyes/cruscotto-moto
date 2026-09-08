@@ -12,6 +12,56 @@ function videoOfflineFrameStepUs(fps) {
   return Math.round(1e6 / f);
 }
 
+/* Pura: durata video risultante in secondi, applicando mult+slow-mo (stessa
+   progressione di videoOfflineLoop). Serve per la stima della dimensione finale
+   PRIMA di avviare l'encode. */
+function videoOfflineDurSec(rows, stepUs, slow) {
+  const n = rows ? rows.length : 0;
+  if (!n) return 0;
+  const t0 = rows[0].t, tEnd = rows[rows.length - 1].t;
+  if (!(tEnd > t0)) return 0;
+  const s = slow || { base: 1 };
+  const stepSec = stepUs / 1e6;
+  let tSim = t0, frames = 0;
+  while (tSim < tEnd && frames < 10000000) {
+    tSim += stepSec * slowMultAt(tSim, s);
+    frames++;
+  }
+  return frames * stepSec;
+}
+
+/* Pura: stima prudente dei byte dell'export (bitrate × durata). Il muxer
+   ArrayBufferTarget raddoppia il buffer e finalize() fa una slice integrale:
+   il picco di RAM è ~2-3× la dimensione del file. Su un'ora a 1080p si superano
+   i GB e il tab mobile va in OOM senza alcun errore visibile. */
+function videoOfflineEstBytes(cfg, durSec) {
+  const bps = (cfg && isFinite(cfg.bitrate) && cfg.bitrate > 0) ? cfg.bitrate : 5000000;
+  return (bps / 8) * Math.max(0, durSec);
+}
+/* Soglia RAM adattiva: navigator.deviceMemory (GB, Chrome) se presente, altrimenti
+   stima prudente (4 GB). Il muxer ArrayBufferTarget picca ~2-3× la dimensione del
+   file, quindi si limita l'export a ~1/4 della RAM del device (picco ≤ ~3/4). */
+function videoOfflineMaxBytes() {
+  let mem = 4;
+  try { if (typeof navigator !== 'undefined' && navigator.deviceMemory) mem = navigator.deviceMemory; } catch (e) {}
+  if (!isFinite(mem) || mem <= 0) mem = 4;
+  return Math.max(256 * 1024 * 1024, Math.floor(mem * 256 * 1024 * 1024));
+}
+
+/* Ritorna un messaggio d'errore (o null) se l'export stimato supera la RAM
+   disponibile. Va chiamata prima di creare muxer/encoder. */
+function videoOfflineGuard(pre, cfg) {
+  const durSec = videoOfflineDurSec(pre.rows, videoOfflineFrameStepUs(30), pre.slow || { base: pre.mult || 1 });
+  const bytes = videoOfflineEstBytes(cfg, durSec);
+  const maxBytes = videoOfflineMaxBytes();
+  if (bytes > maxBytes) {
+    return 'Video troppo grande per la RAM del dispositivo (stimato ~' +
+      Math.round(bytes / 1048576) + ' MB, limite ~' + Math.round(maxBytes / 1048576) +
+      ' MB). Riduci la durata o la risoluzione.';
+  }
+  return null;
+}
+
 /* Prova il config con hint hardware, ripiega su 'no-preference' se il
    browser lo rifiuta (VideoEncoder.isConfigSupported): mai lancia, ritorna
    {cfg, supported}. Se VideoEncoder manca del tutto assume supportato (lo
@@ -94,44 +144,63 @@ async function videoOfflineLoop(job, encState, opts) {
   const keyframeEvery = (opts && opts.keyframeEvery) || 150;
   const label = (opts && opts.label) || 'video';
   const stepUs = videoOfflineFrameStepUs(fps);
+  const stepSec = stepUs / 1e6;
   const rows = job.rows;
   if (!rows.length) return;
   const t0 = rows[0].t;
-  const total = rows.length;
+  const tEnd = rows[rows.length - 1].t;
+  const slow = job.slow || { base: job.mult || 1 };
   let vf = null;
   try { vf = new VideoFrame(job.canvas, { timestamp: 0, duration: stepUs }); } catch (e) { vf = null; }
   if (vf) { try { vf.close(); } catch (e) {} }
-  for (let k = 0; k < total; k++) {
+  // Velocità/slow-mo: come il loop realtime (videoLoop in video.js), tSim avanza
+  // di stepSec*slowMultAt per frame e drawVideoFrame pesca la riga via findRowAt.
+  // Prima il loop scorreva 1:1 sui campioni e ignorava del tutto il moltiplicatore
+  // selezionato (un export "12×" produceva comunque un video 1:1).
+  let tSim = t0;
+  let k = 0;
+  const maxFrames = 1 << 24;   // ~155 h a 30 fps: guardia anti-loop infinito
+  while (tSim < tEnd && k < maxFrames) {
     if (job.cancelled) return;
-    const r = rows[k] || {};
-    job.tSim = r.t;
-    drawVideoFrame(job, 1 / fps);
-    const ts = Math.round(((isFinite(r.t) ? r.t : t0) - t0) * 1e6);
+    job.tSim = tSim;
+    drawVideoFrame(job, stepSec);
+    const ts = Math.round(k * stepUs);
     let frame = null;
     try { frame = new VideoFrame(job.canvas, { timestamp: Math.max(0, ts), duration: stepUs }); }
-    catch (e) { continue; }
-    // Backpressure: se l'encoder è saturo aspetta (niente OOM su giri lunghi).
-    try {
-      if (enc.encodeQueueSize > 8) {
-        await new Promise(res => {
-          let n = 0;
-          const tick = () => {
-            if (job.cancelled || enc.encodeQueueSize <= 4 || ++n > 200) { res(); return; }
-            setTimeout(tick, 10);
-          };
-          tick();
-        });
+    catch (e) { frame = null; }
+    if (frame) {
+      // Backpressure: se l'encoder è saturo aspetta (niente OOM su giri lunghi).
+      try {
+        if (enc.encodeQueueSize > 8) {
+          await new Promise(res => {
+            let n = 0;
+            const tick = () => {
+              if (job.cancelled || enc.encodeQueueSize <= 4 || ++n > 200) { res(); return; }
+              setTimeout(tick, 10);
+            };
+            tick();
+          });
+        }
+        enc.encode(frame, { keyFrame: encState.frame % keyframeEvery === 0 });
+      } catch (e) {
+        // Encoder morto a metà (throttling termico, backgrounding): senza questo
+        // il loop continuava a fallire silenziosamente fino a finalize() con un
+        // file troncato ma sintatticamente valido.
+        encState.encErr = encState.encErr || e;
+        try { frame.close(); } catch (e2) {}
+        break;
       }
-      enc.encode(frame, { keyFrame: encState.frame % keyframeEvery === 0 });
-    } catch (e) {}
-    try { frame.close(); } catch (e) {}
+      try { frame.close(); } catch (e) {}
+    }
     encState.frame++;
     // UI viva: yield ogni 15 frame + progress (loop da migliaia di frame).
     if (encState.frame % 15 === 0) {
-      const pct = Math.round((k / Math.max(1, total - 1)) * 100);
+      const pct = Math.min(100, Math.round(((tSim - t0) / Math.max(1e-9, tEnd - t0)) * 100));
       els.videoProg.style.width = pct + '%';
       els.videoStatus.textContent = 'Encode ' + label + ' ' + pct + '%';
       await new Promise(res => setTimeout(res, 0));
     }
+    tSim += stepSec * slowMultAt(tSim, slow);
+    k++;
   }
 }
