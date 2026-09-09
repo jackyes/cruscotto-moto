@@ -9,10 +9,10 @@
    destinazione appena cambiata. */
 let navReqSeq = 0;
 
-async function navTryOsrm(from, to, hdg) {
-  let url = NAV_OSRM_HOST +
-    from.lon.toFixed(6) + ',' + from.lat.toFixed(6) + ';' +
-    to.lon.toFixed(6) + ',' + to.lat.toFixed(6) +
+async function navTryOsrm(from, to, hdg, vias) {
+  const pts = [from, ...((vias || []).filter(v => v && isFinite(v.lat) && isFinite(v.lon))), to];
+  const coords = pts.map(c => c.lon.toFixed(6) + ',' + c.lat.toFixed(6)).join(';');
+  let url = NAV_OSRM_HOST + coords +
     '?steps=true&overview=full&geometries=polyline6';
   // stesso ruolo dell'heading in Valhalla: evita che riparta con un'inversione a U
   if (hdg != null && isFinite(hdg)) url += '&bearings=' + Math.round(hdg) + ',60;';
@@ -49,17 +49,14 @@ async function geoCachePrune() {
   if (geoPruneDone || geoPruneRunning) return;
   geoPruneRunning = true;
   try {
-    // kv store senza indici: prune best-effort solo se idb espone keys; altrimenti no-op.
-    if (typeof idb.kvKeys === 'function') {
-      const keys = await idb.kvKeys();
-      const geo = (keys || []).filter(k => k.indexOf('geocodeCache:') === 0);
-      if (geo.length > 200) {
-        const entries = [];
-        for (const k of geo) { const e = await idb.kvGet(k); if (e) entries.push([k, e.ts || 0]); }
-        entries.sort((a, b) => a[1] - b[1]);
-        for (let i = 0; i < entries.length - 200; i++) {
-          try { await idb.kvPut(entries[i][0], null); } catch (err) {}
-        }
+    const keys = await idb.kvKeys();
+    const geo = (keys || []).filter(k => k.indexOf('geocodeCache:') === 0);
+    if (geo.length > 200) {
+      const entries = [];
+      for (const k of geo) { const e = await idb.kvGet(k); if (e) entries.push([k, e.ts || 0]); }
+      entries.sort((a, b) => a[1] - b[1]);
+      for (let i = 0; i < entries.length - 200; i++) {
+        try { await idb.kvDel(entries[i][0]); } catch (err) {}
       }
     }
     geoPruneDone = true;
@@ -79,13 +76,19 @@ async function navRequestRoute(from, to, hdg, why) {
   // magnetica da fermo e' rumore, e con heading_tolerance stretto fa fallire Valhalla
   // con "No suitable edges near location" (error_code 171) = HTTP 400.
   const useHead = hdg != null && isFinite(hdg) && state.speedMs >= HEADING_MIN_MS;
+  // Via intermedie solo sul calcolo "fresco" (why null): in ricalcolo/ripresa
+  // (why non-null) si va dritti da→dest, per non far ripassare Valhalla da una
+  // tappa già superata durante una deviazione.
+  const vias = (why == null ? (state.navVias || []) : [])
+    .filter(v => v && isFinite(v.lat) && isFinite(v.lon));
   const build = (withHead) => {
     const orig = { lat: from.lat, lon: from.lon };
     // Senza heading sull'origine, Valhalla e' libero di rispondere con un'inversione a U
     // verso il punto appena lasciato: in autostrada e' il peggior output possibile.
     if (withHead) { orig.heading = Math.round(hdg); orig.heading_tolerance = 60; }
+    const locations = [orig, ...vias.map(v => ({ lat: v.lat, lon: v.lon })), { lat: to.lat, lon: to.lon }];
     return {
-      locations: [orig, { lat: to.lat, lon: to.lon }],
+      locations,
       costing: 'motorcycle',
       costing_options: navCostingOptions(),
       directions_options: { language: 'it-IT', units: 'kilometers' },
@@ -98,7 +101,7 @@ async function navRequestRoute(from, to, hdg, why) {
   // altrimenti un ricalcolo servito da cache azzerava il circuit breaker e la
   // escalation non arrivava mai (reroute ogni 60 m, mai OFF_MANUAL).
   const prev = state.nav;
-  const rKey = routeCacheKey(from, to, navCostingOptions(), useHead ? hdg : null);
+  const rKey = routeCacheKey(from, to, navCostingOptions(), useHead ? hdg : null, vias);
   const cached = await cacheGetFresh(rKey, ROUTE_CACHE_TTL_MS);
   if (cached && !cached.stale) {
     try {
@@ -153,7 +156,7 @@ async function navRequestRoute(from, to, hdg, why) {
   // 2) OSRM: risponde sempre, ma profilo auto fisso — le preferenze moto non si applicano.
   if (!trip) {
     try {
-      trip = await navTryOsrm(from, to, useHead ? hdg : null);
+      trip = await navTryOsrm(from, to, useHead ? hdg : null, vias);
       engine = 'OSRM';
     } catch (e2) { err = err || e2; }
   }

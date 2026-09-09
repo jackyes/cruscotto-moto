@@ -42,11 +42,12 @@ async function jsonUnderTimeout(res) {
    servita da una cache calcolata SENZA (e viceversa) cambia il tracciato
    vicino all'origine — è il param che evita l'inversione a U iniziale. */
 const ROUTE_CACHE_TTL_MS = 24 * 3600 * 1000, GEO_CACHE_TTL_MS = 7 * 24 * 3600 * 1000;
-function routeCacheKey(from, to, costing, hdg) {
+function routeCacheKey(from, to, costing, hdg, vias) {
   const f = from.lat.toFixed(4) + ',' + from.lon.toFixed(4);
   const t = to.lat.toFixed(4) + ',' + to.lon.toFixed(4);
   const h = (hdg != null && isFinite(hdg)) ? ':' + (Math.round(hdg / 10) * 10) : '';
-  return 'routeCache:' + f + '>' + t + ':' + JSON.stringify(costing || {}) + h;
+  const v = (vias && vias.length) ? '~' + vias.map(x => x.lat.toFixed(4) + ',' + x.lon.toFixed(4)).join('>') : '';
+  return 'routeCache:' + f + v + '>' + t + ':' + JSON.stringify(costing || {}) + h;
 }
 function geoCacheKey(q, p) {
   const nq = String(q || '').toLowerCase().trim().replace(/\s+/g, ' ');

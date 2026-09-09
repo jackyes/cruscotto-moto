@@ -111,6 +111,7 @@ function onGeolocation(pos) {
   updateGpsStatus();
 
   maybeLoadCameras(c.latitude, c.longitude);
+  maybeLoadSpeedLimit(c.latitude, c.longitude);
   checkCameras(c.accuracy);
   /* Prima del return per accuratezza scarsa piu' sotto: la navigazione deve vedere
      anche i fix imprecisi, per scartarli con criterio proprio invece che non riceverli. */

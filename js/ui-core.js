@@ -178,6 +178,8 @@ function loadSettings() {
   // col segno di default sbagliato. Non si persistono lock/score/energy.
   state.gyroSign = store.get('cruscotto.gyroSign', LEAN_GYRO_SIGN_DEFAULT);
   state.camAhead = s.camAhead !== false;
+  state.camLegalOk = !!s.camLegalOk;
+  state.guidaAlways = !!s.guidaAlways;
   state.theme = s.theme || 'dark';
   els.themeSel.value = state.theme;
   els.mountSel.value = state.mount;
@@ -195,6 +197,7 @@ function loadSettings() {
   els.compassOffsetSel.value = String(state.compassOffset);
   els.gyroFusion.checked = state.gyroFusion;
   els.camAheadChk.checked = state.camAhead;
+  if (els.guidaAlwaysChk) els.guidaAlwaysChk.checked = state.guidaAlways;
   /* Le calibrazioni salvate prima della riscrittura dell'attitudine non sono piu'
      valide: leanFromUp usava la proiezione xy invece della base, quindi una base
      costruita allora e' consistente solo col vecchio estrattore. */
@@ -213,8 +216,31 @@ function saveSettings() {
     compassOffset: state.compassOffset,
     gyroFusion: state.gyroFusion, camAhead: state.camAhead, theme: state.theme,
     navVoice: state.navVoice, navNoHw: state.navNoHw, navNoToll: state.navNoToll,
-    navBackroads: state.navBackroads, navNoFerry: state.navNoFerry
+    navBackroads: state.navBackroads, navNoFerry: state.navNoFerry,
+    camLegalOk: state.camLegalOk, guidaAlways: state.guidaAlways
   });
+}
+
+const CAM_LEGAL_MSG = 'Avvisi autovelox da OpenStreetMap: dati incompleti e non ufficiali. Uso a tuo rischio, non sostituisce attenzione alla strada.';
+
+async function askCamLegal() {
+  const ok = await confirmToast(CAM_LEGAL_MSG);
+  if (ok) {
+    state.camLegalOk = true;
+    state.camAlerts = true;
+    if (els.camAlertsChk) els.camAlertsChk.checked = true;
+  } else {
+    state.camAlerts = false;
+    if (els.camAlertsChk) els.camAlertsChk.checked = false;
+    toast('Avvisi autovelox disattivati.', null, 4000);
+  }
+  saveSettings();
+  return ok;
+}
+
+function maybeAskCamLegal() {
+  if (!state.camAlerts || state.camLegalOk) return;
+  askCamLegal();
 }
 
 function updateCalibStatus() {

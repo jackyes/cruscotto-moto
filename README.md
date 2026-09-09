@@ -2,13 +2,15 @@
 
 Dashboard web per telemetria in moto: **velocità (GPS)**, **angolo di piega**, **accelerazioni** e **log CSV**. Si apre dal browser dello smartphone mentre guidi.
 
-Tre file, nessuna build:
+Nessuna build. File principali:
 
 | file | ruolo |
 |---|---|
-| `index.html` | tutta l'app (UI + logica + stili) |
+| `index.html` | markup, CSS, `init()` |
+| `js/*.js` | logica (sensori, nav, log, mappa, video) |
 | `sw.js` | service worker: avvio offline, cache di Leaflet e delle tile già viste |
 | `manifest.webmanifest` | installazione come app (icona in home, standalone) |
+| `viewer.html` | analisi CSV locale (drag&drop) |
 
 ## Requisiti
 
@@ -18,7 +20,7 @@ Tre file, nessuna build:
 
 ## Deploy (consigliato: GitHub Pages)
 
-1. Crea una repo su GitHub e carica **tutti e tre** i file (`index.html`, `sw.js`, `manifest.webmanifest`) nella stessa cartella.
+1. Crea una repo su GitHub e carica **tutta la cartella** (`index.html`, `js/`, `sw.js`, `manifest.webmanifest`, `icons/`, `viewer.html`) nella stessa struttura.
 2. Repo → **Settings → Pages** → Source: branch `main`, cartella `/ (root)` → Save.
 3. HTTPS è attivo automaticamente. Apri `https://<tuo-utente>.github.io/<repo>/` dal telefono.
 4. Dal menu di Chrome, **Installa app** / **Aggiungi a schermata Home**: parte a schermo intero e funziona anche senza rete.
@@ -29,7 +31,9 @@ Alternative (entrambe HTTPS automatico):
 
 > Il service worker si registra solo su HTTPS (o `localhost`). Senza di lui l'app resta
 > funzionante ma perde l'avvio offline. Per pubblicare una versione nuova alza
-> `CACHE_VERSION` in `sw.js`.
+> `CACHE_VERSION` in `sw.js`. L'aggiornamento del worker avviene **solo quando non stai
+> registrando**: se un log è attivo, il nuovo codice resta in attesa e si applica al
+> primo Stop Log (la sessione è già salvata su disco).
 
 > ⚠️ NON aprire `file:///...index.html` direttamente dal telefono: i sensori non funzionano senza secure context.
 
@@ -46,13 +50,17 @@ Alternative (entrambe HTTPS automatico):
 
 ## Schede
 
-L'app è organizzata in 4 schede (barra in basso): **Dashboard · Mappa · Grafici · Storico**.
+L'app è organizzata in 5 schede (barra in basso): **Dashboard · Mappa · Grafici · Naviga · Storico**.
 
-- **Cambiare scheda NON interrompe il log**: la registrazione gira in un loop indipendente dalla vista. Il pulsante **Start/Stop** resta sempre nella barra in alto, insieme allo stato GPS, al badge ●REC e alla durata.
+- **Cambiare scheda NON interrompe il log**: la registrazione gira in un loop indipendente dalla vista. Il pulsante **Start/Stop** resta sempre nella barra in alto, insieme allo stato GPS, al badge ●REC, all'orologio e alla durata.
+
+### Dashboard
+- Oltre a velocità e piega: **orologio** in alto, **quota** sotto la velocità e **limite di velocità** (da OSM) che si colora in rosso se superato. Il limite si aggiorna con query Overpass throttled attorno alla posizione; è dato OSM, non ufficiale.
+- **Modo Guida** (tasti grandi): si attiva durante il log, la navigazione attiva, la mappa fullscreen o sopra ~15 km/h; si può forzare sempre da Impostazioni.
 
 ### Mappa
-- Carica **Leaflet + OpenStreetMap** a runtime (da CDN). Mostra posizione corrente (punto + freccia heading) e traccia del percorso.
-- **Fallback offline**: se il CDN non è raggiungibile, ripiega su un canvas che disegna la traccia senza basemappa (zero dipendenze).
+- Carica **Leaflet + OpenStreetMap**. Leaflet è **vendored** in repo (`js/vendor/leaflet/`) e precacheato dal service worker: la mappa parte anche offline, senza CDN né integrity. MapLibre + Three.js per l'export video 3D restano CDN on-demand.
+- **Fallback offline**: se Leaflet non carica, ripiega su un canvas che disegna la traccia senza basemappa (zero dipendenze).
 - **Fullscreen mappa**: pulsante ⛶ in alto a destra sulla mappa → la mappa occupa tutto lo schermo (nasconde barra/tab). Ripremi ✕ per uscire.
 - **Controlli mappa** (in alto a sinistra): 🎯 **Centra** (riporta sulla tua posizione), 🧭 **Segui** (attivo di default, si disattiva se trascini la mappa), ⬆️ **Bussola** (track-up: ruota la mappa nel verso di marcia), 🔊 **Voce** (silenzia o riattiva le indicazioni vocali al volo, anche a mappa intera; è lo stesso interruttore dell'impostazione *Indicazioni vocali*).
 - **Track-up** è realizzato ruotando il container via CSS, senza plugin esterni. Con la mappa ruotata il trascinamento avviene nel sistema di riferimento ruotato: se devi esplorare la mappa a mano, disattiva prima la bussola.
@@ -67,13 +75,13 @@ L'app è organizzata in 4 schede (barra in basso): **Dashboard · Mappa · Grafi
 - Impostazioni: toggle **Avvisi autovelox**, **Solo autovelox davanti**, **distanza** di avviso (300/400/600 m) e **Raggio autovelox** (10–50 km).
 - **Badge di stato** in alto, accanto a quello GPS, perché un degrado dei dati non resti silenzioso: verde quando la copertura è valida, giallo in attesa o quando il disegno è troncato dal tetto marker (mostra `disegnati/totali`), rosso quando Overpass è irraggiungibile, quando non ci sono dati, o quando sei uscito dal cerchio scaricato. Si mostra anche con gli avvisi disattivati.
 - Copertura OSM non uniforme; solo autovelox fissi (no tutor/mobili/posti di blocco).
-- **Nota legale**: uso a tua discrezione e responsabilità.
+- **Nota legale**: uso a tua discrezione e responsabilità. Al primo avvio (e se riattivi gli avvisi) l'app chiede conferma in-app; se rifiuti gli avvisi restano spenti.
 
 ### Navigatore
 - **Turn-by-turn** con percorsi moto: indicazioni passo-passo, banner della manovra successiva, distanza che scala in tempo reale e **indicazioni vocali** in italiano. Si silenziano al volo col pulsante 🔊 fra i controlli mappa (raggiungibile con i guanti, presente anche a mappa intera): tocca una volta e l'annuncio in corso si interrompe subito.
 - Motore di routing **Valhalla** (istanza pubblica FOSSGIS, nessuna chiave), profilo `motorcycle`. Preferenze: **evita autostrade**, **evita pedaggi**, **evita traghetti** e **preferisci strade secondarie** (il parametro che Valhalla chiama "desiderio di avventura": non garantisce curve, spinge via dalle arterie principali).
 - **Fallback automatico su OSRM** (`routing.openstreetmap.de`) se Valhalla non risponde entro pochi secondi: il navigatore continua a funzionare, ma con profilo auto fisso e senza le preferenze moto. La riga di stato dice sempre quale motore ha risposto. Le istruzioni in italiano per OSRM sono generate dall'app a partire da tipo di manovra, direzione e nome della strada.
-- Destinazione in quattro modi: **ricerca indirizzo** (Photon), **tap lungo sulla mappa**, **coordinate incollate** (anche link Google Maps) o **da un giro salvato**.
+- Destinazione in quattro modi: **ricerca indirizzo** (Photon), **tap lungo sulla mappa**, **coordinate incollate** (anche link Google Maps) o **da un giro salvato**. In più: **import GPX** (🧭) — la traccia importata diventa destinazione (ultimo punto) e viene disegnata come overlay tratteggiato sulla mappa; e una **tappa intermedia** (➕ Tappa, max 1) che sposta la destinazione corrente a via prima della meta finale.
 - Il percorso **sopravvive alla perdita di rete**: una volta calcolato, manovre, distanze e voce continuano a funzionare col solo GPS; il ricalcolo è l'unica cosa che richiede la rete, e se manca l'app lo dice invece di tacere.
 - **Fuori percorso** con ricalcolo automatico ma con i freni: serve conferma su più fix GPS (un errore in galleria non conta), nessun ricalcolo da fermo al semaforo, backoff crescente e un tetto massimo prima di passare alla modalità manuale — per non tempestare il server (1 richiesta al secondo) e per non litigare con una deviazione voluta.
 - Il percorso attivo e la posizione lungo di esso sono salvati su IndexedDB: chiudendo l'app a metà giro, riaprendola puoi riprendere.
@@ -387,7 +395,7 @@ Il file usa la virgola come separatore. Su Excel italiano potresti vedere tutto 
 - Le chiamate esterne sono le tile OpenStreetMap, Leaflet da unpkg, le query Overpass (autovelox), Valhalla e OSRM (routing) e Photon (geocoding). Originare e destinare il navigatore sono inviate a un server terzo quando calcoli un percorso; il resto (traccia, autovelox, preferenze) resta in locale.
 - La pagina dichiara una **Content-Security-Policy** che limita gli host raggiungibili a quelli sopra.
 - Nomi e limiti degli autovelox (da OSM o da file importati) sono dati di terze parti e vengono inseriti nel DOM come **testo**, mai come HTML.
-- **Da fare**: Leaflet è caricato da CDN senza `integrity`. Per chiudere del tutto il rischio catena di fornitura conviene scaricare `leaflet.js` e `leaflet.css` nella repo e servirli in locale — a quel punto si può stringere la CSP a `script-src 'self'` e togliere `unpkg.com` dalla lista in `sw.js`.
+- Leaflet (mappa live) è caricato da unpkg **con** `integrity` (SRI). MapLibre + Three.js per l'export video 3D restano CDN on-demand. Per chiudere del tutto il rischio catena di fornitura conviene vendorizzare Leaflet in repo e stringere la CSP a `script-src 'self'` (video 3D resterebbe da sbloccare a parte).
 
 ## Test
 

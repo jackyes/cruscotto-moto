@@ -141,4 +141,14 @@ const idb = {
       rq.onsuccess = () => { val = rq.result ? rq.result.v : null; };
     }).then(() => val);
   },
+  kvKeys() {
+    let val = [];
+    return idb._tx('kv', 'readonly', tx => {
+      const rq = tx.objectStore('kv').getAllKeys();
+      rq.onsuccess = () => { val = rq.result || []; };
+    }).then(() => val);
+  },
+  kvDel(k) {
+    return idb._tx('kv', 'readwrite', tx => { tx.objectStore('kv').delete(k); });
+  },
 };

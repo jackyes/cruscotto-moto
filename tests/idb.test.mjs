@@ -52,6 +52,20 @@ test('idb: chunk e kv', async () => {
   assert.equal((await idb.kvGet('activeTrack')).sid, 's1');
 });
 
+test('idb: kvKeys elenca, kvDel cancella', async () => {
+  resetState();
+  await initDb();
+  await idb.kvPut('geocodeCache:a', { ts: 1 });
+  await idb.kvPut('geocodeCache:b', { ts: 2 });
+  await idb.kvPut('activeTrack', { sid: 'x' });
+  const keys = (await idb.kvKeys()).slice().sort();
+  assert.deepEqual(keys, ['activeTrack', 'geocodeCache:a', 'geocodeCache:b']);
+  await idb.kvDel('geocodeCache:a');
+  assert.equal(await idb.kvGet('geocodeCache:a'), null);
+  const left = (await idb.kvKeys()).slice().sort();
+  assert.deepEqual(left, ['activeTrack', 'geocodeCache:b']);
+});
+
 test('saveSession: costruisce e persiste la sessione', async () => {
   resetState();
   await initDb();

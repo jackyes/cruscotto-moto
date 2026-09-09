@@ -10,7 +10,7 @@
 
 'use strict';
 
-const CACHE_VERSION = 'v12';   // shell (codice app): alzare per forzare il rinnovo
+const CACHE_VERSION = 'v15';   // shell (codice app): alzare per forzare il rinnovo
 const MAP_VERSION  = 'v12';    // tile/liberty/satellite: indipendente dallo shell. Parte
                                // dallo stesso valore del vecchio schema (v12) così il primo
                                // deploy NON orfanizza le cache già scaricate; va alzato solo
@@ -38,6 +38,7 @@ const SHELL = [
   './js/log-core.js',
   './js/nav-net.js',
   './js/cams.js',
+  './js/speed-limit.js',
   './js/inputs.js',
   './js/nav-ui.js',
   './js/nav-config.js',
@@ -62,18 +63,22 @@ const SHELL = [
   './js/share.js',
   './viewer.html',
   './manifest.webmanifest',
+  './icons/icon-192.png',
+  './icons/icon-512.png',
+  './icons/apple-touch-icon.png',
+  './js/vendor/leaflet/leaflet.js',
+  './js/vendor/leaflet/leaflet.css',
+  './js/vendor/leaflet/images/marker-icon.png',
+  './js/vendor/leaflet/images/marker-icon-2x.png',
+  './js/vendor/leaflet/images/marker-shadow.png',
+  './js/vendor/leaflet/images/layers.png',
+  './js/vendor/leaflet/images/layers-2x.png',
 ];
 
 const LIB_HOSTS = ['unpkg.com'];
-// Leaflet pinnato, precaricato a install: senza, la prima esecuzione offline
-// del viewer restava senza mappa (il CDN non è raggiungibile proprio offline).
-const LIB_PRECACHE = [
-  'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css',
-  'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js',
-  'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png',
-  'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png',
-  'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png',
-];
+// Leaflet è ora vendored (nella SHELL). MapLibre/Three per il video 3D restano
+// CDN on-demand e vengono cacheate dal ramo LIB_HOSTS del fetch handler.
+const LIB_PRECACHE = [];
 const TILE_HOST_RE = /\.tile\.openstreetmap\.org$/;
 const TILE_MAX = 800; // tetto approssimativo di tile conservate
 
@@ -90,8 +95,14 @@ self.addEventListener('install', event => {
           console.warn('[sw] precache lib fallito:', u);
         })))),
     ])
-    .then(() => self.skipWaiting())
+    // Niente skipWaiting() automatico: attivare il nuovo worker a metà giro
+    // cambierebbe il codice sotto al log attivo. Il client, quando è pronto
+    // (non sta registrando), manda SKIP_WAITING via message.
   );
+});
+
+self.addEventListener('message', event => {
+  if (event.data === 'SKIP_WAITING') self.skipWaiting();
 });
 
 self.addEventListener('activate', event => {

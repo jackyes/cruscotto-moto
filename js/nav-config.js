@@ -174,13 +174,13 @@ function navStart() {
 }
 function navStop() {
   navSimStop();
-  state.nav = null; state.navDest = null;
+  state.nav = null; state.navDest = null; state.navVias = []; state.gpxRoute = null;
   navSpeak.stop();
   idb.kvPut('activeRoute', null).catch(() => {});
   idb.kvPut('navProgress', null).catch(() => {});
   els.navQuery.value = ''; els.navResults.textContent = '';
   navSetStatus('Navigazione terminata.');
-  navRenderBanner(); renderNavPanel(); navDrawRoute();
+  navRenderBanner(); renderNavPanel(); navDrawRoute(); drawGpxRoute();
 }
 let navSimTimer = null, navSimS = 0, navSimOff = 0;
 

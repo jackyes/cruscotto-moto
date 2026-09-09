@@ -157,6 +157,7 @@
   .rec-badge { display: none; color: var(--bad); font-weight: 900; font-size: 13px; white-space: nowrap; letter-spacing: 1px; }
   .rec-badge.on { display: inline-flex; align-items: center; gap: 4px; animation: pulse-rec 1.2s infinite; }
   #topTime { color: var(--text); font-weight: 800; font-size: 16px; letter-spacing: .5px; }
+  #clock { color: var(--text-2); font-weight: 800; font-size: 14px; letter-spacing: .4px; font-variant-numeric: tabular-nums; }
   #btnSettings {
     background: var(--surface-2); color: var(--text); border: 1px solid var(--line);
     border-radius: 12px; min-height: 44px; min-width: 44px; font-size: 18px; cursor: pointer;
@@ -179,7 +180,7 @@
   body.guida .speed-val { font-size: var(--font-hud); }
   body.guida nav.tabbar button { min-height: 60px; }
   body.guida .card-session, body.guida .card-accel { display: none; }
-  body.guida .map-ctrl button { min-height: 48px; min-width: 48px; }
+  body.guida .map-ctrl button { min-height: 56px; min-width: 56px; }
   #btnLogTop.rec {
     background: var(--bad); color: var(--bad-ink); border-color: var(--bad);
     box-shadow: 0 0 16px rgba(255,23,68,.4);
@@ -229,6 +230,14 @@
     text-shadow: 0 0 28px rgba(0, 229, 255, 0.22);
   }
   .speed-unit { font-size: 20px; color: var(--accent); font-weight: 800; letter-spacing: 1px; text-transform: uppercase; }
+  .speed-meta { display: flex; flex-direction: column; gap: 4px; align-items: flex-start; }
+  .speed-limit {
+    display: none; min-width: 36px; padding: 2px 8px; border-radius: 8px;
+    border: 2px solid var(--text); color: var(--text); font-size: 16px; font-weight: 900;
+    font-variant-numeric: tabular-nums; text-align: center; line-height: 1.2;
+  }
+  .speed-limit.over { border-color: var(--bad); color: var(--bad); }
+  .speed-alt { font-size: 12px; font-weight: 700; color: var(--text-2); font-variant-numeric: tabular-nums; }
 
   /* Piega */
   .card-lean { display: flex; flex-direction: column; min-height: 0; }
@@ -350,7 +359,7 @@
   .toast.err { border-color: var(--bad); color: var(--bad); }
   .toast.ok  { border-color: var(--good); color: var(--good); }
   .toast .tbtns { display: flex; gap: 8px; margin-top: 10px; justify-content: center; }
-  .toast .tbtns button { padding: 8px 14px; min-height: 40px; font-size: 13px; }
+  .toast .tbtns button { padding: 8px 14px; min-height: 48px; font-size: 13px; }
 
   .warnbar {
     background: var(--bad); color: var(--bad-ink); font-size: 13px; font-weight: 700;
@@ -705,6 +714,7 @@
     </div>
     <div class="top-spacer"></div>
     <span class="rec-badge" id="recBadge">● REC</span>
+    <span id="clock">--:--</span>
     <span id="topTime">00:00</span>
     <button id="btnSettings" title="Impostazioni" aria-label="Impostazioni">⚙</button>
     <button id="btnLogTop">▶ Start</button>
@@ -799,7 +809,11 @@
           <h2>Velocità</h2>
           <div class="speed-row">
             <span class="speed-val" id="speedVal">0</span>
-            <span class="speed-unit">km/h</span>
+            <div class="speed-meta">
+              <span class="speed-unit">km/h</span>
+              <span class="speed-limit" id="speedLimit"></span>
+              <span class="speed-alt" id="speedAlt"></span>
+            </div>
           </div>
         </div>
         <div class="card card-lean">
@@ -918,7 +932,7 @@
         </div>
         <div class="sess-detail" id="sessionDetail" style="display:none;"></div>
       </div>
-      <details id="settingsPanel" hidden>
+      <details id="settingsPanel">
         <summary>Impostazioni</summary>
         <div class="set-row">
           <span>Orientamento montaggio</span>
@@ -947,6 +961,10 @@
         <div class="set-row">
           <span>Avvisi autovelox</span>
           <input type="checkbox" id="camAlerts" checked>
+        </div>
+        <div class="set-row">
+          <span>Guida sempre (tasti grandi)</span>
+          <input type="checkbox" id="guidaAlways">
         </div>
         <div class="set-row">
           <span>Distanza avviso autovelox</span>
@@ -1073,8 +1091,11 @@
         <div class="controls" style="margin-top:10px;">
           <button id="btnNavFromMap">📍 Mappa</button>
           <button id="btnNavFromHist">🗂 Giri</button>
+          <button id="btnNavGpx">🧭 GPX</button>
+          <button id="btnNavVia">➕ Tappa</button>
           <button id="btnNavClear">✕ Azzera</button>
         </div>
+        <input type="file" id="navGpxFile" accept=".gpx,.xml" style="display:none;">
         <p class="hint" id="navDestTxt">Nessuna destinazione. Sulla mappa puoi anche tenere premuto un punto per sceglierlo.</p>
       </div>
 
@@ -1160,6 +1181,7 @@
 <script src="js/log-core.js"></script>
 <script src="js/nav-net.js"></script>
 <script src="js/cams.js"></script>
+<script src="js/speed-limit.js"></script>
 <script src="js/inputs.js"></script>
 <script src="js/nav-ui.js"></script>
 <script src="js/nav-config.js"></script>
@@ -1195,6 +1217,7 @@
 const $ = id => document.getElementById(id);
 const els = {
   gpsDot: $('gpsDot'), gpsTxt: $('gpsTxt'), recBadge: $('recBadge'), topTime: $('topTime'),
+  clock: $('clock'), speedLimit: $('speedLimit'), speedAlt: $('speedAlt'),
   btnLogTop: $('btnLogTop'), btnSettings: $('btnSettings'), settingsPanel: $('settingsPanel'),
   speedVal: $('speedVal'), leanVal: $('leanVal'), leanDir: $('leanDir'),
   maxLeanL: $('maxLeanL'), maxLeanR: $('maxLeanR'),
@@ -1215,6 +1238,7 @@ const els = {
   navSumDist: $('navSumDist'), navSumTime: $('navSumTime'), navSumEta: $('navSumEta'),
   btnNavGo: $('btnNavGo'), btnNavStop: $('btnNavStop'), btnNavClear: $('btnNavClear'),
   btnNavFromMap: $('btnNavFromMap'), btnNavFromHist: $('btnNavFromHist'),
+  btnNavGpx: $('btnNavGpx'), navGpxFile: $('navGpxFile'), btnNavVia: $('btnNavVia'),
   btnNavSim: $('btnNavSim'), btnNavSimOff: $('btnNavSimOff'), btnNavSimDev: $('btnNavSimDev'),
   navSimSpeed: $('navSimSpeed'),
   navVoice: $('navVoice'), navNoHw: $('navNoHw'), navNoToll: $('navNoToll'),
@@ -1230,6 +1254,7 @@ const els = {
   videoCardDl: $('videoCardDl'),
   btnCenter: $('btnCenter'), btnFollow: $('btnFollow'), btnTrackUp: $('btnTrackUp'), btnNavMute: $('btnNavMute'), compassOffsetSel: $('compassOffset'),
   gyroFusion: $('gyroFusion'), camAheadChk: $('camAhead'),
+  guidaAlwaysChk: $('guidaAlways'),
   toasts: $('toasts'), secWarn: $('secWarn'), mapBox: document.querySelector('.map-box'),
   leanConf: $('leanConf'), leanConfFill: $('leanConfFill'), leanConfTxt: $('leanConfTxt'),
   diagPanel: $('diagPanel'), dgHz: $('dgHz'), dgVib: $('dgVib'), dgNorm: $('dgNorm'),
@@ -1757,6 +1782,7 @@ function init() {
 
   loadSettings();
   navSpeak.init();
+  maybeAskCamLegal();
 
   // I sottosistemi vitali partono SUBITO e ciascuno in modo indipendente: un
   // errore nel wiring di una sezione successiva (card PNG, navigatore, ecc.)
@@ -1936,7 +1962,23 @@ function init() {
     saveSettings();
     if (state.wakeLockOn) requestWakeLock(); else releaseWakeLock();
   });
-  els.camAlertsChk.addEventListener('change', () => { state.camAlerts = els.camAlertsChk.checked; saveSettings(); });
+  els.camAlertsChk.addEventListener('change', async () => {
+    if (els.camAlertsChk.checked) {
+      if (!state.camLegalOk) {
+        const ok = await askCamLegal();
+        if (!ok) return;
+      }
+      state.camAlerts = true;
+    } else {
+      state.camAlerts = false;
+    }
+    saveSettings();
+  });
+  els.guidaAlwaysChk.addEventListener('change', () => {
+    state.guidaAlways = els.guidaAlwaysChk.checked;
+    saveSettings();
+    updateGuidaMode();
+  });
   els.camDistSel.addEventListener('change', () => { state.camDist = parseInt(els.camDistSel.value, 10); saveSettings(); });
   els.camRadiusSel.addEventListener('change', () => {
     const prev = state.camRadius;
@@ -2002,6 +2044,33 @@ function init() {
     if (!out.length) { toast('I giri salvati non hanno traccia.', 'err'); return; }
     navRenderResults(out);
   });
+  els.btnNavGpx.addEventListener('click', () => els.navGpxFile.click());
+  els.navGpxFile.addEventListener('change', () => {
+    const f = els.navGpxFile.files && els.navGpxFile.files[0];
+    els.navGpxFile.value = '';
+    if (!f) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      const pts = parseGpx(reader.result);
+      if (pts.length < 2) { toast('GPX senza punti validi.', 'err'); return; }
+      state.gpxRoute = pts;
+      const last = pts[pts.length - 1];
+      navSetDest({ lat: last.lat, lon: last.lon, label: 'GPX (' + pts.length + ' punti)' });
+      drawGpxRoute();
+      toast('GPX importato: ' + pts.length + ' punti.', 'ok');
+    };
+    reader.readAsText(f);
+  });
+  els.btnNavVia.addEventListener('click', () => {
+    const d = state.navDest;
+    if (!d) { toast('Imposta prima la destinazione, poi spostala a tappa intermedia.', 'err'); return; }
+    if ((state.navVias || []).length >= 1) { toast('Una sola tappa intermedia supportata.', 'err'); return; }
+    state.navVias = [d];
+    state.navDest = null;
+    els.navQuery.value = '';
+    renderNavPanel();
+    toast('Tappa impostata. Ora scegli la destinazione finale.', 'ok');
+  });
   els.btnNavSim.addEventListener('click', navSimStart);
   els.btnNavSimOff.addEventListener('click', () => { navSimStop(); toast('Simulazione ferma.'); });
   els.btnNavSimDev.addEventListener('click', () => {
@@ -2058,8 +2127,33 @@ function init() {
   window.addEventListener('pagehide', () => { if (state.logging) flushLog(); });
 
   if ('serviceWorker' in navigator) {
-    navigator.serviceWorker.register('sw.js').catch(() => {});
+    navigator.serviceWorker.register('sw.js').then(reg => {
+      // Aggiornamento senza sorprese in moto: il nuovo worker resta in "waiting"
+      // finché non si è pronti. Se c'è un log attivo si rimanda a fine sessione.
+      const promptUpdate = () => {
+        if (!reg.waiting) return;
+        if (state.logging) { state._swUpdatePending = true; return; }
+        confirmToast('Nuova versione disponibile.').then(ok => {
+          if (!ok) return;
+          reg.waiting.postMessage('SKIP_WAITING');
+          navigator.serviceWorker.addEventListener('controllerchange', () => location.reload());
+        });
+      };
+      reg.addEventListener('updatefound', () => {
+        const nw = reg.installing;
+        if (nw) nw.addEventListener('statechange', () => { if (nw.state === 'installed') promptUpdate(); });
+      });
+      if (reg.waiting) promptUpdate();
+    }).catch(() => {});
   }
+
+  // Shortcut del manifest: ?tab=nav apre il navigatore, ?log=1 avvia il log
+  // (dopo che i sensori sono partiti sopra, a init completata).
+  try {
+    const q = new URLSearchParams(location.search);
+    if (q.get('tab') === 'nav') switchTab('nav');
+    if (q.get('log') === '1') startLog();
+  } catch (e) {}
 }
 
 init();

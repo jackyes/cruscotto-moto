@@ -52,9 +52,10 @@ test('renderMap: senza Leaflet non lancia (fallback offline)', () => {
   assert.ok(ids.map.classList.contains('hidden') === false || true);
 });
 
-test('Leaflet CDN: SRI su css+js', () => {
-  assert.match(html, /leaflet\.css" integrity="sha384-[A-Za-z0-9+/]{64}"/);
-  assert.match(html, /leaflet\.js" integrity="sha384-[A-Za-z0-9+/]{64}"/);
+test('Leaflet vendored: css+js locali, niente CDN', () => {
+  assert.match(html, /href="js\/vendor\/leaflet\/leaflet\.css"/);
+  assert.match(html, /src="js\/vendor\/leaflet\/leaflet\.js"/);
+  assert.doesNotMatch(html, /unpkg\.com\/leaflet/);
 });
 
 test('handleFiles: scarta non-csv, apre il primo', () => {

@@ -101,15 +101,41 @@ function setTxt(el, s) {
   el.textContent = s;
 }
 
-/* Modalita' Guida: attiva quando registri o sei in mappa fullscreen.
-   Solo layout ingrandito via classe body.guida, nessun cambio di logica. */
+function guidaActive() {
+  return !!(state.guidaAlways
+    || state.logging
+    || document.body.classList.contains('map-fullscreen')
+    || (state.nav && state.nav.status === 'ACTIVE')
+    || state.speedKph >= 15);
+}
+
 function updateGuidaMode() {
-  const on = !!(state.logging || document.body.classList.contains('map-fullscreen'));
-  document.body.classList.toggle('guida', on);
+  document.body.classList.toggle('guida', guidaActive());
 }
 
 function updateDisplay() {
   setTxt(els.speedVal, Math.round(state.speedKph));
+  updateGuidaMode();
+  if (els.clock) {
+    const d = new Date();
+    setTxt(els.clock, String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0'));
+  }
+  if (els.speedAlt) {
+    const alt = state.gps && state.gps.alt;
+    setTxt(els.speedAlt, (alt != null && isFinite(alt)) ? Math.round(alt) + ' m' : '');
+  }
+  if (els.speedLimit) {
+    const lim = state.speedLimit;
+    if (lim == null) {
+      els.speedLimit.style.display = 'none';
+      els.speedLimit.textContent = '';
+      els.speedLimit.classList.remove('over');
+    } else {
+      els.speedLimit.style.display = '';
+      setTxt(els.speedLimit, String(lim));
+      els.speedLimit.classList.toggle('over', state.speedKph > lim + SPEED_LIMIT_OVER_KMH);
+    }
+  }
 
   if (state.demo || state.calib) {
     els.leanVal.textContent = Math.abs(state.lean).toFixed(1);

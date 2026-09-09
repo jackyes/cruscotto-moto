@@ -151,3 +151,17 @@ function navFitRoute() {
   setFollow(false);
   state.map.fitBounds(pts, { padding: [30, 30] });
 }
+
+/* Traccia GPX importata: overlay tratteggiato sopra la rotta calcolata, così la
+   differenza fra "giro registrato" e "percorso suggerito" resta visibile. */
+function drawGpxRoute() {
+  const pts = state.gpxRoute;
+  if (state.mapType === 'leaflet' && state.map) {
+    if (!state.gpxLayer) state.gpxLayer = L.layerGroup().addTo(state.map);
+    state.gpxLayer.clearLayers();
+    if (pts && pts.length > 1) {
+      L.polyline(pts.map(p => [p.lat, p.lon]), { color: '#34d399', weight: 4, opacity: 0.8, dashArray: '6 6' }).addTo(state.gpxLayer);
+    }
+  }
+  if (state.mapType === 'canvas') drawCanvasMap();
+}

@@ -121,10 +121,19 @@ const state = {
   camFetching: false,
   camRetryAfter: 0,
   camLastDist: {},           // distanza precedente per camera (rilevamento avvicinamento)
+  camLegalOk: false,
+  guidaAlways: false,
+  speedLimit: null,
+  speedLimitAt: 0,
+  speedLimitPos: null,
+  speedLimitFetching: false,
+  speedLimitRetryAfter: 0,
   // navigazione: preferenze persistite + stato vivo (vedi navReset)
   navVoice: true, navNoHw: false, navNoToll: false, navBackroads: false, navNoFerry: false,
   nav: null,                 // null = nessun percorso caricato
   navDest: null,             // {lat, lon, label} scelta ma non ancora calcolata
+  navVias: [],               // tappe intermedie [{lat, lon, label}] (max 1 in v1)
+  gpxRoute: null,            // traccia GPX importata come rotta (overlay)
   follow: true,
   trackUp: false,
   compass: null,

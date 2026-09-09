@@ -120,6 +120,26 @@ function navParseCoords(t) {
   return null;
 }
 
+/* Punti da un file GPX: trkpt/rtept con attributi lat/lon, in qualunque ordine.
+   Nessuna dipendenza XML: regex sufficiente per i file prodotti da app/editor. */
+function parseGpx(text) {
+  const pts = [];
+  const t = String(text || '');
+  const tagRe = /<(?:trkpt|rtept)([^>]*)>/gi;
+  let m;
+  while ((m = tagRe.exec(t))) {
+    const attrs = m[1];
+    const latM = attrs.match(/\blat="(-?\d+(?:\.\d+)?)"/i);
+    const lonM = attrs.match(/\blon="(-?\d+(?:\.\d+)?)"/i);
+    if (!latM || !lonM) continue;
+    const lat = parseFloat(latM[1]), lon = parseFloat(lonM[1]);
+    if (isFinite(lat) && isFinite(lon) && Math.abs(lat) <= 90 && Math.abs(lon) <= 180) {
+      pts.push({ lat, lon });
+    }
+  }
+  return pts;
+}
+
 function stamp() {
   const d = new Date();
   const pad = n => String(n).padStart(2, '0');

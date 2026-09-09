@@ -52,6 +52,12 @@ async function stopLog() {
   updateGuidaMode();
   await flushLog();
   await saveSession();
+  // Aggiornamento service worker rimandato perché si stava registrando: ora
+  // che la sessione è salvata su disco, si può ripartire col codice nuovo.
+  if (state._swUpdatePending) {
+    state._swUpdatePending = false;
+    try { location.reload(); } catch (e) {}
+  }
 }
 
 function setLogButton(rec) {

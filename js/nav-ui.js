@@ -125,9 +125,11 @@ function renderNavPanel() {
   const nv = state.nav;
   if (els.navDestTxt) {
     const d = (nv && nv.dest) || state.navDest;
+    const vias = state.navVias || [];
+    const viaTxt = vias.length ? ' · ' + vias.length + ' tappa' + (vias.length > 1 ? 'e' : '') : '';
     els.navDestTxt.textContent = d
-      ? (d.label ? d.label + ' — ' : '') + d.lat.toFixed(5) + ', ' + d.lon.toFixed(5)
-      : 'Nessuna destinazione. Sulla mappa puoi anche tenere premuto un punto per sceglierlo.';
+      ? (d.label ? d.label + ' — ' : '') + d.lat.toFixed(5) + ', ' + d.lon.toFixed(5) + viaTxt
+      : (vias.length ? 'Tappa intermedia impostata: scegli la destinazione finale.' : 'Nessuna destinazione. Sulla mappa puoi anche tenere premuto un punto per sceglierlo.');
   }
   if (els.navSumDist) {
     if (nv) {

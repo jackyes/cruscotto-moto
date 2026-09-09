@@ -160,21 +160,18 @@ function showSessionDetail(s) {
 function initMap() {
   if (state.mapReady || state._mapLoading) return;
   state._mapLoading = true;
-  // CSS prima del JS: caricandolo dopo, Leaflet inizializzava con stili assenti
-  // e le tile finivano fuori posto al primo render.
+  // Leaflet vendored in repo: niente CDN, niente integrity, funziona offline
+  // dalla SHELL del service worker. CSS prima del JS: caricandolo dopo, Leaflet
+  // inizializzava con stili assenti e le tile finivano fuori posto al primo render.
   const link = document.createElement('link');
   link.rel = 'stylesheet';
-  link.href = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css';
-  link.crossOrigin = 'anonymous';
-  link.integrity = 'sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=';
+  link.href = './js/vendor/leaflet/leaflet.css';
   link.onload = () => {};
   link.onerror = () => { state._mapLoading = false; initCanvasMap(); };
   document.head.appendChild(link);
 
   const script = document.createElement('script');
-  script.src = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js';
-  script.crossOrigin = 'anonymous';
-  script.integrity = 'sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=';
+  script.src = './js/vendor/leaflet/leaflet.js';
   script.onload = () => { state._mapLoading = false; initLeaflet(); };
   script.onerror = () => { state._mapLoading = false; initCanvasMap(); };
   document.head.appendChild(script);

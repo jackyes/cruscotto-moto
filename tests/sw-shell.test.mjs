@@ -23,6 +23,10 @@ function swShellJs(s) {
 test('sw.js SHELL e index.html <script src> precacheano lo stesso insieme di js', () => {
   const htmlJs = new Set(htmlJsSrcs(html).map(norm));
   const swJs = new Set(swShellJs(sw).map(norm));
+  // Leaflet è vendored e caricato dinamicamente (createElement in map.js),
+  // non è un <script src>: va tolto dal confronto, che altrimenti fallisce.
+  for (const s of htmlJs) if (s.startsWith('js/vendor/leaflet/')) htmlJs.delete(s);
+  for (const s of swJs) if (s.startsWith('js/vendor/leaflet/')) swJs.delete(s);
   // Ordine diverso ammesso (l'ordine conta solo per l'esecuzione in HTML, non
   // per il precache): l'insieme deve coincidere, altrimenti un modulo aggiunto
   // in un solo posto non viene precacheato e al primo avvio offline la fetch
@@ -34,7 +38,15 @@ test('sw.js SHELL e index.html <script src> precacheano lo stesso insieme di js'
 test('sw.js SHELL include i file non-js di avvio offline', () => {
   const m = sw.match(/const SHELL = \[([\s\S]*?)\];/);
   const entries = [...m[1].matchAll(/'([^']+)'/g)].map(x => x[1]);
-  for (const e of ['./', './index.html', './viewer.html', './manifest.webmanifest']) {
+  for (const e of [
+    './', './index.html', './viewer.html', './manifest.webmanifest',
+    './icons/icon-192.png', './icons/icon-512.png', './icons/apple-touch-icon.png',
+  ]) {
     assert.ok(entries.includes(e), e + ' mancante nella SHELL');
   }
+});
+
+test('settingsPanel visibile (niente attributo hidden)', () => {
+  assert.match(html, /<details id="settingsPanel">/);
+  assert.doesNotMatch(html, /<details id="settingsPanel" hidden/);
 });

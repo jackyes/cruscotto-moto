@@ -88,15 +88,27 @@ function navBuild(trip) {
            totalM: cum[n - 1], totalS: acc };
 }
 
+function wakeLockWarn(msg) {
+  if (state._wakeWarned) return;
+  state._wakeWarned = true;
+  toast(msg, 'err', 5000);
+}
+
 async function requestWakeLock() {
-  if (!state.wakeLockOn || !('wakeLock' in navigator)) return;
+  if (!state.wakeLockOn) return;
+  if (!('wakeLock' in navigator)) {
+    wakeLockWarn('Schermo sempre acceso non disponibile su questo dispositivo.');
+    return;
+  }
   if (wakeLock && !wakeLock.released) return;
   if (wakeLockReq) return wakeLockReq;   // init e visibilitychange possono arrivare insieme
   wakeLockReq = (async () => {
     try {
       wakeLock = await navigator.wakeLock.request('screen');
       wakeLock.addEventListener('release', () => { wakeLock = null; });
-    } catch (e) {}
+    } catch (e) {
+      wakeLockWarn('Impossibile tenere lo schermo acceso.');
+    }
     wakeLockReq = null;
   })();
   return wakeLockReq;

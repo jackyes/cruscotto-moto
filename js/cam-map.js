@@ -195,12 +195,13 @@ function beep() {
   ensureAudio();
   if (!audioCtx) return;
   const t0 = audioCtx.currentTime;
+  const peak = (typeof navSpeak !== 'undefined' && navSpeak.busy) ? 0.08 : 0.3;
   [0, 0.18].forEach(off => {
     const o = audioCtx.createOscillator();
     const g = audioCtx.createGain();
     o.type = 'square'; o.frequency.value = 880;
     g.gain.setValueAtTime(0.0001, t0 + off);
-    g.gain.exponentialRampToValueAtTime(0.3, t0 + off + 0.01);
+    g.gain.exponentialRampToValueAtTime(peak, t0 + off + 0.01);
     g.gain.exponentialRampToValueAtTime(0.0001, t0 + off + 0.12);
     o.connect(g); g.connect(audioCtx.destination);
     o.start(t0 + off); o.stop(t0 + off + 0.13);
