@@ -181,6 +181,10 @@ async function videoOfflineLoop(job, encState, opts) {
             tick();
           });
         }
+        // L'await sopra può risolversi su cancel: senza il ri-check si codifica
+        // comunque il frame pendente e la UI qui sotto continua a scrivere
+        // progress di un job stantio sopra quella del render corrente.
+        if (job.cancelled) break;
         enc.encode(frame, { keyFrame: encState.frame % keyframeEvery === 0 });
       } catch (e) {
         // Encoder morto a metà (throttling termico, backgrounding): senza questo

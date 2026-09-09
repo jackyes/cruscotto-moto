@@ -65,16 +65,21 @@ const navSpeak = {
     this.pick();                         // ultimo tentativo prima di aprire bocca
     this.say('Navigazione avviata', 4);
   },
+  /* Ritorna true se l'utterance è stata effettivamente accodata, false se
+     scartata (voce spenta, motore assente, canale occupato con priorità
+     insufficiente). Il chiamante (navAnnounce) usa il risultato per decidere se
+     consumare i bit di fascia: prima i bit venivano settati PRIMA di say() e un
+     cue scartato per busy non veniva MAI più annunciato. */
   say(text, prio) {
-    if (!state.navVoice || !text) return;
-    if (!('speechSynthesis' in window)) return;
+    if (!state.navVoice || !text) return false;
+    if (!('speechSynthesis' in window)) return false;
     if (!this.ready) this.pick();        // la lista puo' popolarsi a navigazione avviata
     else if (!this.voice) this.warnNoVoice('Nessuna voce italiana sul dispositivo: le ' +
       'indicazioni saranno lette con accento straniero. Installa i dati vocali italiani ' +
       'dalle impostazioni di sistema (sintesi vocale).');
     if (this.busy) {
       if (prio >= 3 && prio > this.prio) speechSynthesis.cancel();
-      else return;                       // scartato di proposito, non accodato
+      else return false;                 // scartato di proposito, non accodato
     }
     const u = new SpeechSynthesisUtterance(text);
     u.lang = (this.voice && this.voice.lang) || 'it-IT';
@@ -90,7 +95,8 @@ const navSpeak = {
     // onend non e' affidabile su tutti i motori Android: watchdog proporzionale.
     clearTimeout(this.timer);
     this.timer = setTimeout(done, Math.max(2500, text.length * 90));
-    try { speechSynthesis.speak(u); } catch (e) { done(); }
+    try { speechSynthesis.speak(u); } catch (e) { done(); return false; }
+    return true;
   },
   stop() {
     if (!('speechSynthesis' in window)) return;

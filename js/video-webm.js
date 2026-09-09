@@ -44,6 +44,7 @@ function loadWebmMuxer() {
 }
 
 function videoWebmRealtimeFallback(pre, mode) {
+  if (videoSessionGone()) return;    // modale chiusa durante il setup: niente ghost
   if (mode === '3d') startVideoRender3D(pre); else startVideoRender2D(pre);
 }
 
@@ -68,6 +69,7 @@ async function startVideoRenderWebmOffline(pre, mode) {
     } catch (e) {}
   }
   if (!picked) { videoWebmRealtimeFallback(pre, mode); return; }
+  if (videoSessionGone()) return;    // modale chiusa durante il probe encoder
 
   // Il 3D gira su maplibre+three caricati da CDN al volo (stesso motivo del
   // ramo MP4): senza, la prima esportazione WebM offline 3D morirebbe in
@@ -76,7 +78,7 @@ async function startVideoRenderWebmOffline(pre, mode) {
   if (m === '3d' && typeof ensureVideo3DLibs === 'function') {
     try { await ensureVideo3DLibs(t => { els.videoStatus.textContent = t; }); }
     catch (e) {
-      if (videoJob && videoJob.cancelled) return;
+      if (videoSessionGone() || (videoJob && videoJob.cancelled)) return;
       toast((e && e.message ? e.message : 'Mappa 3D non disponibile') + ', WebM in 2D.', 'err', 6000);
       m = '2d';
     }
@@ -106,8 +108,8 @@ async function startVideoRenderWebmOfflineInner(pre, mode, Muxer, picked) {
     enc.configure(picked.cfg);
   } catch (e) {
     try { if (enc) enc.close(); } catch (e2) {}
-    toast('Encoder WebM non configurabile: ' + (e && e.message ? e.message : e) + '.', 'err', 8000);
-    return;
+    // Throw, non return: il catch di startVideoRender riparte col realtime.
+    throw new Error('encoder WebM non configurabile: ' + (e && e.message ? e.message : e));
   }
   // In 3D il canvas master lo crea videoOfflineSetupMap (con la mappa):
   // crearlo anche qui lasciava un canvas orfano nel DOM a ogni export.

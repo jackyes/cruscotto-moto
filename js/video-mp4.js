@@ -190,6 +190,7 @@ async function startVideoRenderMp4(pre, mode) {
   // Hint hardware ('prefer-hardware'): se il browser lo rifiuta, ripiega su
   // 'no-preference' prima di arrendersi (videoOfflinePickEncoderConfig).
   const picked = await videoOfflinePickEncoderConfig(mp4ConfigFor(pre.res[0], pre.res[1]));
+  if (videoSessionGone()) return;    // modale chiusa durante il probe encoder
   const mp4Cfg = picked.cfg;
   if (!picked.supported) {
     toast('H.264 non supportato, uso WebM.', 'err', 6000);
@@ -204,21 +205,19 @@ async function startVideoRenderMp4(pre, mode) {
   if (m === '3d' && typeof ensureVideo3DLibs === 'function') {
     try { await ensureVideo3DLibs(t => { els.videoStatus.textContent = t; }); }
     catch (e) {
-      if (videoJob && videoJob.cancelled) return;
+      if (videoSessionGone() || (videoJob && videoJob.cancelled)) return;
       toast((e && e.message ? e.message : 'Mappa 3D non disponibile') + ', MP4 in 2D.', 'err', 6000);
       m = '2d';
     }
   }
+  // Muxer assente/non valido: si RIFIUTA (throw), non si risolve in silenzio —
+  // il .catch() di startVideoRender (video.js) è l'unico che esegue il fallback
+  // realtime WebM; con un return la promessa risolve e il catch non scatta mai,
+  // lasciando il toast "Riprova WebM" senza nulla che riprovi.
   let Muxer = null;
   try { Muxer = await loadMp4Muxer(); }
-  catch (e) {
-    toast('Muxer MP4 non caricato: ' + (e && e.message ? e.message : 'errore') + '. Riprova WebM.', 'err', 6000);
-    return;
-  }
-  if (!Muxer || !Muxer.Muxer) {
-    toast('Muxer MP4 non valido (export mancante), riprova WebM.', 'err', 6000);
-    return;
-  }
+  catch (e) { throw new Error('muxer MP4 non caricato (' + ((e && e.message) || 'errore') + ')'); }
+  if (!Muxer || !Muxer.Muxer) throw new Error('muxer MP4 non valido (export mancante)');
   await startVideoRenderMp4Inner(pre, m, Muxer, mp4Cfg);
 }
 
@@ -252,8 +251,9 @@ async function startVideoRenderMp4Inner(pre, mode, Muxer, cfg) {
     enc.configure(cfg);
   } catch (e) {
     try { if (enc) enc.close(); } catch (e2) {}
-    toast('Encoder MP4 non configurabile: ' + (e && e.message ? e.message : e) + '. Riprova WebM.', 'err', 8000);
-    return;
+    // Throw, non return: il catch di startVideoRender fa ripartire il realtime
+    // WebM; qui il resolve silenzioso lasciava la modale aperta e nessun fallback.
+    throw new Error('encoder MP4 non configurabile: ' + (e && e.message ? e.message : e));
   }
   // In 3D il canvas master lo crea videoMp4SetupMap (con la mappa): crearlo
   // anche qui lasciava un canvas orfano nel DOM a ogni export.

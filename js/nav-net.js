@@ -1,5 +1,14 @@
 'use strict';
 /* js/nav-net.js (step 15): rete navigazione (navCostingOptions, navRequestRoute, navRequestRouteSafe, navTryOsrm, navGeocode, geoCachePrune). Usa navGate/fetchWithTimeout/cache/idb + render a runtime. Ordine: dopo js/log-core.js. */
+
+/* Identità delle richieste percorso: ogni navRequestRoute si prende un numero
+   d'ordine; al ritorno della risposta lo confronta con l'ultimo emesso. Se una
+   richiesta nuova è partita nel frattempo (o l'utente ha chiuso il navigatore,
+   navStop) la risposta vecchia si scarta invece di sovrascrivere state.nav:
+   prima un reroute lento "resuscitava" una rotta fermata o"caramellava" la
+   destinazione appena cambiata. */
+let navReqSeq = 0;
+
 async function navTryOsrm(from, to, hdg) {
   let url = NAV_OSRM_HOST +
     from.lon.toFixed(6) + ',' + from.lat.toFixed(6) + ';' +
@@ -50,6 +59,10 @@ async function geoCachePrune() {
 
 async function navRequestRoute(from, to, hdg, why) {
   if (!from || !to) return;
+  const mySeq = ++navReqSeq;
+  // Il check vale anche per state.navDest: navStop la azzera, e una risposta
+  // in volo non deve ricostruire una rotta appena terminata.
+  const reqStale = () => (mySeq !== navReqSeq || !state.navDest);
   // L'heading si passa a Valhalla SOLO quando si e' davvero in movimento: il compass
   // magnetica da fermo e' rumore, e con heading_tolerance stretto fa fallire Valhalla
   // con "No suitable edges near location" (error_code 171) = HTTP 400.
@@ -86,6 +99,7 @@ async function navRequestRoute(from, to, hdg, why) {
       nv0.lastRerouteEnd = Date.now(); nv0.travelSinceReroute = 0; nv0.suppressPost = false;
       nv0.shapeRaw = (cached.body.trip.legs || []).map(l => l.shape);
       nv0.reqSaved = lastReq || { from: { lat: from.lat, lon: from.lon }, to: { lat: to.lat, lon: to.lon } };
+      if (reqStale()) return;
       state.nav = nv0;
       navSetStatus((why ? 'Percorso ricalcolato' : 'Percorso pronto') + ' · motore: ' + nv0.engine + ' (cache)');
       navPersistRoute(); navDrawRoute(); navFitRoute(); navRenderBanner(); renderNavPanel();
@@ -135,6 +149,20 @@ async function navRequestRoute(from, to, hdg, why) {
       nvS.engine = cached.body.engine || 'cache';
       nvS.dest = { lat: to.lat, lon: to.lon, label: (state.navDest && state.navDest.label) || '' };
       nvS.status = 'ACTIVE';
+      // Stesso init del ramo cache-fresh e di quello di rete: senza idx/nextMan/
+      // spoken/sAlong il navigatore parte mezzo-nudo e navAnnounce legge
+      // nv.man[undefined] => TypeError a ogni fix GPS, con la UI che muore.
+      nvS.idx = 0; nvS.segT = 0; nvS.sAlong = 0; nvS.offDist = 0; nvS.offThr = 50;
+      nvS.nextMan = Math.min(1, nvS.man.length - 1);
+      nvS.spoken = 0; nvS.preSpoken = {};
+      nvS.offCount = 0; nvS.offTravel = 0; nvS.missCount = 0; nvS.missTravel = 0;
+      nvS.wrongCount = 0; nvS.wrongTravel = 0; nvS.farCount = 0; nvS.lostCount = 0; nvS.arriveCount = 0;
+      nvS.vEMA = null; nvS.lastFixAt = 0; nvS.lastGoodAt = Date.now(); nvS.lastLat = null; nvS.lastLon = null;
+      nvS.rerouteAt = 0; nvS.rerouteWait = 0; nvS.rerouteStreak = 0; nvS.rerouteLog = [];
+      nvS.lastRerouteEnd = Date.now(); nvS.travelSinceReroute = 0; nvS.suppressPost = false;
+      nvS.shapeRaw = (cached.body.trip.legs || []).map(l => l.shape);
+      nvS.reqSaved = lastReq || { from: { lat: from.lat, lon: from.lon }, to: { lat: to.lat, lon: to.lon } };
+      if (reqStale()) return;
       state.nav = nvS;
       navSetStatus('Offline: uso ultimo percorso salvato.');
       navPersistRoute(); navDrawRoute(); navFitRoute(); navRenderBanner(); renderNavPanel();
@@ -143,6 +171,7 @@ async function navRequestRoute(from, to, hdg, why) {
   }
   const prev = state.nav;
   if (!data) {
+    if (reqStale()) return;
     if (prev && prev.man) {
       // Mai cancellare la rotta salvata: la linea vecchia resta l'informazione piu'
       // utile che si abbia, e senza rete e' l'unica.
@@ -186,6 +215,7 @@ async function navRequestRoute(from, to, hdg, why) {
   nv.suppressPost = false;
   nv.shapeRaw = (trip.legs || []).map(l => l.shape);
   nv.reqSaved = lastReq || { from: { lat: from.lat, lon: from.lon }, to: { lat: to.lat, lon: to.lon } };
+  if (reqStale()) return;
   state.nav = nv;
   /* Dire quale motore ha risposto: con OSRM le preferenze moto non si applicano, e
      lasciarlo intendere sarebbe peggio che tacere. */

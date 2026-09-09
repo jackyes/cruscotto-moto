@@ -49,7 +49,14 @@ const idb = {
         idb.db = e.target.result;
         // Un bump di versione da un'altra scheda chiude questa connessione, così la
         // scheda nuova può fare l'upgrade invece di restare bloccata su schema vecchio.
-        idb.db.onversionchange = () => { try { idb.db.close(); } catch (e2) {} idb.db = null; };
+        // Va però RIAPERTA subito: lasciando idb.db = null tutte le _tx() successive
+        // rifiutano "DB non aperto" per sempre, e flushLog scambia l'errore per quota
+        // piena → dopo 2 fallimenti sampleTick inizia a buttare righe vere.
+        idb.db.onversionchange = () => {
+          try { idb.db.close(); } catch (e2) {}
+          idb.db = null;
+          idb.open().catch(() => {});
+        };
         res();
       };
       r.onerror = () => rej(r.error);

@@ -132,6 +132,13 @@ function startDeviceMotion() {
 }
 
 function addListeners() {
+  // Guardia anti-doppio-aggancio: su iOS un doppio tap sul permBtn lancia il
+  // click handler due volte (requestPermission risolve subito 'granted' la
+  // seconda), e il vecchio codice aggiungeva TUTTI i listener due volte:
+  // ogni lettura arrivava duplicata, con dt≈0 il secondo campione azzerava
+  // _attU a ogni giro e l'attitudine restava morta per tutta la sessione.
+  if (state._listenersOn) return;
+  state._listenersOn = true;
   if (!startGenericSensors()) startDeviceMotion();
 
   if (window.DeviceOrientationEvent) {

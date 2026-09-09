@@ -463,6 +463,7 @@ function ensureVideo3DLibs(onStatus) {
 }
 
 function startVideoRender3D(pre) {
+  if (videoSessionGone()) return;    // modale chiusa durante setup async: niente ghost
   const start = () => {
     try { initVideoRender3D(pre); }
     catch (e) { requestVideoFallback(pre, null, 'Errore motore 3D: ' + (e && e.message ? e.message : e) + '. Uso il render 2D.'); }
@@ -470,6 +471,7 @@ function startVideoRender3D(pre) {
   if (window.maplibregl && window.THREE) { start(); return; }
   ensureVideo3DLibs(t => { els.videoStatus.textContent = t; }).then(() => {
     if (videoJob && videoJob.cancelled) return;
+    if (videoSessionGone()) return;  // chiusa durante il load CDN (~12 s)
     start();
   }, e => {
     requestVideoFallback(pre, null, (e && e.message ? e.message : 'Mappa 3D non disponibile') + ', uso il render 2D.');

@@ -38,7 +38,16 @@ function navAnnounce(nv, vRef) {
     // le soglie si stringono e una fascia gia' passata torna eleggibile.
     let mask = 0;
     for (const o of NAV_BANDS) if (o.t >= b.t) mask |= o.bit;
-    nv.spoken |= mask;                          // PRIMA di say(), e in modo sincrono
+    // manovre incatenate: Valhalla marca multiCue e il suo vPre contiene gia' entrambe
+    let chainBits = 0, chainNext = null, chainGap = 0;
+    if ((b.name === 'near' || b.name === 'now') && k + 1 < nv.man.length) {
+      const gap = nv.sMan[k + 1] - nv.sMan[k];
+      if (gap < Math.max(NAV_CHAIN_MIN_M, 6 * vRef)) {
+        chainNext = nv.man[k + 1];
+        chainGap = gap;
+        chainBits = 1 | 2 | 4 | (gap < 60 ? 8 : 0);
+      }
+    }
     let txt;
     if (b.name === 'now') {
       txt = m.vPre || m.text;
@@ -48,16 +57,17 @@ function navAnnounce(nv, vRef) {
     } else {
       txt = 'Fra ' + navFmtDist(d) + ', ' + (m.vPre || m.text);
     }
-    // manovre incatenate: Valhalla marca multiCue e il suo vPre contiene gia' entrambe
-    if ((b.name === 'near' || b.name === 'now') && k + 1 < nv.man.length) {
-      const gap = nv.sMan[k + 1] - nv.sMan[k];
-      if (gap < Math.max(NAV_CHAIN_MIN_M, 6 * vRef)) {
-        if (!m.multiCue) txt += ', poi ' + navShortCue(nv.man[k + 1].vPre || nv.man[k + 1].text);
-        nv.preSpoken[k + 1] = (nv.preSpoken[k + 1] || 0) | 1 | 2 | 4 | (gap < 60 ? 8 : 0);
-      }
+    if (chainNext && (b.name === 'near' || b.name === 'now')) {
+      if (!m.multiCue) txt += ', poi ' + navShortCue(chainNext.vPre || chainNext.text);
     }
     const prio = b.name === 'now' ? 4 : b.name === 'near' ? 3 : b.name === 'mid' ? 2 : 1;
-    navSpeak.say(txt, prio);
+    // say() ritorna false se il canale TTS è occupato con priorità insufficiente:
+    // in quel caso NON si consumano i bit (prima venivano settati prima di say(),
+    // e un cue scartato per busy non veniva mai più annunciato). I bit si
+    // commettono solo su accettazione.
+    if (!navSpeak.say(txt, prio)) return;
+    nv.spoken |= mask;
+    if (chainNext) nv.preSpoken[k + 1] = (nv.preSpoken[k + 1] || 0) | chainBits;
     return;
   }
 }

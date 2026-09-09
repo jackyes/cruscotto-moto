@@ -197,6 +197,14 @@ function closeVideoModal() {
   videoModalReturnFocus = null;
 }
 
+/* True se la modale video è stata chiusa (Esc) mentre un setup asincrono era
+   in volo (probe satellitare ~9 s, load CDN ~12 s, pick encoder, load muxer):
+   stopVideoRender con videoJob === null è no-op, quindi senza questa guardia
+   il render partiva lo stesso a modale chiusa → canvas orfano + video fantasma. */
+function videoSessionGone() {
+  return !(els.videoModal && els.videoModal._session);
+}
+
 function startVideoRender(s) {
   const wantMp4Early = !!(els.videoFormat && els.videoFormat.value === 'mp4');
   const mp4ok = wantMp4Early && typeof videoMp4Supported === 'function' && videoMp4Supported();
@@ -267,6 +275,7 @@ function startVideoRender(s) {
   }
   const mode = (els.videoType && els.videoType.value === '2d') ? '2d' : '3d';
   const go = () => {
+    if (videoSessionGone()) return;    // modale chiusa durante il probe satellite
     // Formato MP4 (WebCodecs + muxer vendored, offline): se richiesto e
     // supportato va al loop MP4, altrimenti cade sul WebM realtime.
     const wantMp4 = !!(els.videoFormat && els.videoFormat.value === 'mp4');
@@ -274,9 +283,11 @@ function startVideoRender(s) {
       // MP4 è async e può rifiutare (muxer offline, encode fallito): se
       // succede cade sul WebM. pre.mime resta '' nel ramo MP4 (pickVideoMime
       // gira solo quando !mp4ok), quindi va ripopolato prima del fallback.
-      startVideoRenderMp4(pre, mode).catch(() => {
-        toast('MP4 non riuscito, uso WebM.', 'err', 6000);
+      startVideoRenderMp4(pre, mode).catch(e => {
+        toast('MP4 non riuscito, uso WebM: ' + ((e && e.message) || 'errore') + '.', 'err', 6000);
+        if (videoSessionGone()) return;
         pre.mime = pickVideoMime();
+        if (!pre.mime) { toast('Codec WebM non disponibile.', 'err'); return; }
         if (mode === '3d') startVideoRender3D(pre); else startVideoRender2D(pre);
       });
       return;
@@ -287,7 +298,14 @@ function startVideoRender(s) {
     // non ha WebCodecs o il muxer non è caricato, cade da solo sul realtime
     // esistente (startVideoRenderWebmOffline gestisce il fallback).
     if (typeof videoWebmOfflineSupported === 'function' && videoWebmOfflineSupported()) {
-      startVideoRenderWebmOffline(pre, mode).catch(() => {
+      startVideoRenderWebmOffline(pre, mode).catch(e => {
+        if (!videoSessionGone()) toast('WebM offline non riuscito, uso il realtime: ' +
+          ((e && e.message) || 'errore') + '.', 'err', 6000);
+        if (videoSessionGone()) return;
+        // pre.mime può essere '' se il ramo MP4 era selezionato quando è
+        // partito l'offline: il realtime MediaRecorder senza mime crasha.
+        if (!pre.mime) pre.mime = pickVideoMime();
+        if (!pre.mime) { toast('Codec WebM non disponibile.', 'err'); return; }
         if (mode === '3d') startVideoRender3D(pre); else startVideoRender2D(pre);
       });
       return;
@@ -300,6 +318,7 @@ function startVideoRender(s) {
     const tiles = (typeof VIDEO3D_CONF !== 'undefined' && VIDEO3D_CONF.satTiles) || [];
     const probe = String(tiles[0] || '').replace('{z}', '12').replace('{y}', '1436').replace('{x}', '2204');
     videoSatProbe(probe, 9000, ok => {
+      if (videoSessionGone()) return;  // chiusa durante i ~9 s di probe
       pre.sat = !!ok;
       if (!ok) toast('Satellite non raggiungibile, uso la mappa.', 'err', 6000);
       go();
@@ -319,6 +338,7 @@ function makeVideoCanvas(res) {
 }
 
 function startVideoRender2D(pre) {
+  if (videoSessionGone()) return;    // modale chiusa durante setup async: niente ghost
   const canvas = makeVideoCanvas(pre.res);
   const ctx = canvas.getContext('2d');
   const job = {
