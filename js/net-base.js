@@ -78,7 +78,12 @@ async function cacheGetFresh(key, ttl) {
     if (!e || !e.ts) return null;
     if (Date.now() - e.ts > (e.ttl || ttl)) return { stale: true, body: e.body };
     return { stale: false, body: e.body };
-  } catch (err) { return null; }
+  } catch (err) {
+    // "Non trovato" e "IDB rotto" restano indistinguibili per il caller (che
+    // rifà comunque la fetch: è la risposta sicura), ma l'errore non è più muto.
+    try { console.warn('cacheGetFresh: lettura fallita per ' + key, err && err.message); } catch (e) {}
+    return null;
+  }
 }
 async function cachePut(key, body, ttl) {
   try { await idb.kvPut(key, { ts: Date.now(), ttl: ttl, body: body }); } catch (err) {}

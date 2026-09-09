@@ -4,22 +4,21 @@
    distM, decodePolyline6, navShapePlausible, navSegNearest, navLowerBound,
    navProject, navPassed, navAdvance, navBandDist, navFmtDist/Short/Time.
    Ordine: dopo js/core.js, prima dello script inline. */
+const EARTH_R = 6371000;   // raggio terrestre (m): unico posto dove vive la costante
 function haversine(a, b) {
-  const R = 6371000;
   const dLat = (b.lat - a.lat) * Math.PI / 180;
   const dLon = dlonWrapRad(a.lon, b.lon);
   const la1 = a.lat * Math.PI / 180, la2 = b.lat * Math.PI / 180;
   const h = Math.sin(dLat/2)**2 + Math.cos(la1)*Math.cos(la2)*Math.sin(dLon/2)**2;
-  return 2 * R * Math.asin(Math.sqrt(h)) / 1000;
+  return 2 * EARTH_R * Math.asin(Math.sqrt(h)) / 1000;
 }
 // Variante scalare: evita due allocazioni di oggetto per chiamata nel loop checkCameras.
 function haversineM(lat1, lon1, lat2, lon2) {
-  const R = 6371000;
   const dLat = (lat2 - lat1) * Math.PI / 180;
   const dLon = dlonWrapRad(lon1, lon2);
   const la1 = lat1 * Math.PI / 180, la2 = lat2 * Math.PI / 180;
   const h = Math.sin(dLat/2)**2 + Math.cos(la1)*Math.cos(la2)*Math.sin(dLon/2)**2;
-  return 2 * R * Math.asin(Math.sqrt(h));
+  return 2 * EARTH_R * Math.asin(Math.sqrt(h));
 }
 /* Delta di longitudine riportato a [−180°, +180°]: sin² è pari quindi le distanze
    erano già esatte, ma il wrap esplicito costa una sottrazione e toglie la classe
@@ -50,13 +49,13 @@ function camKey(c) {
 function cellKey(lat, lon) {
   return Math.floor(lat / CAM_GRID_DEG) + ':' + Math.floor(lon / CAM_GRID_DEG);
 }
-/* Precomputa all'ingest: radianti + sin/cos lat + chiave stabile. Il costo
+/* Precomputa all'ingest: radianti + cos(lat) + chiave stabile. Il costo
    trigonometrico si paga 1x all'import invece di 1x per fix per camera. */
 function camPrecompute(c) {
   if (c._pre) return c;
   const D = Math.PI / 180;
   c.latR = c.lat * D; c.lonR = c.lon * D;
-  c.sinLat = Math.sin(c.latR); c.cosLat = Math.cos(c.latR);
+  c.cosLat = Math.cos(c.latR);
   c._k = camKey(c);
   c._pre = true;
   return c;
@@ -95,7 +94,7 @@ const NAV_BANDS = [
   { bit: 1, t: 55,  min: 500, max: 1800, name: 'far'  },
 ];
 
-function distM(a, b) { return haversine(a, b) * 1000; } // haversine ritorna km
+function distM(a, b) { return haversineM(a.lat, a.lon, b.lat, b.lon); } // metri, su {lat,lon}: delega a haversineM
 
 /* ---- decodifica polyline, precisione 6 ----
    Aritmetica float invece di |= e >>: a precisione 6 i valori arrivano a 29 bit e il
@@ -136,8 +135,11 @@ function navShapePlausible(lats, lons) {
 /* ---- proiezione punto-segmento in piano equirettangolare locale ----
    Origine nella posizione corrente: numeri piccoli, niente cancellazione, e cos(lat)
    calcolato una volta per fix invece che per segmento. A 44 gradi cos = 0,72:
-   ignorarlo gonfia le distanze est-ovest del 39%. */
-function navSegNearest(nv, i, kx, ky, pLat, pLon) {
+   ignorarlo gonfia le distanze est-ovest del 39%.
+   Scrive su `out` se passato (navProject gira su migliaia di segmenti per fix,
+   zero allocazioni); senza, alloca e ritorna il risultato (compat/test). */
+function navSegNearest(nv, i, kx, ky, pLat, pLon, out) {
+  const o = out || {};
   const ax = (nv.lon[i] - pLon) * kx, ay = (nv.lat[i] - pLat) * ky;
   const bx = (nv.lon[i + 1] - pLon) * kx, by = (nv.lat[i + 1] - pLat) * ky;
   const dx = bx - ax, dy = by - ay;
@@ -145,7 +147,8 @@ function navSegNearest(nv, i, kx, ky, pLat, pLon) {
   let t = 0;
   if (L2 > 1e-9) t = Math.max(0, Math.min(1, -(ax * dx + ay * dy) / L2));
   const cx = ax + t * dx, cy = ay + t * dy;
-  return { d2: cx * cx + cy * cy, t: t };
+  o.d2 = cx * cx + cy * cy; o.t = t;
+  return o;
 }
 
 function navLowerBound(cum, n, v) {
@@ -170,6 +173,7 @@ function navProject(nv, pLat, pLon, hdg, v, acc, full) {
   }
   const useHead = hdg != null && isFinite(hdg);
   let best = null, bestScore = Infinity;
+  const seg = { d2: 0, t: 0 };   // scratch riusato: niente {d2,t} per segmento
   for (let pass = 0; pass < 2; pass++) {
     // pass 0 con il gate di heading; pass 1 senza, se il gate ha escluso tutto
     for (let i = lo; i <= hi; i++) {
@@ -179,14 +183,14 @@ function navProject(nv, pLat, pLon, hdg, v, acc, full) {
         dh = angleDiff(hdg, nv.brg[i]);
         if (pass === 0 && dh > NAV_HEAD_GATE_DEG) continue;
       }
-      const r = navSegNearest(nv, i, kx, ky, pLat, pLon);
-      const d = Math.sqrt(r.d2);
-      const s = nv.cum[i] + r.t * (nv.cum[i + 1] - nv.cum[i]);
+      navSegNearest(nv, i, kx, ky, pLat, pLon, seg);
+      const d = Math.sqrt(seg.d2);
+      const s = nv.cum[i] + seg.t * (nv.cum[i + 1] - nv.cum[i]);
       // penalita' di regressione: 0,75 m per ogni metro indietro oltre 20 m di slack
       const back = full ? 0 : Math.max(0, (nv.sAlong - 20) - s) * 0.75;
       const head = (useHead && !round) ? 60 * dh / 180 : 0;
       const score = d + back + head;
-      if (score < bestScore) { bestScore = score; best = { i: i, t: r.t, d: d, s: s }; }
+      if (score < bestScore) { bestScore = score; best = { i: i, t: seg.t, d: d, s: s }; }
     }
     if (best) break;
   }

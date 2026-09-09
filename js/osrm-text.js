@@ -11,6 +11,7 @@ const OSRM_MOD_IT = {
   'sharp left': 'secca a sinistra',
 };
 const OSRM_ORD_IT = ['', 'prima', 'seconda', 'terza', 'quarta', 'quinta', 'sesta', 'settima', 'ottava'];
+const OSRM_EXACT_D2 = 1e-14;   // match esatto: sotto questo d2 il vertice è il punto OSRM
 /* Codici manovra: si riusano quelli di Valhalla, cosi' le icone e la logica rotonde
    non hanno bisogno di sapere quale motore ha risposto. */
 function osrmType(t, mod) {
@@ -71,7 +72,7 @@ function osrmIdxOf(lat, lon, dLat, dLon, from) {
     const a = dLat[i] - lat, b = dLon[i] - lon;
     const d2 = a * a + b * b;
     if (d2 < bd) { bd = d2; best = i; }
-    if (d2 < 1e-14) return i;
+    if (d2 < OSRM_EXACT_D2) return i;
   }
   return best;
 }

@@ -1,15 +1,18 @@
 'use strict';
 /* js/inputs.js (step 17): handler input sensori/GPS (accIncG, linearAccel, onDeviceMotion, onDeviceOrientation, onGeolocation, onGeolocationErr). DOM/sensori a runtime. Ordine: dopo js/cams.js. */
-function accIncG(e) {
-  const a = e.accelerationIncludingGravity;
-  if (a && (a.x != null || a.y != null || a.z != null)) return { x: a.x || 0, y: a.y || 0, z: a.z || 0 };
+/* Estrazione comune dei due canali accelerometro del devicemotion event. */
+function devAccelVec(a) {
+  // ?? non ||: un NaN resta NaN e viene buttato dal gate finiteVec a valle,
+  // invece di essere mascherato da zero (che è indistinguibile da un valore vero).
+  if (a && (a.x != null || a.y != null || a.z != null)) return { x: a.x ?? 0, y: a.y ?? 0, z: a.z ?? 0 };
   return null;
+}
+function accIncG(e) {
+  return devAccelVec(e.accelerationIncludingGravity);
 }
 
 function linearAccel(e) {
-  const a = e.acceleration;
-  if (a && (a.x != null || a.y != null || a.z != null)) return { x: a.x || 0, y: a.y || 0, z: a.z || 0 };
-  return null;
+  return devAccelVec(e.acceleration);
 }
 
 function onDeviceMotion(e) {
@@ -18,7 +21,7 @@ function onDeviceMotion(e) {
   if (!ig) return;
   const rr = e.rotationRate;
   const gyro = (rr && (rr.alpha != null || rr.beta != null || rr.gamma != null))
-    ? { x: rr.beta || 0, y: rr.gamma || 0, z: rr.alpha || 0 }   // deg/s, assi device
+    ? { x: rr.beta ?? 0, y: rr.gamma ?? 0, z: rr.alpha ?? 0 }   // deg/s, assi device
     : null;
   processSample({ acc: ig, gyro: gyro, grav: null, lin: linearAccel(e), t: performance.now() });
 }
@@ -39,8 +42,9 @@ function onDeviceOrientation(e) {
   const b = e.beta * Math.PI / 180, g = e.gamma * Math.PI / 180;
   const up = { x: -Math.cos(b) * Math.sin(g), y: Math.sin(b), z: Math.cos(b) * Math.cos(g) };
   const m = Math.hypot(up.x, up.y, up.z) || 1;
-  state._lastUpOrient = { x: up.x / m, y: up.y / m, z: up.z / m };
-  if (!state._lastUp) state._lastUp = state._lastUpOrient;
+  // Locale, non su state: _lastUpOrient era scritto e riletto solo qui sotto.
+  const upN = { x: up.x / m, y: up.y / m, z: up.z / m };
+  if (!state._lastUp) state._lastUp = upN;
 }
 
 function onGeolocation(pos) {
@@ -122,8 +126,7 @@ function onGeolocation(pos) {
   updateMap();
 
   // Traccia + distanza: gate su distanza minima + accuratezza (no jitter da fermo)
-  const okAcc = c.accuracy == null || c.accuracy <= GPS_ACC_MAX;
-  if (!okAcc) return;
+  if (!accOk) return;
   // Solo a log attivo: prima distKm continuava a crescere dopo lo Stop (il display
   // divergeva dalla sessione salvata) e l'export GPX includeva punti post-stop.
   if (!state.logging) return;

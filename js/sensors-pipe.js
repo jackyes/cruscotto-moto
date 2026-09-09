@@ -82,7 +82,7 @@ function processSample(sm) {
      il tempo di arrivo, quindi il controllo di plausibilita' serve comunque. */
   let dt = (nowP - lastMotionT) / 1000;
   lastMotionT = nowP;
-  const dtOk = dt > 0.0005 && dt < 0.25;
+  const dtOk = dt > SENSOR_DT_MIN_S && dt < SENSOR_DT_MAX_S;
 
   state._evtN = (state._evtN || 0) + 1;
   if (!state._rateT0) state._rateT0 = nowP;
@@ -114,6 +114,10 @@ function processSample(sm) {
     state._hbuf = null;
     state._vibPow = null;
     state._accHist = null;
+    // Anche l'accumulatore del bias da fermo: la sua finestra attraversava il
+    // buco e la media mescolava prima/dopo (era l'unico stato che resetSensorFilters
+    // azzera e questo ramo no).
+    state._biasSum = 0; state._biasN = 0; state._biasT = 0;
     return;
   }
 
@@ -197,7 +201,7 @@ function processSample(sm) {
     const aP = dt / (VIB_TAU_S + dt);
     state._yawPow = (state._yawPow == null) ? rY * rY : state._yawPow + aP * (rY * rY - state._yawPow);
     const tauY = YAW_LP_TAU_S * clamp01(Math.sqrt(state._yawPow) / YAW_NOISE_MAX_DPS);
-    const aY = dt / (Math.max(tauY, 0.02) + dt);
+    const aY = dt / (Math.max(tauY, YAW_LP_MIN_S) + dt);
     state._yawFilt2 = (state._yawFilt2 == null) ? yawRaw : state._yawFilt2 + aY * (yawRaw - state._yawFilt2);
     if (state._yawFilt2 !== yawRaw) {
       // Inline sul scratch: vadd+vscale allocavano 2 vettori per campione.
@@ -265,9 +269,9 @@ function processSample(sm) {
     state._biasSum = (state._biasSum || 0) + state.gyroRoll;
     state._biasN = (state._biasN || 0) + 1;
     state._biasT = (state._biasT || 0) + dt;
-    if (state._biasT >= 2) {
+    if (state._biasT >= GYRO_BIAS_WINDOW_S) {
       const bm = state._biasSum / state._biasN;
-      state.gyroBias = (state.gyroBias == null) ? bm : state.gyroBias + 0.2 * (bm - state.gyroBias);
+      state.gyroBias = (state.gyroBias == null) ? bm : state.gyroBias + GYRO_BIAS_EMA * (bm - state.gyroBias);
       state._biasSum = 0; state._biasN = 0; state._biasT = 0;
     }
   } else { state._biasSum = 0; state._biasN = 0; state._biasT = 0; }
@@ -280,7 +284,7 @@ function processSample(sm) {
       let lean = leanFromUp(u, B);
       let pitch = pitchFromUp(u, B);
       if (state.invertLean) lean = -lean;
-      state.lean = Math.max(-80, Math.min(80, lean));
+      state.lean = Math.max(-LEAN_CLAMP_DEG, Math.min(LEAN_CLAMP_DEG, lean));
       state.pitch = pitch;
       state.leanBias = vdot(state.attBias, B.fwd);
     }

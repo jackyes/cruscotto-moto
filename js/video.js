@@ -42,6 +42,11 @@ function resetVideoColors() { canvasTheme.reset(); }
 
 let videoJob = null;
 
+/* --- tarature realtime (prima letterali in videoLoop/beginVideoCapture) --- */
+const LOOP_MAX_DT_S = 0.1;    // clamp del dt di frame: oltre è un buco, non tempo reale
+const REC_CHUNK_MS = 250;     // frequenza ondataavailable di MediaRecorder
+const CAPTURE_FPS = 30;       // framerate di canvas.captureStream
+
 
 function pickVideoMime() {
   // vp8 prima: su molti Android l'encoder hardware vp9 non è disponibile pur
@@ -387,7 +392,7 @@ function beginVideoCapture(job, canvas, mime) {
     if (els.videoStart) els.videoStart.disabled = false;
     return;
   }
-  job.stream = canvas.captureStream(30);
+  job.stream = canvas.captureStream(CAPTURE_FPS);
   // 1080p ha 2.25x pixel del 720p: a 5 Mbps gli artefatti mangiano i dettagli mappa.
   const bps = videoBitrateFor(canvas.width);
   // mime '' (ramo MP4 selezionato, mai passati da pickVideoMime): l'oggetto
@@ -412,7 +417,7 @@ function beginVideoCapture(job, canvas, mime) {
     if (videoJob === job) videoJob = null;
     closeVideoModal();
   };
-  job.rec.start(250);
+  job.rec.start(REC_CHUNK_MS);
   videoJob = job;
   els.videoStart.disabled = true;
   els.videoStatus.textContent = 'Render in corso…';
@@ -443,7 +448,7 @@ function videoLoop(now) {
   const job = videoJob;
   if (!job || !job.running) return;
   const rawDt = job.lastRaf ? (now - job.lastRaf) / 1000 : 0;
-  const dt = rawDt < 0 ? 0 : (rawDt > 0.1 ? 0.1 : rawDt);
+  const dt = rawDt < 0 ? 0 : (rawDt > LOOP_MAX_DT_S ? LOOP_MAX_DT_S : rawDt);
   job.lastRaf = now;
   // Slow-mo envelope (piega/vib): fuori zone = mult base, dentro = 0.35x.
   job.tSim += dt * slowMultAt(job.tSim, job.slow || { base: job.mult });

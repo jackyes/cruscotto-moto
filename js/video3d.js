@@ -115,10 +115,11 @@ function videoHillPaint() {
 }
 
 /* Pura: a quale pitch l'orizzonte entra nel frame (formula dal bundle 4.7.1:
-   h = 0.5 + tan(90-pitch)*1.4993*0.85; visibile se h < 1). */
+   h = 0.5 + tan(90-pitch)·SKY_HORIZON_FACTOR; visibile se h < 1). */
+const SKY_HORIZON_FACTOR = 1.4993 * 0.85;
 function videoSkyVisible(pitchDeg) {
   if (!isFinite(pitchDeg)) return false;
-  const h = 0.5 + Math.tan((90 - pitchDeg) * Math.PI / 180) * 1.4993 * 0.85;
+  const h = 0.5 + Math.tan((90 - pitchDeg) * Math.PI / 180) * SKY_HORIZON_FACTOR;
   return h < 1;
 }
 
@@ -1005,19 +1006,24 @@ function videoCamAltFor(speedKmh, leanDeg) {
 
 /* Pura: camera mappa dinamica. Veloce → zoom out (più strada visibile),
    lento → zoom in (dettaglio curve). Piega alta → pitch più radente.
-   vert 9:16 → +0.75 zoom (a parità di zoom la striscia visibile è stretta,
-   la strada sparisce ai bordi; falsy = comportamento storico invariato).
+   vert 9:16 → +CAM_ZOOM_VERT_BOOST zoom (a parità di zoom la striscia visibile è
+   stretta, la strada sparisce ai bordi; falsy = comportamento storico invariato).
    Con lat/H noti lo zoom viene dall'altezza vera (niente tentativi, §6.5);
    senza (chiamanti vecchi/test) cade sulla curva storica. */
+const CAM_PITCH_BASE = 55;      // pitch a piega zero (dritto)
+const CAM_PITCH_LEAN_SPAN = 17; // 55 (dritto) → 72 (piega max)
+const CAM_ZOOM_BASE = 16.5;     // zoom a 0 km/h (curva storica)
+const CAM_ZOOM_SPEED_DROP = 2.0;// decremento zoom a piena velocità
+const CAM_ZOOM_VERT_BOOST = 0.75;// zoom extra per 9:16 (striscia visibile stretta)
 function videoCameraFor(speedKmh, leanDeg, vert, latDeg, viewportHPx) {
   const v = isFinite(speedKmh) ? Math.max(0, speedKmh) : 0;
   const lean = isFinite(leanDeg) ? Math.min(60, Math.abs(leanDeg)) : 0;
   const t = Math.max(0, Math.min(1, v / 120)); // 0 km/h → 0, 120+ → 1
-  const pitch = 55 + (lean / 60) * 17; // 55 (dritto) → 72 (piega max)
-  let zoom = 16.5 - t * 2.0 + (vert ? 0.75 : 0); // curva storica
+  const pitch = CAM_PITCH_BASE + (lean / 60) * CAM_PITCH_LEAN_SPAN;
+  let zoom = CAM_ZOOM_BASE - t * CAM_ZOOM_SPEED_DROP + (vert ? CAM_ZOOM_VERT_BOOST : 0); // curva storica
   if (isFinite(latDeg) && isFinite(viewportHPx)) {
     const z = videoZoomForHeight(videoCamAltFor(v, lean), pitch, latDeg, viewportHPx);
-    if (isFinite(z)) zoom = z + (vert ? 0.75 : 0);
+    if (isFinite(z)) zoom = z + (vert ? CAM_ZOOM_VERT_BOOST : 0);
   }
   return { zoom, pitch };
 }

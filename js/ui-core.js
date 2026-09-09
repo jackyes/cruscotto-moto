@@ -1,5 +1,11 @@
 'use strict';
 /* js/ui-core.js (step 28): toast/confirmToast, gauge buildGauge/setPeaks/setNeedle, settings load/save, updateCalibStatus, applyTheme, updateCam/GpsStatus. els/$ restano inline. Ordine: dopo js/diag.js. */
+/* --- geometria gauge piega (numeri nominati, condivisi fra build e setPeaks) --- */
+const GAUGE_CX = 130, GAUGE_CY = 130, GAUGE_R = 96;
+const GAUGE_TICK_MAJOR_IN = 24, GAUGE_TICK_MINOR_IN = 17, GAUGE_TICK_OUT = 8;
+const GAUGE_LABEL_IN = 38, GAUGE_NEEDLE_IN = 28, GAUGE_NUM_Y = 166;
+const GAUGE_HUB_R = 9, GAUGE_HUB_DOT_R = 4, GAUGE_PEAK_R = 5;
+
 function toast(msg, kind, ms) {
   const el = document.createElement('div');
   el.className = 'toast' + (kind ? ' ' + kind : '');
@@ -32,7 +38,9 @@ function confirmToast(msg) {
 }
 
 function buildGauge() {
-  const cx = 130, cy = 130, r = 96;
+  // Geometria nominata: prima 130/96/17/24/38/166 vivevano come numeri sparsi
+  // fra qui e setPeaks (che ripeteva cx/cy/r a mano, pronti a divergere).
+  const cx = GAUGE_CX, cy = GAUGE_CY, r = GAUGE_R;
   const svg = els.gauge;
   svg.innerHTML = '';
   svg.setAttribute('role', 'img');
@@ -52,7 +60,7 @@ function buildGauge() {
   for (let a = -60; a <= 60; a += 10) {
     const ang = 90 - a;
     const major = a % 30 === 0;
-    const r1 = major ? r - 24 : r - 17, r2 = r - 8;
+    const r1 = major ? r - GAUGE_TICK_MAJOR_IN : r - GAUGE_TICK_MINOR_IN, r2 = r - GAUGE_TICK_OUT;
     const line = mk('line');
     line.setAttribute('x1', cx + r1 * Math.cos(ang * Math.PI / 180));
     line.setAttribute('y1', cy - r1 * Math.sin(ang * Math.PI / 180));
@@ -72,8 +80,8 @@ function buildGauge() {
     svg.appendChild(line);
     if (major) {
       const txt = mk('text');
-      txt.setAttribute('x', cx + (r - 38) * Math.cos(ang * Math.PI / 180));
-      txt.setAttribute('y', cy - (r - 38) * Math.sin(ang * Math.PI / 180) + 4);
+      txt.setAttribute('x', cx + (r - GAUGE_LABEL_IN) * Math.cos(ang * Math.PI / 180));
+      txt.setAttribute('y', cy - (r - GAUGE_LABEL_IN) * Math.sin(ang * Math.PI / 180) + 4);
       txt.setAttribute('text-anchor', 'middle');
       txt.setAttribute('font-size', '12');
       txt.setAttribute('font-weight', '800');
@@ -85,7 +93,7 @@ function buildGauge() {
 
   /* Il numero della piega, sotto l'asse (per non incrociare l'ago), con il grado. */
   const num = mk('text');
-  num.setAttribute('x', cx); num.setAttribute('y', 166);
+  num.setAttribute('x', cx); num.setAttribute('y', GAUGE_NUM_Y);
   num.setAttribute('text-anchor', 'middle');
   num.setAttribute('class', 'gauge-val');
   num.setAttribute('font-size', '36');
@@ -103,12 +111,12 @@ function buildGauge() {
 
   /* Marker di picco: un punto sull'arco per il massimo destro e sinistro. */
   const peakR = mk('circle');
-  peakR.setAttribute('r', 5);
+  peakR.setAttribute('r', GAUGE_PEAK_R);
   peakR.setAttribute('class', 'gauge-peak peak-r');
   peakR.setAttribute('style', 'fill:var(--accent);stroke:#fff;stroke-width:1.5;display:none;');
   svg.appendChild(peakR);
   const peakL = mk('circle');
-  peakL.setAttribute('r', 5);
+  peakL.setAttribute('r', GAUGE_PEAK_R);
   peakL.setAttribute('class', 'gauge-peak peak-l');
   peakL.setAttribute('style', 'fill:var(--good);stroke:#fff;stroke-width:1.5;display:none;');
   svg.appendChild(peakL);
@@ -116,17 +124,17 @@ function buildGauge() {
   const needle = mk('g');
   const nline = mk('line');
   nline.setAttribute('x1', cx); nline.setAttribute('y1', cy);
-  nline.setAttribute('x2', cx); nline.setAttribute('y2', cy - (r - 28));
+  nline.setAttribute('x2', cx); nline.setAttribute('y2', cy - (r - GAUGE_NEEDLE_IN));
   nline.setAttribute('class', 'gauge-needle');
   nline.setAttribute('stroke-width', '4.5');
   nline.setAttribute('stroke-linecap', 'round');
   needle.appendChild(nline);
   const hubRing = mk('circle');
-  hubRing.setAttribute('cx', cx); hubRing.setAttribute('cy', cy); hubRing.setAttribute('r', 9);
+  hubRing.setAttribute('cx', cx); hubRing.setAttribute('cy', cy); hubRing.setAttribute('r', GAUGE_HUB_R);
   hubRing.setAttribute('style', 'fill:var(--surface-3);stroke:var(--accent);stroke-width:2.5;');
   needle.appendChild(hubRing);
   const hubDot = mk('circle');
-  hubDot.setAttribute('cx', cx); hubDot.setAttribute('cy', cy); hubDot.setAttribute('r', 4);
+  hubDot.setAttribute('cx', cx); hubDot.setAttribute('cy', cy); hubDot.setAttribute('r', GAUGE_HUB_DOT_R);
   hubDot.setAttribute('fill', 'var(--accent)');
   needle.appendChild(hubDot);
   svg.appendChild(needle);
@@ -142,8 +150,10 @@ function setPeaks(maxR, maxL) {
   const place = (el, deg) => {
     if (!(Math.abs(deg) > 1)) { el.style.display = 'none'; return; }
     const ang = (90 - Math.max(-60, Math.min(60, deg))) * Math.PI / 180;
-    el.setAttribute('cx', 130 + 96 * Math.cos(ang));
-    el.setAttribute('cy', 130 - 96 * Math.sin(ang));
+    // Stessa geometria di buildGauge (GAUGE_CX/CY/R): prima 130/96 erano
+    // ripetuti qui a mano, pronti a divergere dalla costruzione.
+    el.setAttribute('cx', GAUGE_CX + GAUGE_R * Math.cos(ang));
+    el.setAttribute('cy', GAUGE_CY - GAUGE_R * Math.sin(ang));
     el.style.display = '';
   };
   place(state._peakR, maxR);
@@ -162,7 +172,12 @@ function loadSettings() {
   state.invertLean = !!s.invertLean;
   state.wakeLockOn = s.wakeLockOn !== false;
   state.camAlerts = s.camAlerts !== false;
-  state.camDist = s.camDist || 400;
+  // Validazione come per camRadius: `|| 400` mascherava un eventuale valore
+  // legittimo 0 e accettava stringhe da un localStorage modificato a mano.
+  {
+    const cd = Number(s.camDist);
+    state.camDist = isFinite(cd) && cd >= 50 && cd <= 2000 ? cd : 400;
+  }
   /* Validato contro la lista, non `|| default`: il valore finisce interpolato nella
      query Overpass, e un localStorage modificato a mano non deve poterci scrivere. */
   state.camRadius = CAM_RADIUS_CHOICES.indexOf(s.camRadius) >= 0 ? s.camRadius : CAM_RADIUS_DEFAULT;

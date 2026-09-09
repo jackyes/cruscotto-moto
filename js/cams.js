@@ -36,7 +36,7 @@ async function fetchCameras(lat, lon) {
       lat: el.lat, lon: el.lon,
       maxspeed: (el.tags && el.tags.maxspeed) || '',
       name: (el.tags && el.tags.name) || ''
-    })).filter(c => typeof c.lat === 'number' && typeof c.lon === 'number');
+    })).filter(c => isFinite(c.lat) && isFinite(c.lon));
     state.cameras = cams;
     state.camCenter = { lat, lon };
     state.camTs = Date.now();
@@ -57,14 +57,15 @@ async function fetchCameras(lat, lon) {
 
 function maybeLoadCameras(lat, lon) {
   const stale = !state.camTs || (Date.now() - state.camTs > CAM_STALE_MS);
-  const moved = !state.camCenter || haversine(state.camCenter, { lat, lon }) * 1000 > camMoveThreshold();
+  const moved = !state.camCenter || haversineM(state.camCenter.lat, state.camCenter.lon, lat, lon) > camMoveThreshold();
   if (stale || moved) fetchCameras(lat, lon);
 }
 
 /* Rete tornata: il backoff post-fallimento non deve far aspettare i 2 minuti
-   quando il motivo era proprio la rete assente (galleria, ascensore). */
+   quando il motivo era proprio la rete assente (galleria, ascensore).
+   Il listener vive quanto la pagina (window): nessuna rimozione necessaria. */
 if (typeof window !== 'undefined' && window.addEventListener) {
-  try { window.addEventListener('online', () => { state.camRetryAfter = 0; }); } catch (e) {}
+  window.addEventListener('online', () => { state.camRetryAfter = 0; });
 }
 
 function camsToDraw() {
@@ -120,7 +121,7 @@ function checkCameras(acc) {
     // haversine inline su precomputati: niente oggetti, niente sin/cos per me.
     const dLatH = (c.latR - meR) / 2, dLonH = (c.lonR - meLonR) / 2;
     const h = Math.sin(dLatH) ** 2 + cosMe * c.cosLat * Math.sin(dLonH) ** 2;
-    const d = 2 * 6371000 * Math.asin(Math.sqrt(Math.min(1, Math.max(0, h))));
+    const d = 2 * EARTH_R * Math.asin(Math.sqrt(Math.min(1, Math.max(0, h))));
     const k = c._k || camKey(c);
     seen[k] = { d: d, t: now };
     if (d > state.camDist) continue;

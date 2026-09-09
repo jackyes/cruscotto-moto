@@ -23,6 +23,10 @@ const num = (v, d) => (v == null || !isFinite(v)) ? '' : v.toFixed(d);
 function csvRows(rows) {
   return rows.map(r => [
     num(r.t, 3), num(r.speedKmh, 1), num(r.speedMs, 2), num(r.lean, 2),
+    /* `|| 0` è una scelta ESPLICITA: un campione difettoso (NaN) esce come 0
+       invece che come colonna vuota, così le medie/aggregazioni dei consumer
+       non incontrano celle vuote. Il trade-off: un NaN sporadico nel CSV è
+       indistinguibile da uno zero vero. */
     num(r.latG || 0, 3), num(r.lonG || 0, 3), num(r.vertG || 0, 3),
     num(r.latPk || 0, 3), num(r.lonPk || 0, 3), num(r.vertPk || 0, 3),
     num(r.latFus || 0, 3), num(r.lonFus || 0, 3),

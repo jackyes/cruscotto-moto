@@ -16,16 +16,22 @@ function mp4ConfigFor(W, H) {
     bitrate: videoBitrateFor(w), framerate: 30, hardwareAcceleration: 'prefer-hardware' };
 }
 
+/* --- audio sintetico: profili (prima letterali 60/2.2 e v/130*0.15) --- */
+const ENGINE_BASE_HZ = 60;        // frequenza motore da fermo
+const ENGINE_HZ_PER_KMH = 2.2;    // incremento per km/h
+const WIND_GAIN_RATE = 1 / 130;   // guadagno vento per km/h
+const WIND_GAIN_MAX = 0.15;       // saturazione del vento a 130+
+
 /* Pura: frequenza motore da velocità (saw 60 Hz fermo → ~320 a 120 km/h). */
 function engineToneFor(speedKmh) {
   const v = isFinite(speedKmh) ? Math.max(0, speedKmh) : 0;
-  return 60 + v * 2.2;
+  return ENGINE_BASE_HZ + v * ENGINE_HZ_PER_KMH;
 }
 
 /* Pura: guadagno vento da velocità (0 fermo → 0.15 a 130+). */
 function windGainFor(speedKmh) {
   const v = isFinite(speedKmh) ? Math.max(0, speedKmh) : 0;
-  return Math.min(1, v / 130) * 0.15;
+  return Math.min(1, v * WIND_GAIN_RATE) * WIND_GAIN_MAX;
 }
 
 /* Disponibile solo dove WebCodecs esiste (Chrome/Edge desktop+Android):

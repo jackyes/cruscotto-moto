@@ -109,7 +109,7 @@ function medianWindow() {
   const hz = state.sensorHz > 5 ? state.sensorHz : 60;
   let n = Math.round(ACC_MEDIAN_S * vibScale() * hz);
   if (n % 2 === 0) n++;
-  return n < 3 ? 3 : (n > 9 ? 9 : n);
+  return n < 3 ? 3 : (n > ACC_MEDIAN_MAX ? ACC_MEDIAN_MAX : n);
 }
 /* js/sensors-core.js: pushBounded */
 function pushAccHist(v) {
@@ -120,11 +120,11 @@ function medianAcc() {
   const h = state._accHist;
   if (!h || !h.length) return null;
   const n = h.length;
-  // Scratch riusati (max 9 slot, v. medianWindow): allocare 3 array + sort
+  // Scratch riusati (max ACC_MEDIAN_MAX slot): allocare 3 array + sort
   // per campione a 60 Hz era GC continuo sul main thread.
-  const xs = medianAcc._xs || (medianAcc._xs = new Array(9));
-  const ys = medianAcc._ys || (medianAcc._ys = new Array(9));
-  const zs = medianAcc._zs || (medianAcc._zs = new Array(9));
+  const xs = medianAcc._xs || (medianAcc._xs = new Array(ACC_MEDIAN_MAX));
+  const ys = medianAcc._ys || (medianAcc._ys = new Array(ACC_MEDIAN_MAX));
+  const zs = medianAcc._zs || (medianAcc._zs = new Array(ACC_MEDIAN_MAX));
   for (let i = 0; i < n; i++) { xs[i] = h[i].x; ys[i] = h[i].y; zs[i] = h[i].z; }
   const asc = (a, b) => a - b;
   xs.length = ys.length = zs.length = n;
@@ -146,6 +146,8 @@ function updateVibration(ig, dt) {
     const a = dt / (VIB_TAU_S + dt);
     state._vibPow = (state._vibPow == null) ? pw : state._vibPow + a * (pw - state._vibPow);
     state.vibHiG = Math.sqrt(state._vibPow) / G;
+    // vibG è ALIAS di vibHiG (residuo vs LP ~1,6 Hz): le soglie storiche sono
+    // tarate su questo valore; la colonna CSV separata resta per compatibilità.
     state.vibG = state.vibHiG;
     /* Metrica di ADATTAMENTO separata: residuo rispetto a un LP piu' veloce
        (~2 Hz). vibHiG resta la metrica storica (indicatori, CSV, gate fermo);

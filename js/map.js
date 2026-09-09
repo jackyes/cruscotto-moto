@@ -21,18 +21,25 @@ async function saveSession() {
     await idb.put(sess);
     // Salvata: i chunk di recupero non servono più e liberano spazio.
     await idb.clearChunks().catch(() => {});
-    store.del('cruscotto.log');
     toast('Giro salvato (' + sess.rows.length + ' campioni).', 'ok');
   } catch (e) {
     // Prima l'errore era muto: l'utente credeva di avere il giro nello storico.
     toast('Salvataggio fallito (spazio esaurito). Esporta subito il CSV.', 'err', 7000);
   }
+  // Fuori dal try: un fallimento qui non è "salvataggio fallito" (il giro è già
+  // su disco), prima mostrava l'errore per un'operazione già riuscita.
+  try { store.del('cruscotto.log'); } catch (e) {}
   renderHistory();
 }
 
 async function recoverChunks() {
   let chunks = [];
-  try { chunks = await idb.getChunks(); } catch (e) { return; }
+  try { chunks = await idb.getChunks(); } catch (e) {
+    // Errore IDB all'avvio: prima era invisibile, e l'utente non aveva modo di
+    // sapere che il recupero non era nemmeno stato tentato.
+    try { console.warn('recoverChunks: getChunks fallito', e && e.message); } catch (e2) {}
+    return;
+  }
   if (!chunks.length) return;
   // Chunk di sessioni diverse (crash durante un log, poi nuovo log): raggruppa
   // per sid e recupera il gruppo con più righe, non un frullato di entrambi.
@@ -62,7 +69,9 @@ async function recoverChunks() {
   const trackChunks = [];
   for (const c of chunks) if (c.track) for (const p of c.track) trackChunks.push(p);
   let saved = null;
-  try { saved = await idb.kvGet('activeTrack'); } catch (e) {}
+  try { saved = await idb.kvGet('activeTrack'); } catch (e) {
+    try { console.warn('recoverChunks: lettura activeTrack fallita', e && e.message); } catch (e2) {}
+  }
   const track = trackChunks.length ? trackChunks
     : ((saved && saved.sid === last.sid && saved.track) ? saved.track : []);
   const startWall = last.startWall || (saved && saved.startWall) || Date.now();
@@ -150,7 +159,7 @@ function showSessionDetail(s) {
   $('dVideo').addEventListener('click', () => openVideoModal(s));
   // Card statica: non c'entra con risoluzione/velocità del render video.
   $('dCard').addEventListener('click', () => {
-    makeShareCard(s, (url, blob) => {
+    makeShareCard(s, (url) => {
       if (!url) { toast('Card non generata: nessun dato.', 'err'); return; }
       const a = document.createElement('a');
       a.href = url; a.download = 'cruscotto_card_' + stamp() + '.png';
@@ -176,7 +185,6 @@ function initMap() {
   const link = document.createElement('link');
   link.rel = 'stylesheet';
   link.href = './js/vendor/leaflet/leaflet.css';
-  link.onload = () => {};
   link.onerror = () => { state._mapLoading = false; initCanvasMap(); };
   document.head.appendChild(link);
 
@@ -185,11 +193,17 @@ function initMap() {
   script.onload = () => { state._mapLoading = false; initLeaflet(); };
   script.onerror = () => { state._mapLoading = false; initCanvasMap(); };
   document.head.appendChild(script);
-  setTimeout(() => { if (!state.mapReady) { state._mapLoading = false; initCanvasMap(); } }, 5000);
+  // Timer conservato e annullato al successo: prima girava a vuoto anche dopo
+  // che Leaflet era partito, e poteva scavalcare un init già riuscito.
+  state._mapTmo = setTimeout(() => {
+    state._mapTmo = null;
+    if (!state.mapReady) { state._mapLoading = false; initCanvasMap(); }
+  }, 5000);
 }
 
 function initLeaflet() {
   if (state.mapReady) return;
+  if (state._mapTmo) { clearTimeout(state._mapTmo); state._mapTmo = null; }
   state.mapReady = true;
   state.mapType = 'leaflet';
   const map = L.map('map', { zoomControl: false });
@@ -197,7 +211,7 @@ function initLeaflet() {
   L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
     attribution: '© OpenStreetMap', maxZoom: 19
   }).addTo(map);
-  map.setView([42.5, 12.5], 5); // vista iniziale (Italia) prima del primo fix
+  map.setView([42.5, 12.5], MAP_INIT_ZOOM); // vista iniziale (Italia) prima del primo fix
   state.map = map;
   map.on('dragstart', () => setFollow(false));
   // Leaflet emette 'contextmenu' anche sul long-press touch: destinazione senza tastiera.
@@ -207,8 +221,8 @@ function initLeaflet() {
     switchTab('nav');
   });
   state.mapLayer = L.layerGroup().addTo(map);
-  state.mapPos = L.circleMarker([0, 0], { radius: 8, color: '#29b6f6', fillColor: '#29b6f6', fillOpacity: 0.9 }).addTo(state.mapLayer);
-  state.mapPoly = L.polyline([], { color: '#29b6f6', weight: 4 }).addTo(state.mapLayer);
+  state.mapPos = L.circleMarker([0, 0], { radius: 8, color: MAP_TRACK_COLOR, fillColor: MAP_TRACK_COLOR, fillOpacity: 0.9 }).addTo(state.mapLayer);
+  state.mapPoly = L.polyline([], { color: MAP_TRACK_COLOR, weight: 4 }).addTo(state.mapLayer);
   els.btnFollow.classList.toggle('on', state.follow);
   updateLeaflet();
   renderCameras();
@@ -230,12 +244,12 @@ function updateLeaflet() {
       for (let k = drawn; k < n; k++) state.mapPoly.addLatLng([state.track[k].lat, state.track[k].lon]);
     }
     state._leafN = n;
-    if (!state.mapFit) { state.map.fitBounds(state.mapPoly.getBounds(), { padding: [30, 30], maxZoom: 16 }); state.mapFit = true; }
+    if (!state.mapFit) { state.map.fitBounds(state.mapPoly.getBounds(), { padding: [30, 30], maxZoom: MAP_FIT_MAX_ZOOM }); state.mapFit = true; }
   }
   // Il marker si muove a ogni fix, anche quando il punto traccia viene scartato.
   if (state.gps.lat != null) {
     state.mapPos.setLatLng([state.gps.lat, state.gps.lon]);
-    if (!state.mapFit) { state.map.setView([state.gps.lat, state.gps.lon], 16); state.mapFit = true; }
+    if (!state.mapFit) { state.map.setView([state.gps.lat, state.gps.lon], MAP_CENTER_ZOOM); state.mapFit = true; }
   }
   if (state.follow && state.gps.lat != null) state.map.panTo([state.gps.lat, state.gps.lon], { animate: false });
   if (state.trackUp) applyMapRotation();
@@ -250,6 +264,7 @@ function updateLeaflet() {
 
 function initCanvasMap() {
   if (state.mapReady) return;
+  if (state._mapTmo) { clearTimeout(state._mapTmo); state._mapTmo = null; }
   state.mapReady = true;
   state.mapType = 'canvas';
   els.map.style.display = 'none';
@@ -351,14 +366,14 @@ function drawTrackOnCanvas(canvas, track, opts) {
   // camere (punti rossi)
   for (const c of cams) {
     ctx.fillStyle = canvasTheme.get('c-bad');
-    ctx.beginPath(); ctx.arc(X(c.lon), Y(c.lat), 5, 0, 6.283); ctx.fill();
+    ctx.beginPath(); ctx.arc(X(c.lon), Y(c.lat), 5, 0, TAU); ctx.fill();
   }
 
   // inizio (verde) / fine (rossa)
   if (opts && opts.startEnd && hasTrack) {
     const s = track[0], e = track[track.length - 1];
-    ctx.fillStyle = canvasTheme.get('c-good'); ctx.beginPath(); ctx.arc(X(s.lon), Y(s.lat), 5, 0, 6.283); ctx.fill();
-    ctx.fillStyle = canvasTheme.get('c-bad'); ctx.beginPath(); ctx.arc(X(e.lon), Y(e.lat), 5, 0, 6.283); ctx.fill();
+    ctx.fillStyle = canvasTheme.get('c-good'); ctx.beginPath(); ctx.arc(X(s.lon), Y(s.lat), 5, 0, TAU); ctx.fill();
+    ctx.fillStyle = canvasTheme.get('c-bad'); ctx.beginPath(); ctx.arc(X(e.lon), Y(e.lat), 5, 0, TAU); ctx.fill();
   }
   if (rot) ctx.restore(); // il marker resta dritto anche con la mappa ruotata
 
@@ -367,7 +382,7 @@ function drawTrackOnCanvas(canvas, track, opts) {
     const e = track[track.length - 1];
     const cx = rot ? w / 2 : X(e.lon), cy = rot ? h / 2 : Y(e.lat);
     ctx.fillStyle = canvasTheme.get('c-txt');
-    ctx.beginPath(); ctx.arc(cx, cy, 6, 0, 6.283); ctx.fill();
+    ctx.beginPath(); ctx.arc(cx, cy, 6, 0, TAU); ctx.fill();
     // In track-up il verso di marcia è per definizione verso l'alto.
     const hd = rot ? 0 : opts.heading;
     if (hd != null) {

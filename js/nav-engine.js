@@ -1,5 +1,18 @@
 'use strict';
 /* js/nav-engine.js (step 13): motore navigazione (navTick, navMaybeReroute). Usa state + geo pura + navSpeak/render/persist a runtime. Ordine: dopo js/sensors-pipe.js. */
+/* --- soglie fuori percorso (prima letterali nel corpo di navTick) --- */
+const OFF_THR_MIN_M = 30;        // soglia minima di scarto laterale
+const OFF_THR_MAX_M = 90;        // tetto della soglia adattiva
+const OFF_THR_PER_ACC_M = 1.5;   // +1,5 m per ogni metro di accuratezza
+const OFF_THR_PER_MS_M = 0.3;    // +0,3 m per ogni m/s di velocità
+const ARRIVE_BASE_M = 25;        // distanza di arrivo base
+const ARRIVE_PER_ACC = 1.5;      // +1,5 × accuratezza
+const FAR_OFF_M = 150;           // scarto "scorciatoia forte"
+const FAR_ACC_MAX_M = 20;        // accuratezza richiesta per il detector D
+const FAR_MIN_MS = 5;            // velocità minima per il detector D
+const RELOCK_CONFIRM_M = 300;    // salto di sAlong oltre cui serve la conferma
+const RELOCK_CONFIRM_SPREAD_M = 200; // due fix entro questa distanza = conferma
+const RELOCK_CONFIRM_MS = 5000;  // entro quanto deve arrivare la conferma
 function navTick(pLat, pLon, acc) {
   const nv = state.nav;
   if (!nv || nv.status === 'IDLE') return;
@@ -18,13 +31,14 @@ function navTick(pLat, pLon, acc) {
                    jump > NAV_RELOCK_JUMP_M;
   let pr = navProject(nv, pLat, pLon, hdg, v, acc, needFull);
   if (!pr) { nv.lastFixAt = now; return; }
-  if (needFull && Math.abs(pr.s - nv.sAlong) > 300) {
+  if (needFull && Math.abs(pr.s - nv.sAlong) > RELOCK_CONFIRM_M) {
     // salto grosso: conferma su due fix prima di adottarlo. Se la conferma non
-    // arriva entro 5 s (GPS che salta, galleria) si adotta comunque, altrimenti
-    // pendingS resterebbe per sempre e sAlong/offDist congelati.
-    if (nv.pendingS != null && Math.abs(pr.s - nv.pendingS) < 200) {
+    // arriva entro RELOCK_CONFIRM_MS (GPS che salta, galleria) si adotta
+    // comunque, altrimenti pendingS resterebbe per sempre e sAlong/offDist
+    // congelati.
+    if (nv.pendingS != null && Math.abs(pr.s - nv.pendingS) < RELOCK_CONFIRM_SPREAD_M) {
       nv.pendingS = null; nv.pendingAt = 0;                       // conferma: adotta
-    } else if (nv.pendingS != null && (now - (nv.pendingAt || 0)) <= 5000) {
+    } else if (nv.pendingS != null && (now - (nv.pendingAt || 0)) <= RELOCK_CONFIRM_MS) {
       nv.pendingS = pr.s; nv.pendingAt = now;                     // salto diverso: ri-ancora e aspetta
       nv.lastFixAt = now; nv.lastLat = pLat; nv.lastLon = pLon; return;
     } else if (nv.pendingS != null) {
@@ -39,7 +53,8 @@ function navTick(pLat, pLon, acc) {
   nv.snapLon = nv.lon[pr.i] + pr.t * (nv.lon[pr.i + 1] - nv.lon[pr.i]);
   // soglia adattiva: la componente su acc e' il vero freno, senza si ricalcola
   // ogni 15 s in un canyon urbano
-  nv.offThr = Math.max(30, Math.min(90, 30 + 1.5 * (acc || 0) + 0.3 * v));
+  nv.offThr = Math.max(OFF_THR_MIN_M, Math.min(OFF_THR_MAX_M,
+    OFF_THR_MIN_M + OFF_THR_PER_ACC_M * (acc || 0) + OFF_THR_PER_MS_M * v));
   if (nv.offDist <= nv.offThr) { nv.lastGoodAt = now; nv.lostCount = 0; }
   else nv.lostCount++;
 
@@ -84,7 +99,7 @@ function navTick(pLat, pLon, acc) {
     if (nv.wrongCount >= NAV_WRONG_FIXES && nv.wrongTravel >= NAV_WRONG_TRAVEL_M) trigger = 'contromano';
 
     // D) scorciatoia forte: scarto grosso con fix buono, non si aspetta
-    if (nv.offDist > 150 && (acc == null || acc < 20) && v > 5) { nv.farCount++; } else nv.farCount = 0;
+    if (nv.offDist > FAR_OFF_M && (acc == null || acc < FAR_ACC_MAX_M) && v > FAR_MIN_MS) { nv.farCount++; } else nv.farCount = 0;
     if (nv.farCount >= 2) trigger = 'fuori percorso';
   }
 
@@ -105,7 +120,7 @@ function navTick(pLat, pLon, acc) {
   nv.timeRemain = (nv.tEnd[nv.man.length - 1] - nv.tEnd[kc]) + (1 - frac) * nv.man[kc].time;
 
   // 5. arrivo
-  const arriveM = Math.max(25, 1.5 * (acc || 0));
+  const arriveM = Math.max(ARRIVE_BASE_M, ARRIVE_PER_ACC * (acc || 0));
   const near = nv.dest ? distM({ lat: pLat, lon: pLon }, nv.dest) : Infinity;
   if (nv.status === 'ACTIVE' && (nv.distRemain < 15 || near < arriveM)) {
     nv.arriveCount++;

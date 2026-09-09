@@ -6,6 +6,13 @@
    Ordine: dopo js/video3d.js (riusa video3DBuildJob/drawVideoFrame), prima
    dei muxer vendorizzati e di js/video-mp4.js/js/video-webm.js. */
 
+/* --- tarature loop offline (prima letterali sparsi) --- */
+const OFF_MAX_FRAMES = 1 << 24;      // ~155 h a 30 fps: guardia anti-loop infinito
+const OFF_ENC_QUEUE_HI = 8;          // sopra questo l'encoder è saturo: si aspetta
+const OFF_ENC_QUEUE_LO = 4;          // sotto questo si riprende a codificare
+const OFF_MAP_READY_MS = 6000;       // guardia su style.load delle tile 3D
+const OFF_MIN_RAM_BYTES = 256 * 1024 * 1024;  // floor della stima RAM disponibile
+
 /* Pura: passo frame dal framerate (30 fps -> 33333 µs). */
 function videoOfflineFrameStepUs(fps) {
   const f = isFinite(fps) && fps > 0 ? fps : 30;
@@ -45,7 +52,7 @@ function videoOfflineMaxBytes() {
   let mem = 4;
   try { if (typeof navigator !== 'undefined' && navigator.deviceMemory) mem = navigator.deviceMemory; } catch (e) {}
   if (!isFinite(mem) || mem <= 0) mem = 4;
-  return Math.max(256 * 1024 * 1024, Math.floor(mem * 256 * 1024 * 1024));
+  return Math.max(OFF_MIN_RAM_BYTES, Math.floor(mem * 256 * 1024 * 1024));
 }
 
 /* Ritorna un messaggio d'errore (o null) se l'export stimato supera la RAM
@@ -128,7 +135,7 @@ function videoOfflineSetupMap(job, pre) {
       job.mapReady = true;
       resolve();
     };
-    const timer = setTimeout(ok, 6000);
+    const timer = setTimeout(ok, OFF_MAP_READY_MS);
     try { job.map.on('style.load', ok); } catch (e) { ok(); }
     try { job.map.on('error', () => { if (!job.mapReady && !job.cancelled) { /* resta: guardia chiude */ } }); } catch (e) {}
   });
@@ -159,7 +166,7 @@ async function videoOfflineLoop(job, encState, opts) {
   // selezionato (un export "12×" produceva comunque un video 1:1).
   let tSim = t0;
   let k = 0;
-  const maxFrames = 1 << 24;   // ~155 h a 30 fps: guardia anti-loop infinito
+  const maxFrames = OFF_MAX_FRAMES;   // guardia anti-loop infinito
   while (tSim < tEnd && k < maxFrames) {
     if (job.cancelled) return;
     job.tSim = tSim;
@@ -171,11 +178,11 @@ async function videoOfflineLoop(job, encState, opts) {
     if (frame) {
       // Backpressure: se l'encoder è saturo aspetta (niente OOM su giri lunghi).
       try {
-        if (enc.encodeQueueSize > 8) {
+        if (enc.encodeQueueSize > OFF_ENC_QUEUE_HI) {
           await new Promise(res => {
             let n = 0;
             const tick = () => {
-              if (job.cancelled || enc.encodeQueueSize <= 4 || ++n > 200) { res(); return; }
+              if (job.cancelled || enc.encodeQueueSize <= OFF_ENC_QUEUE_LO || ++n > 200) { res(); return; }
               setTimeout(tick, 10);
             };
             tick();

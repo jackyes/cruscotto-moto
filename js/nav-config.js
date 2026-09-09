@@ -64,7 +64,11 @@ async function navPersistRoute() {
       ts: Date.now(), dest: nv.dest, req: nv.reqSaved, shape: nv.shapeRaw,
       man: nv.man, totalM: nv.totalM, totalS: nv.totalS,
     });
-  } catch (e) {}
+  } catch (e) {
+    // Persistenza rotta rotta: la navigazione continua, ma al riavvio non ci
+    // sarà nulla da riprendere — prima moriva in silenzio.
+    try { console.warn('navPersistRoute: salvataggio rotta fallito', e && e.message); } catch (e2) {}
+  }
 }
 let navProgT = 0;
 let navProgLastMan = -1;
@@ -89,7 +93,9 @@ function navPersistProgress() {
   idb.kvPut('navProgress', {
     ts: now, sAlong: nv.sAlong, nextMan: nv.nextMan,
     lat: nv.lastLat, lon: nv.lastLon,
-  }).catch(() => {});
+  }).catch(e => {
+    try { console.warn('navPersistProgress: salvataggio progresso fallito', e && e.message); } catch (e2) {}
+  });
 }
 
 async function navRestore() {
@@ -183,6 +189,7 @@ function navStop() {
   navSimStop();
   state.nav = null; state.navDest = null; state.navVias = []; state.gpxRoute = null;
   navSpeak.stop();
+  navSpeak.stopHeartbeat();   // l'heartbeat della voce non serve più
   idb.kvPut('activeRoute', null).catch(() => {});
   idb.kvPut('navProgress', null).catch(() => {});
   els.navQuery.value = ''; els.navResults.textContent = '';

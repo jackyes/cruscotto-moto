@@ -5,9 +5,12 @@
    posterLayout/buildPosterModel/fmtDurH. ctx-only: drawSharePoster.
    Ordine: dopo js/draw.js (riusa rrPath). */
 
-/* Pura: mm:ss → h:mm:ss oltre l'ora (fmtDur stampa "65:00" oltre i 59 min). */
+/* Pura: mm:ss → h:mm:ss oltre l'ora (fmtDur stampa "65:00" oltre i 59 min).
+   La guardia typeof precede !isFinite apposta: isFinite(null) è true per
+   coercizione a 0, quindi senza il check typeof un null passerebbe. */
 function fmtDurH(sec) {
-  // Number.isFinite, non isFinite: isFinite(null) è true (coercizione a 0).
+  // Number.isFinite, non isFinite, sarebbe il check giusto senza la guardia
+  // typeof qui sopra: quest'ultima resta per i caller con valori legacy.
   if (typeof sec !== 'number' || !isFinite(sec) || sec < 0) return '—';
   const s = Math.floor(sec);
   if (s < 3600) return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0');

@@ -45,11 +45,12 @@ function biquadStep(st, x, dt, tau) {
 }
 
 function despike(st, x) {
-  if (!st.b) st.b = [];
-  st.b.push(x);
-  if (st.b.length < 3) return x;      // riscaldamento
-  if (st.b.length > 3) st.b.shift();
-  const a = st.b[0], b = st.b[1], c = st.b[2];
+  // Ring da 3 senza shift(): prima push/shift O(n) per campione a 60 Hz.
+  if (!st.b) { st.b = [x, x, x]; st.n = 0; }
+  st.b[2] = st.b[1]; st.b[1] = st.b[0]; st.b[0] = x;   // b[0] = nuovo, b[2] = più vecchio
+  st.n++;
+  if (st.n < 3) return x;      // riscaldamento
+  const c = st.b[0], b = st.b[1], a = st.b[2];
   const dA = b - a, dC = b - c;
   const isolato =
     Math.abs(dA) > DESPIKE_G && Math.abs(dC) > DESPIKE_G &&  // salta via da entrambi i vicini
@@ -156,7 +157,7 @@ function correctSpeed(vGps, tFixP, noLag) {
   state.speedFusMs = v < 0 ? 0 : v;
 }
 
-function attitudeReference(f, w, B, dt) {
+function attitudeReference(f, w, B) {
   /* Riferimento accelerometrico.
 
      f e' la forza specifica: f = a_inerziale + g*u. In curva a regime a e' esattamente
@@ -208,7 +209,7 @@ function attitudeReference(f, w, B, dt) {
     mode = 'centrip';
   }
   const mag = vlen(ref);
-  if (!(mag > 0.1)) return null;
+  if (!(mag > ATT_MIN_REF_MAG_G)) return null;
 
   /* Senza velocità (galleria, fix perso, GPS che non riporta la velocità) la
      compensazione non è calcolabile — ma la NORMA sa comunque quanto si è carichi:
@@ -230,13 +231,13 @@ function attitudeReference(f, w, B, dt) {
      e impediva persino al filtro di inizializzarsi mentre si spinge la moto a mano. */
   const slow = v <= CENTRIP_MIN_MS;
 
-  if (!slow && Math.abs(state.lonG) < 0.15) {
+  if (!slow && Math.abs(state.lonG) < ATT_LON_RAW_MAX_G) {
     /* Il segno: dal GPS quando dice qualcosa di netto (è indipendente e non deriva),
        altrimenti dall'integrazione del giroscopio. Senza né l'uno né l'altro non c'è
        modo di sapere da che parte si pende, e si resta sul riferimento grezzo. */
     let sgn = 0;
-    if (state.latGps != null && Math.abs(state.latGps) > 0.05) sgn = state.latGps < 0 ? -1 : 1;
-    else if (state.hasGyro && Math.abs(state.lean) > 2) sgn = state.lean < 0 ? -1 : 1;
+    if (state.latGps != null && Math.abs(state.latGps) > ATT_GPS_SIGN_MIN_G) sgn = state.latGps < 0 ? -1 : 1;
+    else if (state.hasGyro && Math.abs(state.lean) > ATT_LEAN_SIGN_MIN_DEG) sgn = state.lean < 0 ? -1 : 1;
     if (sgn) {
       // mag < G (vibrazione, errore LP) rendeva G/mag > 1: clamp lo saturava a 1,
       // acos(1) = 0 e il riferimento collassava sul grezzo trascinando la stima
@@ -246,7 +247,7 @@ function attitudeReference(f, w, B, dt) {
       // posa di ore prima — re-iniettarlo tira la stima verso quella.
       if (mag < G) {
         const ln = state._attLastNorm, lnT = state._attLastNormT;
-        return (ln && lnT && (performance.now() - lnT) < 2000) ? ln : null;
+        return (ln && lnT && (performance.now() - lnT) < ATT_NORM_TTL_MS) ? ln : null;
       }
       const ang = Math.acos(clamp01(G / mag)) * sgn;
       const rot = vadd(vscale(B.up, Math.cos(ang)), vscale(B.right, Math.sin(ang)));
@@ -264,7 +265,7 @@ function attitudeReference(f, w, B, dt) {
      quanto piu' la moto vibrava.
      Qui il residuo e' gia' compensato, quindi il valore atteso e' g e lo scarto e'
      errore vero. Con la compensazione attiva non serve piu' nessun gate sul laterale. */
-  const expect = slow ? 1 : 1 / Math.max(0.2, Math.cos(state.lean * Math.PI / 180));
+  const expect = slow ? 1 : 1 / Math.max(ATT_EXPECT_MIN, Math.cos(state.lean * Math.PI / 180));
   const trust = clamp01(1 - Math.abs(mag / G - expect) / ATT_TOL_G);
   return { u: vscale(ref, 1 / mag), trust: trust, mode: 'raw' };
 }
@@ -275,7 +276,7 @@ function updateAttitude(f, w, B, dt, wRef) {
      e' v·δω_up/g — a 20 m/s un grado/s di rumore su yaw costa 2° di piega. La
      propagazione invece usa w intero: i picchi di rollio in ingresso curva non
      vanno smussati. */
-  const R = attitudeReference(f, wRef || w, B, dt);
+  const R = attitudeReference(f, wRef || w, B);
   if (!state._attU) {
     /* Inizializzazione: mai su un campione grezzo isolato, mai senza riferimento, e
        mai su un riferimento in cui non si crede.
@@ -285,7 +286,7 @@ function updateAttitude(f, w, B, dt, wRef) {
        pochi secondi. Misurato partendo in frenata da 0,5 g: 27° di errore di
        beccheggio iniziale diventano 25,6° di errore di PIEGA dopo 4 s, a modulo
        costante. Meglio aspettare un secondo che partire storti. */
-    if (!R || R.trust < 0.5 || state._accHist.length < medianWindow()) {
+    if (!R || R.trust < ATT_INIT_MIN_TRUST || state._accHist.length < medianWindow()) {
       state.attTrust = R ? R.trust : 0;
       return false;
     }
@@ -294,7 +295,7 @@ function updateAttitude(f, w, B, dt, wRef) {
   }
   const hasGyro = state.hasGyro && state.gyroFusion;
   state.attTrust = R ? R.trust : 0;
-  state.attRef = R ? (hasGyro ? R.mode : R.mode) : (hasGyro ? 'gyro' : 'none');
+  state.attRef = R ? R.mode : (hasGyro ? 'gyro' : 'none');
 
   let u = state._attU;
   /* e = û × û_ref e' l'ASSE della rotazione che porta la stima sul riferimento, con
@@ -372,7 +373,7 @@ function updateGyroSign(rollRate, leanAcc, dt, credible) {
     if (dSec > GSIGN_MAX_GAP_S) state._gsPrev = null;
   }
   state._gsEnergyT = nowP;
-  if ((state.gyroSignEnergy || 0) < GSIGN_MIN_ENERGY * 0.37) {
+  if ((state.gyroSignEnergy || 0) < GSIGN_MIN_ENERGY * GSIGN_UNLOCK_FRAC) {
     if (state.gyroSignLocked) state._gsPrev = null;   // baseline stantia al risblocco
     state.gyroSignLocked = false;
   }
@@ -384,16 +385,21 @@ function updateGyroSign(rollRate, leanAcc, dt, credible) {
   if (state._gsPrev == null) { state._gsPrev = leanAcc; return false; }
   const dLean = (leanAcc - state._gsPrev) / dt;
   state._gsPrev = leanAcc;
-  if (Math.abs(dLean) < 5 || Math.abs(rollRate) < 5) return false;   // troppo fermo: nessuna informazione
+  if (Math.abs(dLean) < GSIGN_MIN_RATE_DPS || Math.abs(rollRate) < GSIGN_MIN_RATE_DPS) return false;   // troppo fermo: nessuna informazione
   // (il decay temporale è già fatto sopra a orologio: qui solo accumulo)
   state.gyroSignScore = state.gyroSignScore + rollRate * dLean * dt;
   state.gyroSignEnergy = state.gyroSignEnergy + Math.abs(rollRate * dLean) * dt;
-  if (state.gyroSignEnergy > GSIGN_MIN_ENERGY && state.gyroSignScore < -0.3 * state.gyroSignEnergy) {
+  if (state.gyroSignEnergy > GSIGN_MIN_ENERGY && state.gyroSignScore < -GSIGN_FLIP_RATIO * state.gyroSignEnergy) {
     state.gyroSign = -state.gyroSign;
     // Persistito: su un device col rotationRate invertito il verdetto va imparato
     // a passo d'uomo, e senza persistenza a un avvio già in marcia (>3 m/s) il
     // gate non si apre e la piega resta nel verso sbagliato per tutta la sessione.
-    try { store.set('cruscotto.gyroSign', state.gyroSign); } catch (e) {}
+    try { store.set('cruscotto.gyroSign', state.gyroSign); }
+    catch (e) {
+      // Persistenza fallita (quota, storage disabilitato): il verdetto vale solo
+      // per questa sessione, e va detto — prima moriva in silenzio.
+      try { if (typeof toast === 'function') toast('Segno giroscopio corretto, ma non salvato: si reimparerà al prossimo avvio.', 'err', 5000); } catch (e2) {}
+    }
     state.gyroSignScore = 0;
     state.gyroSignEnergy = GSIGN_MIN_ENERGY;  // NON 0: il lock deve durare ~GSIGN_TAU_S
     state.gyroSignLocked = true;

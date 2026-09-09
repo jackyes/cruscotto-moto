@@ -1,8 +1,13 @@
 'use strict';
-/* js/draw.js (step 9): primitive canvas pure (ctx-only): drawLeanArc, drawAccBar, rrPath. Zero dipendenze: colori via parametri. */
+/* js/draw.js (step 9): primitive canvas pure (ctx-only): drawLeanArc, drawAccBar,
+   rrPath, hudFont, hudPanel, hudText, hudCang, runningExtremes, leanScaleFor,
+   leanGaugeModel, hudGdot, rectsOverlap, hudMotoBox, hudLayout.
+   Zero dipendenze: colori via parametri. Ogni primitiva salva/ripristina lo stato
+   del ctx: nessun leak di fillStyle/lineWidth/alpha verso chi la chiama. */
 function drawLeanArc(ctx, cx, cy, r, lean, axis, good, bad, txt) {
   const a0 = -60, a1 = 60;
-  const ang = a => (90 - a) * Math.PI / 180; // 0° in alto, + a destra
+  ctx.save();
+  const ang = a => -hudCang(a); // 0° in alto, + a destra
   ctx.lineCap = 'round';
   ctx.strokeStyle = axis; ctx.lineWidth = Math.max(3, r * 0.14);
   ctx.beginPath(); ctx.arc(cx, cy, r, ang(a0), ang(a1)); ctx.stroke();
@@ -12,10 +17,12 @@ function drawLeanArc(ctx, cx, cy, r, lean, axis, good, bad, txt) {
   ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(cx + Math.cos(na) * r * 0.82, cy - Math.sin(na) * r * 0.82); ctx.stroke();
   ctx.fillStyle = txt; ctx.font = 'bold ' + Math.round(r * 0.42) + 'px system-ui'; ctx.textAlign = 'center';
   ctx.fillText(Math.round(cl) + '°', cx, cy + r * 0.22);
+  ctx.restore();
 }
 
 function drawAccBar(ctx, x, y, w, h, v, range, color, label, axis, txt) {
   const cx = x + w / 2;
+  ctx.save();
   ctx.fillStyle = axis; ctx.globalAlpha = 0.5;
   ctx.fillRect(cx - 1, y, 2, h); ctx.globalAlpha = 1;
   const val = Math.max(-range, Math.min(range, v));
@@ -24,6 +31,7 @@ function drawAccBar(ctx, x, y, w, h, v, range, color, label, axis, txt) {
   ctx.fillRect(Math.min(cx, cx + bw), y, Math.abs(bw), h);
   ctx.fillStyle = txt; ctx.font = 'bold ' + Math.max(10, h) + 'px system-ui'; ctx.textAlign = 'left';
   ctx.fillText(label, x, y + h - 1);
+  ctx.restore();
 }
 
 function rrPath(ctx, x, y, w, h, r) {
@@ -53,6 +61,7 @@ const _hudGradCache = typeof WeakMap === 'function' ? new WeakMap() : null;
 /* Pannello con gradiente verticale + hairline chiara in alto. Senza
    createLinearGradient (mock dei test) ripiega sul piatto, mai crash. */
 function hudPanel(ctx, x, y, w, h, r, top, bottom) {
+  ctx.save();
   if (typeof ctx.createLinearGradient === 'function') {
     let g = null;
     let m = null;
@@ -76,11 +85,13 @@ function hudPanel(ctx, x, y, w, h, r, top, bottom) {
   rrPath(ctx, x, y, w, h, r); ctx.fill();
   ctx.strokeStyle = 'rgba(255,255,255,.18)'; ctx.lineWidth = 1;
   rrPath(ctx, x + 0.5, y + 0.5, w - 1, Math.max(1, h - 1), Math.max(1, r - 1)); ctx.stroke();
+  ctx.restore();
 }
 
 /* Testo con alone scuro: leggibile sul beige liberty come sul bosco.
    Senza strokeText (mock) solo fill, mai crash. */
 function hudText(ctx, txt, x, y, font, fill, haloW, halo) {
+  ctx.save();
   ctx.font = font;
   if (haloW > 0 && typeof ctx.strokeText === 'function') {
     ctx.lineJoin = 'round'; ctx.lineWidth = haloW;
@@ -89,6 +100,7 @@ function hudText(ctx, txt, x, y, font, fill, haloW, halo) {
   }
   ctx.fillStyle = fill;
   ctx.fillText(txt, x, y);
+  ctx.restore();
 }
 
 /* Pura: angolo in convenzione canvas (y in giù). ang() sopra è matematica
@@ -134,8 +146,9 @@ function leanGaugeModel(cl, tickR, tickL, scale) {
 
 /* Cerchio di aderenza: punto (latG,lonG) nel cerchio unitario. */
 function hudGdot(ctx, cx, cy, gr, latG, lonG, dot, ring, txt) {
+  ctx.save();
   ctx.strokeStyle = ring; ctx.lineWidth = Math.max(1, gr * 0.08);
-  ctx.beginPath(); ctx.arc(cx, cy, gr, 0, 6.283); ctx.stroke();
+  ctx.beginPath(); ctx.arc(cx, cy, gr, 0, TAU); ctx.stroke();
   ctx.strokeStyle = ring; ctx.globalAlpha = 0.4; ctx.lineWidth = 1;
   ctx.beginPath(); ctx.moveTo(cx - gr, cy); ctx.lineTo(cx + gr, cy); ctx.stroke();
   ctx.beginPath(); ctx.moveTo(cx, cy - gr); ctx.lineTo(cx, cy + gr); ctx.stroke();
@@ -143,9 +156,10 @@ function hudGdot(ctx, cx, cy, gr, latG, lonG, dot, ring, txt) {
   const dx = Math.max(-1, Math.min(1, (isFinite(latG) ? latG : 0) / 1.2)) * gr * 0.8;
   const dy = Math.max(-1, Math.min(1, (isFinite(lonG) ? lonG : 0) / 1.2)) * gr * 0.8;
   ctx.fillStyle = dot;
-  ctx.beginPath(); ctx.arc(cx + dx, cy + dy, Math.max(2, gr * 0.18), 0, 6.283); ctx.fill();
+  ctx.beginPath(); ctx.arc(cx + dx, cy + dy, Math.max(2, gr * 0.18), 0, TAU); ctx.fill();
   ctx.fillStyle = txt; ctx.font = hudFont('bold', gr * 0.42); ctx.textAlign = 'center';
   ctx.fillText('G', cx, cy + gr + gr * 0.5);
+  ctx.restore();
 }
 
 /* Pura: due rect si sovrappongono (bordi che si toccano = ok). */

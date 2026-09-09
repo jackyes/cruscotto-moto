@@ -6,6 +6,7 @@ const store = {
   set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} },
   del(k) { try { localStorage.removeItem(k); } catch (e) {} },
 };
+let openRetryN = 0;   // contatore backoff riapertura dopo onversionchange
 
 /* ============================== IndexedDB (storico) ============================== */
 /* Schema v2:
@@ -55,7 +56,13 @@ const idb = {
         idb.db.onversionchange = () => {
           try { idb.db.close(); } catch (e2) {}
           idb.db = null;
-          idb.open().catch(() => {});
+          // Riapertura con backoff: il primo tentativo è immediato (l'upgrade
+          // dell'altra scheda può essere già finito), i successivi scalano —
+          // prima ritentava a raffica senza limiti.
+          openRetryN = (openRetryN || 0) + 1;
+          if (openRetryN > 8) { try { console.warn('idb: troppi tentativi di riapertura dopo upgrade.'); } catch (e3) {} openRetryN = 0; }
+          const delay = openRetryN > 1 ? Math.min(250 * (openRetryN - 1), 4000) : 0;
+          setTimeout(() => { idb.open().catch(() => {}); }, delay);
         };
         res();
       };

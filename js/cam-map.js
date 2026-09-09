@@ -2,7 +2,7 @@
 /* js/cam-map.js (step 22): track point, helpers camere, CAM_HOSTS, render mappa camere, import. fetch/check in js/cams.js. Ordine: dopo js/sensor-src.js. */
 function appendTrackPoint(lat, lon, alt) {
   const now = performance.now();
-  if (now - lastTrackT < 1000) return;
+  if (now - lastTrackT < TRACK_POINT_MIN_MS) return;
   lastTrackT = now;
   // alt assente (null/NaN): null, non 0 — `alt || 0` fabbricava <ele>0.0</ele>
   // nel GPX e alt_m=0 nel CSV per fix senza dati di quota.
@@ -86,7 +86,9 @@ async function loadCachedCameras() {
   // Cache letta da IndexedDB (v. fetchCameras): il vecchio localStorage
   // traboccava con DB grandi e perdeva la cache senza dire nulla.
   let c = null;
-  try { c = await idb.kvGet('cachedCameras'); } catch (e) {}
+  try { c = await idb.kvGet('cachedCameras'); } catch (e) {
+    try { console.warn('loadCachedCameras: lettura cache fallita', e && e.message); } catch (e2) {}
+  }
   if (c && c.cameras && c.cameras.length) {
     state.cameras = c.cameras;
     state.camCenter = c.center;
@@ -122,7 +124,7 @@ function renderCameras() {
     state.camLayer.clearLayers();
     const list = camsToDraw();
     for (const c of list) {
-      const m = L.circleMarker([c.lat, c.lon], { radius: 7, color: '#f87171', fillColor: '#f87171', fillOpacity: 0.9, weight: 2 });
+      const m = L.circleMarker([c.lat, c.lon], { radius: 7, color: MAP_CAM_COLOR, fillColor: MAP_CAM_COLOR, fillOpacity: 0.9, weight: 2 });
       const lbl = camLabel(c);
       if (lbl) {
         const span = document.createElement('span');
@@ -167,7 +169,7 @@ function setTrackUp(on) {
   els.btnTrackUp.classList.toggle('on', on);
   if (state.mapType === 'leaflet' && state.map) {
     applyMapRotation();
-    setTimeout(() => state.map.invalidateSize(), 60);
+    setTimeout(() => state.map.invalidateSize(), MAP_ROTATE_SETTLE_MS);
   } else if (state.mapType === 'canvas') {
     drawCanvasMap();
   }
@@ -177,7 +179,7 @@ function centerMap() {
   if (state.mapType === 'leaflet' && state.map) {
     // Prima del primo fitBounds lo zoom è 5 (vista Italia): panTo lasciava l'utente lì.
     const z = state.map.getZoom();
-    if (z == null || z < 14) state.map.setView([state.gps.lat, state.gps.lon], 16);
+    if (z == null || z < MAP_CENTER_MIN_ZOOM) state.map.setView([state.gps.lat, state.gps.lon], MAP_CENTER_ZOOM);
     else state.map.panTo([state.gps.lat, state.gps.lon]);
   } else if (state.mapType === 'canvas') {
     state.centerPending = true; // centra una tantum, indipendente dal follow
@@ -207,30 +209,39 @@ function alertCamera(dist, cam) {
   els.camAlert.appendChild(sub);
   els.camAlert.style.display = 'block';
   clearTimeout(camAlertTimer);
-  camAlertTimer = setTimeout(() => { els.camAlert.style.display = 'none'; }, 4000);
+  camAlertTimer = setTimeout(() => { els.camAlert.style.display = 'none'; }, CAM_ALERT_MS);
   beep();
 }
 
+const BEEP_FREQ_HZ = 880;      // onda quadra: si sente col vento e in autostrada
+const BEEP_PEAK = 0.3;         // gain di picco a voce ferma
+const BEEP_NAV_PEAK = 0.08;    // ridotto quando la voce navigatore parla
 let audioCtx = null;
 function ensureAudio() {
   if (!audioCtx) { try { audioCtx = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) {} }
-  if (audioCtx && audioCtx.state === 'suspended') audioCtx.resume();
+  if (audioCtx && audioCtx.state === 'suspended') {
+    // resume() ritorna una promise: non-awaitata su alcuni browser = unhandled
+    // rejection (e su Safari può anche restare sospeso senza dire nulla).
+    try { const p = audioCtx.resume(); if (p && typeof p.catch === 'function') p.catch(() => {}); } catch (e) {}
+  }
 }
 function beep() {
   if (!state.camAlerts) return;
   ensureAudio();
   if (!audioCtx) return;
   const t0 = audioCtx.currentTime;
-  const peak = (typeof navSpeak !== 'undefined' && navSpeak.busy) ? 0.08 : 0.3;
+  const peak = (typeof navSpeak !== 'undefined' && navSpeak.busy) ? BEEP_NAV_PEAK : BEEP_PEAK;
   [0, 0.18].forEach(off => {
     const o = audioCtx.createOscillator();
     const g = audioCtx.createGain();
-    o.type = 'square'; o.frequency.value = 880;
+    o.type = 'square'; o.frequency.value = BEEP_FREQ_HZ;
     g.gain.setValueAtTime(0.0001, t0 + off);
     g.gain.exponentialRampToValueAtTime(peak, t0 + off + 0.01);
     g.gain.exponentialRampToValueAtTime(0.0001, t0 + off + 0.12);
     o.connect(g); g.connect(audioCtx.destination);
     o.start(t0 + off); o.stop(t0 + off + 0.13);
+    // Disconnect esplicito: i nodi finiti restavano referenziati dal grafo.
+    o.onended = () => { try { o.disconnect(); g.disconnect(); } catch (e) {} };
   });
 }
 document.addEventListener('pointerdown', ensureAudio, { once: true });
@@ -240,6 +251,9 @@ document.addEventListener('pointerdown', ensureAudio, { once: true });
 function importCamerasFile(file) {
   const reader = new FileReader();
   reader.onload = async () => {
+    // FileReader.onerror (o un file letto a vuoto) passa di qui con result null:
+    // parseCamerasFile avrebbe lanciato su .trim() di null, senza messaggio.
+    if (reader.result == null) { toast('File non leggibile.', 'err'); return; }
     const cams = parseCamerasFile(reader.result)
       .filter(c => isFinite(c.lat) && isFinite(c.lon) && Math.abs(c.lat) <= 90 && Math.abs(c.lon) <= 180);
     if (!cams.length) { toast('Nessuna camera trovata nel file.', 'err'); return; }

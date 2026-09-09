@@ -1,5 +1,11 @@
 'use strict';
 /* js/nav-map.js (step 23): navReset, navSpeak + heartbeat, navSetStatus, navDrawRoute, navFitRoute. navBuild resta per step con resto nav. Ordine: dopo js/cam-map.js. */
+/* --- voce: tarature --- */
+const VOICE_RATE = 1.05;                  // leggermente più veloce del default
+const VOICE_WATCHDOG_MIN_MS = 2500;       // watchdog minimo su onend non affidabile
+const VOICE_WATCHDOG_PER_CHAR_MS = 90;    // +90 ms per carattere
+const VOICE_HB_MS = 8000;                 // heartbeat resume() per motori che si piantano
+
 function navReset() {
   state.nav = null;
   navSpeak.stop();
@@ -84,7 +90,7 @@ const navSpeak = {
     const u = new SpeechSynthesisUtterance(text);
     u.lang = (this.voice && this.voice.lang) || 'it-IT';
     if (this.voice) u.voice = this.voice;
-    u.rate = 1.05;
+    u.rate = VOICE_RATE;
     this.busy = true; this.prio = prio;
     // Token di generazione: onend/onerror di un'utterance cancellata arrivano DOPO
     // lo stato della nuova e azzererebbero busy/prio/watchdog, causando voci
@@ -99,7 +105,7 @@ const navSpeak = {
     this.timer = setTimeout(() => {
       try { speechSynthesis.cancel(); } catch (e2) {}
       done();
-    }, Math.max(2500, text.length * 90));
+    }, Math.max(VOICE_WATCHDOG_MIN_MS, text.length * VOICE_WATCHDOG_PER_CHAR_MS));
     try { speechSynthesis.speak(u); } catch (e) { done(); return false; }
     return true;
   },
@@ -109,13 +115,22 @@ const navSpeak = {
     this.seq++;                              // invalida i done() pendenti della voce cancellata
     this.busy = false; this.prio = -1; clearTimeout(this.timer);
   },
+  /* Heartbeat con handle esplicito: prima il setInterval globale girava per
+     sempre, anche a navigazione chiusa (nessun clearInterval su navStop). */
+  startHeartbeat() {
+    if (this.hb) return;
+    this.hb = setInterval(() => {
+      if (this.busy && 'speechSynthesis' in window) {
+        try { speechSynthesis.resume(); } catch (e) {}
+      }
+    }, VOICE_HB_MS);
+  },
+  stopHeartbeat() {
+    if (this.hb) { clearInterval(this.hb); this.hb = null; }
+  },
 };
 
-setInterval(() => {
-  if (navSpeak.busy && 'speechSynthesis' in window) {
-    try { speechSynthesis.resume(); } catch (e) {}
-  }
-}, 8000);
+navSpeak.startHeartbeat();
 
 function navSetStatus(t) { if (els.navStatusTxt) els.navStatusTxt.textContent = t; }
 

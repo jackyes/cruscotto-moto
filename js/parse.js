@@ -63,7 +63,11 @@ function parseCamerasFile(text) {
         out.push({ lat, lon, maxspeed: c.vmax || '', name });
       }
     }
-  } catch (e) { /* non-JSON */ }
+  } catch (e) {
+    // JSON malformato: prima indistinguibile da un CSV vuoto (e il CSV veniva
+    // comunque provato sotto), ora almeno un warn per chi debugga.
+    try { console.warn('parseCamerasFile: JSON non leggibile', e && e.message); } catch (e2) {}
+  }
   return out;
 }
 

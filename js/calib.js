@@ -35,7 +35,10 @@ function startCalibration() {
   state._calRotSum = 0;
   els.btnCalib.disabled = true;
   const tip = toast('Calibrazione… tieni la moto ferma e dritta.', null, CALIB_MS + 500);
-  setTimeout(() => { finishCalibration(tip); }, CALIB_MS);
+  // Timer conservato: un secondo tap su Calibra non deve far partire una seconda
+  // finestra che chiude sulla stessa cattura (o su una già finita).
+  if (state._calTimer) { clearTimeout(state._calTimer); state._calTimer = null; }
+  state._calTimer = setTimeout(() => { state._calTimer = null; finishCalibration(tip); }, CALIB_MS);
 }
 
 function collectCalib() {
@@ -44,9 +47,13 @@ function collectCalib() {
      scartati e si rifiuta solo se sono una frazione rilevante della finestra.
      Il gate di rotazione copre tutti e tre gli assi del telaio: il rollio e lo
      yaw stanno in gyroRoll/gyroYaw, il beccheggio (rocking sospensioni) va
-     proiettato su B.right — senza, un dondolio avanti-indietro sfuggiva al gate
-     e restava solo la dispersione a beccarlo. */
-  const wRock = (state.calib && state._wLP) ? vdot(state._wLP, state.calib.right) : 0;
+     proiettato sull'asse laterale — senza, un dondolio avanti-indietro sfuggiva
+     al gate e restava solo la dispersione a beccarlo. */
+  /* Asse laterale NOMINALE dal montaggio, non state.calib.right: durante la
+     finestra state.calib è ancora la VECCHIA calibrazione (o null alla prima),
+     quindi proiettare su di essa mischia pose diverse. */
+  const latAxis = MOUNT[state._calMount != null ? state._calMount : state.mount];
+  const wRock = (state._wLP) ? vdot(state._wLP, axisVec(latAxis.lat)) : 0;
   const rotating = state.hasGyro &&
     vlen({ x: state.gyroRoll, y: state.gyroYaw, z: wRock }) > CALIB_MAX_ROT_DPS;
   const accel = Math.abs(state.gRatio - 1) > CALIB_MAX_NORM_DEV;
@@ -118,8 +125,10 @@ function collectAccBias(dt) {
      entro la finestra di 1 s congelava accelerazioni REALI come offset permanente.
      Finestra sporca → si ricomincia da zero; se la moto è partita davvero, il
      timeout a muro chiude comunque senza bias. Stesse soglie della calibrazione:
-     tollerano il minimo del motore, non una partenza. */
-  const wRock = (state.calib && state._wLP) ? vdot(state._wLP, state.calib.right) : 0;
+     tollerano il minimo del motore, non una partenza. Asse laterale nominale,
+     come in collectCalib. */
+  const latAxis = MOUNT[state._calMount != null ? state._calMount : state.mount];
+  const wRock = (state._wLP) ? vdot(state._wLP, axisVec(latAxis.lat)) : 0;
   const rotating = state.hasGyro &&
     vlen({ x: state.gyroRoll, y: state.gyroYaw, z: wRock }) > CALIB_MAX_ROT_DPS;
   const accel = Math.abs(state.gRatio - 1) > CALIB_MAX_NORM_DEV;

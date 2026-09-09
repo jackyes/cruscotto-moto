@@ -1,11 +1,30 @@
 'use strict';
 /* ============================== Stato ============================== */
 const G = 9.80665;
+const TAU = Math.PI * 2;          // 2π: cerchi canvas/circleMarker (6.283 sparso nel codice)
 const LOG_HZ = 20;
 const FLUSH_MS = 10000;
 const MAX_ROWS = 180000;
 const TRACK_MAX = 10000;
 const CHART_WINDOW = 60000;
+/* --- soglie pipeline sensori (prima sparse come letterali) --- */
+const SENSOR_DT_MIN_S = 0.0005;  // dt sotto questo = campione duplicato/difettoso
+const SENSOR_DT_MAX_S = 0.25;    // dt sopra questo = buco: reinizializza i filtri
+const YAW_LP_MIN_S = 0.02;       // tau minimo del filtro lento sull'imbardata
+const GYRO_BIAS_WINDOW_S = 2;    // finestra di media del bias di rollio da fermo
+const GYRO_BIAS_EMA = 0.2;       // costante dell'EMA che aggiorna gyroBias
+const LEAN_CLAMP_DEG = 80;       // saturazione della piega esposta
+const TRACK_POINT_MIN_MS = 1000; // throttle punti traccia (performance.now())
+const CAM_ALERT_MS = 4000;       // durata banner autovelox
+/* --- mappa live --- */
+const MAP_INIT_ZOOM = 5;         // vista iniziale (Italia) prima del primo fix
+const MAP_FIT_MAX_ZOOM = 16;     // zoom massimo del fitBounds sulla traccia
+const MAP_CENTER_ZOOM = 16;      // zoom del rientro manuale
+const MAP_CENTER_MIN_ZOOM = 14;  // sotto questo zoom il rientro salta (setView) invece di panTo
+const MAP_TRACK_COLOR = '#29b6f6';
+const MAP_CAM_COLOR = '#f87171';
+const MAP_ROTATE_SETTLE_MS = 60; // attesa invalidateSize dopo rotazione track-up
+
 const SPEED_DEADBAND_MS = 0.55; // sotto ~2 km/h → 0 (fermo)
 const TRACK_MIN_M = 5;         // distanza minima tra punti traccia (m)
 const GPS_ACC_MAX = 30;        // scarta fix con accuratezza peggiore (m)
@@ -36,6 +55,13 @@ const ATT_KP = 3.0;            // guadagno proporzionale del riallineamento (1/s
 const ATT_KI = 0.10;           // guadagno integrale: stima del bias giroscopio (1/s²)
 const ATT_BIAS_MAX_DPS = 5;    // saturazione del bias stimato, per asse (°/s)
 const ATT_TOL_G = 0.06;        // residuo di coerenza |‖a‖/g − atteso| oltre cui non ci si fida
+const ATT_MIN_REF_MAG_G = 0.1; // riferimento sotto questa norma = inutilizzabile
+const ATT_LON_RAW_MAX_G = 0.15;// gate manovra longitudinale per il riferimento da norma
+const ATT_GPS_SIGN_MIN_G = 0.05; // latGps sotto questo modulo non dice il segno della piega
+const ATT_LEAN_SIGN_MIN_DEG = 2; // piega sotto questo modulo non dice il segno
+const ATT_NORM_TTL_MS = 2000;  // scadenza dell'ultimo riferimento 'norm' salvato
+const ATT_EXPECT_MIN = 0.2;    // floor del cos(lean) nel valore atteso (mai 0)
+const ATT_INIT_MIN_TRUST = 0.5;// fiducia minima del riferimento per inizializzare
 const CENTRIP_MIN_MS = 3;      // sotto questa velocità la compensazione centripeta è inutile
 const NORM_MODE_TRUST = 0.3;   // fiducia nel riferimento ricavato dalla sola norma (senza GPS)
 const LEAN_SMOOTH_TAU_S = 0.15;// passa-basso del fallback senza giroscopio
@@ -93,10 +119,14 @@ const STOP_VIB_G = 0.25;
 const GSIGN_TAU_S = 4;         // memoria della correlazione rollio/derivata-accelerometro
 const GSIGN_MIN_ENERGY = 150;  // energia minima prima di dare un verdetto
 const GSIGN_MAX_GAP_S = 1.0;   // buco fra due campioni oltre cui la baseline dLean è stantia
+const GSIGN_UNLOCK_FRAC = 0.37;// frazione dell'energia sotto cui il lock scade
+const GSIGN_MIN_RATE_DPS = 5;  // rollRate o dLean sotto questo modulo: nessuna informazione
+const GSIGN_FLIP_RATIO = 0.3;  // score < −ratio·energy → verdetto: segno invertito
 /* --- accelerazioni: laterale / longitudinale / verticale --- */
 const DESPIKE_G = 1.5;         // salto minimo (g) per sospettare un glitch di sensore
 const DESPIKE_RATIO = 0.35;    // quanto i due vicini devono somigliarsi per dirlo isolato
 const ACCEL_LIMIT_G = 4;       // saturazione simmetrica: una buca vera può fare 3 g
+const ACC_MEDIAN_MAX = 9;      // tetto finestra mediana (medianWindow e scratch medianAcc)
 const ACC_BIAS_MAX_G = 0.5;    // offset accelerometro massimo accettato in calibrazione
 const ACC_BIAS_S = 1.0;        // durata della media per stimare l'offset (s, non campioni)
 const FUS_TAU_S = 1.5;         // crossover della fusione inerziale/GPS (~0,1 Hz)
@@ -268,7 +298,9 @@ const MOUNT = {
 function axis(v, key) {
   const neg = key[0] === '-';
   const c = key[neg ? 1 : 0];
-  const val = v[c] || 0;
+  // ?? non ||: un NaN non deve diventare 0 — il gate finiteVec a valle esiste
+  // proprio per buttare i campioni difettosi, non per mascherarli.
+  const val = v[c] ?? 0;
   return neg ? -val : val;
 }
 

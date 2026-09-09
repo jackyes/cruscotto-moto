@@ -1908,6 +1908,14 @@ function init() {
     demoLast = null;
     els.btnDemo.classList.toggle('on', state.demo);
     els.btnDemo.textContent = state.demo ? 'Demo ON' : 'Demo';
+    if (state.demo) {
+      // In Demo i sensori reali e il GPS non servono a nessuno: si spengono
+      // davvero (prima restavano accesi sotto, consumando batteria).
+      try { if (typeof stopSensors === 'function') stopSensors(); } catch (e) {}
+    } else {
+      // Tornando ai dati reali i listener vanno riagganciati.
+      try { if (typeof addListeners === 'function') addListeners(); } catch (e) {}
+    }
     if (!state.demo) {
       // Ripristina la calibrazione reale: la Demo la sovrascriveva con un vettore
       // finto e non la rimetteva a posto, falsando la piega fino al reload.

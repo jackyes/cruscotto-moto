@@ -71,6 +71,28 @@ function stopGenericSensors() {
   for (const s of sensorSrc.list) { try { s.stop(); } catch (e) {} }
   sensorSrc.list = [];
   sensorSrc.acc = sensorSrc.gyro = sensorSrc.grav = sensorSrc.lin = null;
+  sensorSrc.gyroLast = sensorSrc.gravLast = sensorSrc.linLast = null;
+}
+
+/* Teardown completo (demo, cambio sorgente): chiude Generic Sensor, listener
+   devicemotion/orientation e il watchPosition del GPS. Senza, sensori e GPS
+   restavano vivi anche quando nessuno li consuma (demo accesa, permesso revocato). */
+let watchId = null;
+function onVisChange() {
+  if (document.visibilityState === 'visible') {
+    lastMotionT = 0;
+    state._attU = null;
+    state._spHist = null;
+  }
+}
+function stopSensors() {
+  stopGenericSensors();
+  try { window.removeEventListener('devicemotion', onDeviceMotion, true); } catch (e) {}
+  try { window.removeEventListener('deviceorientation', onDeviceOrientation, true); } catch (e) {}
+  try { window.removeEventListener('deviceorientationabsolute', onDeviceOrientation, true); } catch (e) {}
+  try { document.removeEventListener('visibilitychange', onVisChange); } catch (e) {}
+  if (watchId != null) { try { navigator.geolocation.clearWatch(watchId); } catch (e) {} watchId = null; }
+  state._listenersOn = false;
 }
 
 function startGenericSensors() {
@@ -85,10 +107,18 @@ function startGenericSensors() {
     } catch (e) { return null; }
     sen.addEventListener('error', ev => {
       const n = ev.error && ev.error.name;
-      if (n === 'NotAllowedError' || n === 'NotReadableError' || n === 'SecurityError') {
-        // Se cade l'accelerometro cade tutto: si ripiega su devicemotion.
-        if (sen === sensorSrc.acc) { stopGenericSensors(); startDeviceMotion(); }
-      }
+      // Se cade l'accelerometro cade tutto (è l'orologio): si ripiega su devicemotion.
+      if (sen === sensorSrc.acc) { stopGenericSensors(); startDeviceMotion(); return; }
+      // Gyro/grav/lin morti: prima l'errore era scartato senza traccia e la cache
+      // restava congelata all'ultimo valore. Si azzera il sensore: il campione
+      // successivo lo vede null invece di un ω vecchio spacciato per vivo.
+      try { console.warn('sensore fermo (' + n + '): ' + (sen && sen.constructor && sen.constructor.name)); } catch (e) {}
+      const idx = sensorSrc.list.indexOf(sen);
+      if (idx >= 0) sensorSrc.list.splice(idx, 1);
+      if (sen === sensorSrc.gyro) { sensorSrc.gyro = null; sensorSrc.gyroLast = null; }
+      else if (sen === sensorSrc.grav) { sensorSrc.grav = null; sensorSrc.gravLast = null; }
+      else if (sen === sensorSrc.lin) { sensorSrc.lin = null; sensorSrc.linLast = null; }
+      try { sen.stop(); } catch (e) {}
     });
     sen.addEventListener('reading', onRead);
     try { sen.start(); } catch (e) { return null; }
@@ -100,17 +130,17 @@ function startGenericSensors() {
   sensorSrc.gyro = mk(window.Gyroscope, function () {
     const g = this;
     if (g.x == null) return;
-    sensorSrc._gyro = { x: g.x * RAD2DEG, y: g.y * RAD2DEG, z: g.z * RAD2DEG, t: performance.now() };
+    sensorSrc.gyroLast = { x: g.x * RAD2DEG, y: g.y * RAD2DEG, z: g.z * RAD2DEG, t: performance.now() };
   });
   sensorSrc.grav = mk(window.GravitySensor, function () {
     const g = this;
     if (g.x == null) return;
-    sensorSrc._grav = { x: g.x, y: g.y, z: g.z, t: performance.now() };
+    sensorSrc.gravLast = { x: g.x, y: g.y, z: g.z, t: performance.now() };
   });
   sensorSrc.lin = mk(window.LinearAccelerationSensor, function () {
     const a = this;
     if (a.x == null) return;
-    sensorSrc._lin = { x: a.x, y: a.y, z: a.z, t: performance.now() };
+    sensorSrc.linLast = { x: a.x, y: a.y, z: a.z, t: performance.now() };
   });
 
   /* L'accelerometro fa da orologio: ogni sua lettura produce un campione, usando
@@ -121,9 +151,9 @@ function startGenericSensors() {
     if (a.x == null) return;
     processSample({
       acc:  { x: a.x, y: a.y, z: a.z },
-      gyro: freshSat(sensorSrc._gyro),
-      grav: freshSat(sensorSrc._grav),
-      lin:  freshSat(sensorSrc._lin),
+      gyro: freshSat(sensorSrc.gyroLast),
+      grav: freshSat(sensorSrc.gravLast),
+      lin:  freshSat(sensorSrc.linLast),
       t:    (typeof a.timestamp === 'number' && isFinite(a.timestamp)) ? a.timestamp : performance.now(),
     });
   });
@@ -161,16 +191,12 @@ function addListeners() {
   /* I sensori Generic vengono sospesi quando il documento non e' visibile: alla
      ripresa la stima di attitudine e' vecchia di secondi e va reinizializzata.
      Il campionamento del log lo segnala gia' da solo con gap=1. */
-  document.addEventListener('visibilitychange', () => {
-    if (document.visibilityState === 'visible') {
-      lastMotionT = 0;
-      state._attU = null;
-      state._spHist = null;
-    }
-  });
+  document.addEventListener('visibilitychange', onVisChange);
 
   if (navigator.geolocation) {
-    navigator.geolocation.watchPosition(onGeolocation, onGeolocationErr, {
+    // id salvato: senza, clearWatch era impossibile e il GPS restava acceso
+    // anche quando nessuno consumava i fix (es. Demo).
+    watchId = navigator.geolocation.watchPosition(onGeolocation, onGeolocationErr, {
       enableHighAccuracy: true, maximumAge: 0, timeout: 10000
     });
   } else {

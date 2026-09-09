@@ -9,6 +9,18 @@
    destinazione appena cambiata. */
 let navReqSeq = 0;
 
+/* Inizializzazione dello stato VIVO di una rotta appena costruita: i tre rami di
+   navRequestRoute (cache fresca, cache stale, rete) la replicavano identica —
+   un campo nuovo dimenticato in un solo ramo = navigatore mezzo-nudo. */
+function navInitLive(nv) {
+  nv.idx = 0; nv.segT = 0; nv.sAlong = 0; nv.offDist = 0; nv.offThr = 50;
+  nv.nextMan = Math.min(1, nv.man.length - 1);
+  nv.spoken = 0; nv.preSpoken = {};
+  nv.offCount = 0; nv.offTravel = 0; nv.missCount = 0; nv.missTravel = 0;
+  nv.wrongCount = 0; nv.wrongTravel = 0; nv.farCount = 0; nv.lostCount = 0; nv.arriveCount = 0;
+  nv.vEMA = null; nv.lastFixAt = 0; nv.lastGoodAt = Date.now(); nv.lastLat = null; nv.lastLon = null;
+}
+
 async function navTryOsrm(from, to, hdg, vias) {
   const pts = [from, ...((vias || []).filter(v => v && isFinite(v.lat) && isFinite(v.lon))), to];
   const coords = pts.map(c => c.lon.toFixed(6) + ',' + c.lat.toFixed(6)).join(';');
@@ -109,12 +121,7 @@ async function navRequestRoute(from, to, hdg, why) {
       nv0.engine = cached.body.engine || 'cache';
       nv0.dest = { lat: to.lat, lon: to.lon, label: (state.navDest && state.navDest.label) || '' };
       nv0.status = 'ACTIVE';
-      nv0.idx = 0; nv0.segT = 0; nv0.sAlong = 0; nv0.offDist = 0; nv0.offThr = 50;
-      nv0.nextMan = Math.min(1, nv0.man.length - 1);
-      nv0.spoken = 0; nv0.preSpoken = {};
-      nv0.offCount = 0; nv0.offTravel = 0; nv0.missCount = 0; nv0.missTravel = 0;
-      nv0.wrongCount = 0; nv0.wrongTravel = 0; nv0.farCount = 0; nv0.lostCount = 0; nv0.arriveCount = 0;
-      nv0.vEMA = null; nv0.lastFixAt = 0; nv0.lastGoodAt = Date.now(); nv0.lastLat = null; nv0.lastLon = null;
+      navInitLive(nv0);
       nv0.rerouteAt = prev ? prev.rerouteAt : 0; nv0.rerouteWait = prev ? prev.rerouteWait : 0;
       nv0.rerouteStreak = prev ? (prev.rerouteStreak || 0) : 0;
       nv0.rerouteLog = prev ? (prev.rerouteLog || []) : [];
@@ -171,15 +178,8 @@ async function navRequestRoute(from, to, hdg, why) {
       nvS.engine = cached.body.engine || 'cache';
       nvS.dest = { lat: to.lat, lon: to.lon, label: (state.navDest && state.navDest.label) || '' };
       nvS.status = 'ACTIVE';
-      // Stesso init del ramo cache-fresh e di quello di rete: senza idx/nextMan/
-      // spoken/sAlong il navigatore parte mezzo-nudo e navAnnounce legge
-      // nv.man[undefined] => TypeError a ogni fix GPS, con la UI che muore.
-      nvS.idx = 0; nvS.segT = 0; nvS.sAlong = 0; nvS.offDist = 0; nvS.offThr = 50;
-      nvS.nextMan = Math.min(1, nvS.man.length - 1);
-      nvS.spoken = 0; nvS.preSpoken = {};
-      nvS.offCount = 0; nvS.offTravel = 0; nvS.missCount = 0; nvS.missTravel = 0;
-      nvS.wrongCount = 0; nvS.wrongTravel = 0; nvS.farCount = 0; nvS.lostCount = 0; nvS.arriveCount = 0;
-      nvS.vEMA = null; nvS.lastFixAt = 0; nvS.lastGoodAt = Date.now(); nvS.lastLat = null; nvS.lastLon = null;
+      // Stesso init del ramo cache-fresh e di quello di rete (navInitLive).
+      navInitLive(nvS);
       nvS.rerouteAt = 0; nvS.rerouteWait = 0; nvS.rerouteStreak = 0; nvS.rerouteLog = [];
       nvS.lastRerouteEnd = Date.now(); nvS.travelSinceReroute = 0;
       nvS.shapeRaw = (cached.body.trip.legs || []).map(l => l.shape);
@@ -226,12 +226,7 @@ async function navRequestRoute(from, to, hdg, why) {
 
   nv.dest = { lat: to.lat, lon: to.lon, label: (state.navDest && state.navDest.label) || (prev && prev.dest && prev.dest.label) || '' };
   nv.status = 'ACTIVE';
-  nv.idx = 0; nv.segT = 0; nv.sAlong = 0; nv.offDist = 0; nv.offThr = 50;
-  nv.nextMan = Math.min(1, nv.man.length - 1);   // la 0 e' la partenza: la prossima e' la 1
-  nv.spoken = 0; nv.preSpoken = {};
-  nv.offCount = 0; nv.offTravel = 0; nv.missCount = 0; nv.missTravel = 0;
-  nv.wrongCount = 0; nv.wrongTravel = 0; nv.farCount = 0; nv.lostCount = 0; nv.arriveCount = 0;
-  nv.vEMA = null; nv.lastFixAt = 0; nv.lastGoodAt = Date.now(); nv.lastLat = null; nv.lastLon = null;
+  navInitLive(nv);
   nv.rerouteAt = prev ? prev.rerouteAt : 0;
   nv.rerouteWait = prev ? prev.rerouteWait : 0;
   nv.rerouteStreak = prev ? (prev.rerouteStreak || 0) : 0;
