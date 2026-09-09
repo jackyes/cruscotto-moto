@@ -1,5 +1,5 @@
 'use strict';
-/* js/map.js (step 26): saveSession/recoverChunks, showSessionDetail, initMap/Leaflet/canvas, updateLeaflet/Map, drawCanvasMap/TrackOnCanvas, canvasTheme, lastCamRender. Ordine: dopo js/video3d.js. */
+/* js/map.js (step 26): saveSession/recoverChunks, showSessionDetail, initMap/Leaflet/canvas, updateLeaflet/Map, drawCanvasMap/TrackOnCanvas, canvasTheme. Ordine: dopo js/video3d.js. */
 async function saveSession() {
   if (!state.session.startWall) return;
   const endWall = state.session.endWall || Date.now();
@@ -14,7 +14,7 @@ async function saveSession() {
   const sess = {
     id: state.sessionId || ('s_' + state.session.startWall),
     meta,
-    track: state.track.slice(),
+    track: (state.trackFull.length ? state.trackFull : state.track).slice(),
     rows: state.rows.slice(),
   };
   try {
@@ -56,9 +56,15 @@ async function recoverChunks() {
   // bottone Start è già attivo, quindi senza flag un tap lo bruciava subito.
   state._recoveryPending = true;
   const last = chunks[chunks.length - 1];
+  // Traccia ricomposta dai chunk (scritta incrementale): il record kv
+  // 'activeTrack' resta solo come fallback per sessioni interrotte da
+  // versioni precedenti dell'app.
+  const trackChunks = [];
+  for (const c of chunks) if (c.track) for (const p of c.track) trackChunks.push(p);
   let saved = null;
   try { saved = await idb.kvGet('activeTrack'); } catch (e) {}
-  const track = (saved && saved.sid === last.sid && saved.track) ? saved.track : [];
+  const track = trackChunks.length ? trackChunks
+    : ((saved && saved.sid === last.sid && saved.track) ? saved.track : []);
   const startWall = last.startWall || (saved && saved.startWall) || Date.now();
   const el = document.createElement('div');
   el.className = 'toast';
@@ -204,8 +210,6 @@ function initLeaflet() {
   renderCameras();
 }
 
-let lastCamRender = 0;
-
 
 function updateLeaflet() {
   if (!state.map) return;
@@ -231,9 +235,13 @@ function updateLeaflet() {
   }
   if (state.follow && state.gps.lat != null) state.map.panTo([state.gps.lat, state.gps.lon], { animate: false });
   if (state.trackUp) applyMapRotation();
-  // Ridisegna i marker autovelox quando ci si sposta, non a ogni fix.
-  const now = Date.now();
-  if (now - lastCamRender > 20000) { lastCamRender = now; renderCameras(); }
+  // Ridisegna i marker autovelox solo muovendosi davvero: il vecchio timer a
+  // 20 s ridisegnava fino a 400 marker anche da fermi (batteria, calore).
+  if (state.gps.lat != null && (!state._camRenderPos ||
+      haversineM(state._camRenderPos.lat, state._camRenderPos.lon, state.gps.lat, state.gps.lon) > camMoveThreshold() * 0.4)) {
+    state._camRenderPos = { lat: state.gps.lat, lon: state.gps.lon };
+    renderCameras();
+  }
 }
 
 function initCanvasMap() {

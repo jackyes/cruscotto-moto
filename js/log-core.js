@@ -75,21 +75,29 @@ async function flushLog() {
   if (state._flushing) return; // due flush sovrapposti scriverebbero righe doppie
   const upto = state.rows.length;
   const pending = state.rows.slice(state.flushedRows, upto);
-  if (!pending.length) return;
+  // Anche la traccia va nei chunk, INCREMENTALE: prima ogni flush riscriveva
+  // l'intero record activeTrack (fino a 10.000 punti ogni 10 s) — costo
+  // quadratico e centinaia di MB di flash su un giro lungo. Coordinate
+  // globali (written − trimmed): il trim della mappa live sposta gli indici,
+  // ma qui i contatori sono immuni allo slittamento.
+  const trackStart = (state._trackWritten || 0) - (state._trackTrimmed || 0);
+  const trackNew = state.track.slice(trackStart);
+  const trackWrittenNew = (state._trackWritten || 0) + trackNew.length;
+  if (!pending.length && !trackNew.length) return;
   state._flushing = true;
   // Catturati PRIMA del primo await: durante la scrittura sampleTick può
   // trimmare state.rows e startLog può azzerare sessionId per una sessione
-  // nuova — kvPut('activeTrack') leggeva questi valori a tempo di esecuzione
-  // e attaccava la track vecchia al sid nuovo (recupero sessioni mescolate).
+  // nuova — leggere questi valori a tempo di esecuzione attaccava la track
+  // vecchia al sid nuovo (recupero sessioni mescolate).
   const sid = state.sessionId;
   const startWall = state.session.startWall;
-  const track = state.track.slice();
   try {
     await idb.putChunk({
       sid: sid,
       seq: state.flushSeq++,
       startWall: startWall,
       rows: pending,
+      track: trackNew,
     });
     // flushedRows avanza SUBITO dopo il chunk: se il trim di sampleTick è
     // corso durante l'await, state.rows si è accorciata e un update rimandato
@@ -97,15 +105,9 @@ async function flushLog() {
     // un intervallo vuoto per sempre e le righe intanto scritte dal trim
     // risultavano "già salvate" senza esserlo mai state.
     state.flushedRows = upto;
+    state._trackWritten = trackWrittenNew;
     state._flushFailN = 0;
     state._flushBackoffUntil = 0;
-    // La traccia sta in un unico record: replicarla in ogni chunk moltiplicava
-    // fino a 10.000 punti per il numero di flush. Va in try/catch separato:
-    // se fallisce qui (quota fra le due transazioni) le righe del chunk sono
-    // GIÀ su disco e non devono tornare in coda come da riscrivere.
-    try {
-      await idb.kvPut('activeTrack', { sid: sid, startWall: startWall, track: track });
-    } catch (e2) {}
   } catch (e) {
     state._flushFailN = (state._flushFailN || 0) + 1;
     if (!state._flushWarned) {

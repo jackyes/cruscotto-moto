@@ -43,7 +43,14 @@ function navTick(pLat, pLon, acc) {
   if (nv.offDist <= nv.offThr) { nv.lastGoodAt = now; nv.lostCount = 0; }
   else nv.lostCount++;
 
-  const travelled = jump;
+  // Metri REALMENTE percorsi fra questo fix e il precedente: v·dt, non la
+  // distanza fra i due fix. Da fermi il GPS deriva di decine di metri al minuto
+  // e la distanza fix-fix gonfiava offTravel/missTravel fino alla soglia:
+  // falso "fuori percorso" e ricalcolo al semaforo, con la moto immobile.
+  // dtS cappato: un buco GPS lungo (ma sotto la soglia resumed) non deve
+  // caricare un fix solo di centinaia di metri di credito.
+  const dtS = Math.min(5, Math.max(0, gap / 1000));
+  const travelled = v * dtS;
   const judging = (acc == null || acc <= GPS_ACC_MAX) && !resumed;
   // Senza questo incremento il freno "60 m dall'ultima richiesta" non si sblocca mai
   // e dopo il primo ricalcolo tutti i successivi restano bloccati per sempre.

@@ -177,19 +177,19 @@ test('A8: trim sospeso durante un flush in volo', () => {
   assert.ok(state.rows.length <= base - 1, 'trim non ripreso: ' + state.rows.length);
 });
 
-test('A8: flushedRows avanza col chunk; kvPut fallito non riaccoda; sid catturato', async () => {
+test('A8: flushedRows e _trackWritten avanzano col chunk; sid catturato', async () => {
   resetState();
-  const origPut = idb.putChunk, origKv = idb.kvPut;
-  let chunkSid = null, chunkRows = null, kvSid = null, kvCalled = 0;
+  const origPut = idb.putChunk;
+  let chunkSid = null, chunkRows = null, chunkTrack = null;
   idb.putChunk = async c => {
-    chunkSid = c.sid; chunkRows = c.rows;
+    chunkSid = c.sid; chunkRows = c.rows; chunkTrack = c.track;
     await new Promise(r => setTimeout(r, 5));
     state.sessionId = 'sid2';        // startLog scatta durante la scrittura
   };
-  idb.kvPut = async (k, v) => { kvCalled++; kvSid = v.sid; throw new Error('quota'); };
   state.sessionId = 'sid1';
   state.session.startWall = 123;
-  state.track = [{ lat: 45, lon: 9 }];
+  state.track = [{ lat: 45, lon: 9 }, { lat: 45.1, lon: 9.1 }];
+  state._trackWritten = 1;          // il primo punto era già stato flushato
   state.rows = [{ t: 0 }, { t: 1 }, { t: 2 }];
   state.flushedRows = 0;
   try {
@@ -197,12 +197,11 @@ test('A8: flushedRows avanza col chunk; kvPut fallito non riaccoda; sid catturat
     assert.equal(chunkSid, 'sid1');
     assert.equal(chunkRows.length, 3);
     assert.equal(state.flushedRows, 3, 'flushedRows non avanzato subito dopo il chunk');
-    assert.equal(state._flushFailN || 0, 0, 'kvPut fallito contato come quota');
-    assert.equal(kvSid, 'sid1', 'track attaccata al sid nuovo');
-    assert.equal(kvCalled, 1);
+    assert.equal(chunkTrack.length, 1, 'nel chunk solo i punti traccia NUOVI (flush incrementale)');
+    assert.equal(state._trackWritten, 2, '_trackWritten non avanzato');
+    assert.equal(state._flushFailN || 0, 0);
   } finally {
     idb.putChunk = origPut;
-    idb.kvPut = origKv;
   }
 });
 

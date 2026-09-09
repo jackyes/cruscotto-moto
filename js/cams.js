@@ -69,16 +69,29 @@ if (typeof window !== 'undefined' && window.addEventListener) {
 
 function camsToDraw() {
   const p = state.pos.lat != null ? state.pos : (state.gps.lat != null ? state.gps : null);
-  // Con un DB nazionale importato non si disegna tutto: solo ciò che è vicino.
+  const ver = state.camGridVer || 0;
+  // Dirty-flag: finché non ci si muove davvero (e la griglia non cambia) la
+  // lista resta la stessa. Il vecchio timer a 20 s ricostruiva fino a 400
+  // marker anche da fermi: batteria e calore spesi per un'immagine identica.
+  const moved = !p ? false : (!state._camDraw || !state._camDraw.pos ||
+    haversineM(state._camDraw.pos.lat, state._camDraw.pos.lon, p.lat, p.lon) > camMoveThreshold() * 0.4);
+  if (state._camDraw && state._camDraw.ver === ver && !moved) return state._camDraw.list;
   const list = p ? camsNear(p.lat, p.lon, camMarkerRadius()) : allCameras();
   state.camTotal = list.length;
   state.camDrawn = Math.min(list.length, CAM_MARKER_MAX);
-  if (list.length <= CAM_MARKER_MAX) return list;
-  if (!p) return list.slice(0, CAM_MARKER_MAX);
-  // Si ordina solo quando il tetto morde davvero, e comunque a un redraw ogni 20 s.
-  const withD = list.map(c => ({ c: c, d: haversine(p, { lat: c.lat, lon: c.lon }) }));
-  withD.sort((a, b) => a.d - b.d);
-  return withD.slice(0, CAM_MARKER_MAX).map(x => x.c);
+  let out = list;
+  if (list.length > CAM_MARKER_MAX) {
+    if (!p) out = list.slice(0, CAM_MARKER_MAX);
+    else {
+      // Si ordina solo quando il tetto morde davvero, e comunque a un redraw
+      // ogni movimento reale.
+      const withD = list.map(c => ({ c: c, d: haversine(p, { lat: c.lat, lon: c.lon }) }));
+      withD.sort((a, b) => a.d - b.d);
+      out = withD.slice(0, CAM_MARKER_MAX).map(x => x.c);
+    }
+  }
+  state._camDraw = { pos: p ? { lat: p.lat, lon: p.lon } : null, ver: ver, list: out };
+  return out;
 }
 
 function checkCameras(acc) {
@@ -109,7 +122,7 @@ function checkCameras(acc) {
     const h = Math.sin(dLatH) ** 2 + cosMe * c.cosLat * Math.sin(dLonH) ** 2;
     const d = 2 * 6371000 * Math.asin(Math.sqrt(Math.min(1, Math.max(0, h))));
     const k = c._k || camKey(c);
-    seen[k] = d;
+    seen[k] = { d: d, t: now };
     if (d > state.camDist) continue;
     if (useBearing) {
       // Scarta gli autovelox alle spalle o sulla carreggiata opposta
@@ -117,9 +130,12 @@ function checkCameras(acc) {
       if (bc == null) continue;
       if (angleDiff(bc, hdg) > CAM_AHEAD_DEG) continue;
     } else {
-      // Senza heading affidabile: avvisa solo se ci si sta avvicinando
+      // Senza heading affidabile: avvisa solo se ci si sta avvicinando.
+      // La distanza precedente vale solo se recente: un fix staccato di minuti
+      // (schermo spento, galleria lunga) riusava numeri vecchi di ore e
+      // scartava camere vere come "in allontanamento".
       const prev = state.camLastDist[k];
-      if (prev != null && d > prev - 1) continue;
+      if (prev != null && now - prev.t <= CAM_LAST_DIST_MAX_MS && d > prev.d - 1) continue;
     }
     if (d < nearestD) { nearestD = d; nearest = c; }
   }

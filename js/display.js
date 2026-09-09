@@ -110,7 +110,12 @@ function guidaActive() {
 }
 
 function updateGuidaMode() {
-  document.body.classList.toggle('guida', guidaActive());
+  // Cache del verdetto: a 15 Hz classList.toggle scrive l'attributo di classe
+  // anche quando nulla è cambiato (updateDisplay la chiama a ogni tick).
+  const on = guidaActive();
+  if (state._guidaOn === on) return;
+  state._guidaOn = on;
+  document.body.classList.toggle('guida', on);
 }
 
 function updateDisplay() {

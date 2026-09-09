@@ -47,6 +47,15 @@ function loadWebmMuxer() {
 
 function videoWebmRealtimeFallback(pre, mode) {
   if (videoSessionGone()) return;    // modale chiusa durante il setup: niente ghost
+  // iOS ≥16.4: WebCodecs sì ma MediaRecorder/captureStream possono mancare —
+  // il fallback realtime è impossibile, meglio un toast che un crash muto.
+  if (typeof MediaRecorder === 'undefined' ||
+      typeof HTMLCanvasElement === 'undefined' ||
+      typeof HTMLCanvasElement.prototype.captureStream !== 'function') {
+    toast('Registrazione video non supportata su questo browser (WebM offline e realtime non disponibili).', 'err', 6000);
+    if (els.videoStart) els.videoStart.disabled = false;
+    return;
+  }
   if (mode === '3d') startVideoRender3D(pre); else startVideoRender2D(pre);
 }
 

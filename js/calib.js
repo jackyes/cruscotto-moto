@@ -114,6 +114,21 @@ function collectAccBias(dt) {
     state._abPending = false;
     return;
   }
+  /* Gate di moto: la cattura parte a calibrazione appena chiusa, e una partenza
+     entro la finestra di 1 s congelava accelerazioni REALI come offset permanente.
+     Finestra sporca → si ricomincia da zero; se la moto è partita davvero, il
+     timeout a muro chiude comunque senza bias. Stesse soglie della calibrazione:
+     tollerano il minimo del motore, non una partenza. */
+  const wRock = (state.calib && state._wLP) ? vdot(state._wLP, state.calib.right) : 0;
+  const rotating = state.hasGyro &&
+    vlen({ x: state.gyroRoll, y: state.gyroYaw, z: wRock }) > CALIB_MAX_ROT_DPS;
+  const accel = Math.abs(state.gRatio - 1) > CALIB_MAX_NORM_DEV;
+  if (rotating || accel) {
+    state._abSum = { lat: 0, lon: 0, vert: 0 };
+    state._abN = 0;
+    state._abT = 0;
+    return;
+  }
   state._abSum.lat += state.latG;
   state._abSum.lon += state.lonG;
   state._abSum.vert += state.vertG;

@@ -7,7 +7,7 @@
 function haversine(a, b) {
   const R = 6371000;
   const dLat = (b.lat - a.lat) * Math.PI / 180;
-  const dLon = (b.lon - a.lon) * Math.PI / 180;
+  const dLon = dlonWrapRad(a.lon, b.lon);
   const la1 = a.lat * Math.PI / 180, la2 = b.lat * Math.PI / 180;
   const h = Math.sin(dLat/2)**2 + Math.cos(la1)*Math.cos(la2)*Math.sin(dLon/2)**2;
   return 2 * R * Math.asin(Math.sqrt(h)) / 1000;
@@ -16,10 +16,23 @@ function haversine(a, b) {
 function haversineM(lat1, lon1, lat2, lon2) {
   const R = 6371000;
   const dLat = (lat2 - lat1) * Math.PI / 180;
-  const dLon = (lon2 - lon1) * Math.PI / 180;
+  const dLon = dlonWrapRad(lon1, lon2);
   const la1 = lat1 * Math.PI / 180, la2 = lat2 * Math.PI / 180;
   const h = Math.sin(dLat/2)**2 + Math.cos(la1)*Math.cos(la2)*Math.sin(dLon/2)**2;
   return 2 * R * Math.asin(Math.sqrt(h));
+}
+/* Delta di longitudine riportato a [−180°, +180°]: sin² è pari quindi le distanze
+   erano già esatte, ma il wrap esplicito costa una sottrazione e toglie la classe
+   di bug per chiunque riusi questi helper (e per il bearing l'atan2 resta giusto
+   al bordo ±180°). */
+function dlonWrapDeg(aLon, bLon) {
+  let d = (bLon - aLon) % 360;
+  if (d > 180) d -= 360;
+  else if (d < -180) d += 360;
+  return d;
+}
+function dlonWrapRad(aLon, bLon) {
+  return dlonWrapDeg(aLon, bLon) * Math.PI / 180;
 }
 
 function camKey(c) {
@@ -58,7 +71,7 @@ function bearing(a, b) {
   if (!isFinite(la1) || !isFinite(lo1) || !isFinite(la2) || !isFinite(lo2)) return null;
   if (Math.abs(la1) > 90 || Math.abs(la2) > 90 || Math.abs(lo1) > 180 || Math.abs(lo2) > 180) return null;
   const r1 = la1 * Math.PI / 180, r2 = la2 * Math.PI / 180;
-  const dLon = (lo2 - lo1) * Math.PI / 180;
+  const dLon = dlonWrapRad(lo1, lo2);
   const y = Math.sin(dLon) * Math.cos(r2);
   const x = Math.cos(r1) * Math.sin(r2) - Math.sin(r1) * Math.cos(r2) * Math.cos(dLon);
   if (Math.abs(x) < 1e-12 && Math.abs(y) < 1e-12) return null; // punti identici (dist ~0)

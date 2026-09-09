@@ -22,6 +22,7 @@ const CAM_MOVE_FACTOR = 0.5;   // refetch a meta' raggio: mezzo raggio di copert
 const CAM_MARKER_MAX = 400;    // tetto marker disegnati (un DB nazionale a 50 km blocca il telefono)
 const CAM_STALE_MS = 15 * 60 * 1000; // refresh cache dopo 15 min
 const CAM_COOLDOWN_MS = 60000; // non ri-avvisa stessa camera entro 60 s
+const CAM_LAST_DIST_MAX_MS = 10000; // distanza precedente valida max (avvicinamento)
 const CAM_FAIL_BACKOFF_MS = 120000; // dopo un errore Overpass, riprova non prima di 2 min
 const CAM_GRID_DEG = 0.02;     // lato cella griglia spaziale camere (~2 km)
 const CAM_AHEAD_DEG = 60;      // semi-apertura del cono "davanti a me"
@@ -91,6 +92,7 @@ const STOP_VIB_G = 0.25;
 /* --- stimatore del segno del giroscopio --- */
 const GSIGN_TAU_S = 4;         // memoria della correlazione rollio/derivata-accelerometro
 const GSIGN_MIN_ENERGY = 150;  // energia minima prima di dare un verdetto
+const GSIGN_MAX_GAP_S = 1.0;   // buco fra due campioni oltre cui la baseline dLean è stantia
 /* --- accelerazioni: laterale / longitudinale / verticale --- */
 const DESPIKE_G = 1.5;         // salto minimo (g) per sospettare un glitch di sensore
 const DESPIKE_RATIO = 0.35;    // quanto i due vicini devono somigliarsi per dirlo isolato
@@ -135,7 +137,10 @@ const state = {
   gpsStatus: 'waiting',
   logging: false,
   rows: [],
-  track: [],                 // {lat, lon, alt, t, ts}
+  track: [],                 // {lat, lon, alt, t, ts} — live, cappata a TRACK_MAX
+  trackFull: [],             // stessa traccia senza cap: è lei che va a disco (GPX/storico)
+  _trackWritten: 0,          // punti traccia già scritti nei chunk (coordinate globali)
+  _trackTrimmed: 0,          // punti traccia scartati dal trim della mappa live
   chartBuf: [],              // {t, speedKph, lean, latG, lonG}
   session: { maxSpeed: 0, maxLeanR: 0, maxLeanL: 0, distKm: 0, start: 0, startWall: 0, lastPos: null },
   demo: false,
@@ -145,6 +150,7 @@ const state = {
   cameras: [],
   importedCameras: [],
   camGrid: null,             // Map<cellKey, camera[]> — indice spaziale
+  camGridVer: 0,             // versione griglia: invalida la cache camsToDraw
   camAlerts: true,
   camAhead: true,
   camDist: 400,

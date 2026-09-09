@@ -121,65 +121,73 @@ async function videoMp4Loop(job, W, H) {
 
 /* Audio AAC sintetico offline: saw motore (engineToneFor) + rumore bianco
    (windGainFor), 44.1 kHz mono. Niente ScriptProcessor: campioni generati
-   dagli stessi profili del graph live, timestamp dalla t delle righe. */
-function videoMp4MuxAudio(muxer, rows, slow, stepUs) {
-  return new Promise(resolve => {
-    try {
-      if (typeof AudioEncoder === 'undefined' || !rows.length) { resolve(false); return; }
-      const SR = 44100;
-      let aErr = null;   // gli errori encoder non devono essere swallowati: il
-                         // file uscirebbe (quasi) muto senza alcun avviso
-      const aenc = new AudioEncoder({
-        output: (chunk, meta) => { try { muxer.addAudioChunk(chunk, meta); } catch (e) {} },
-        error: e => { aErr = aErr || e; },
+   dagli stessi profili del graph live, timestamp dalla t delle righe.
+   ASYNC con yield periodici: prima il while girava sincrono dentro la Promise
+   e per sessioni lunghe congelava l'UI — "Annulla" incluso, che non poteva
+   mai essere processato. */
+async function videoMp4MuxAudio(muxer, rows, slow, stepUs) {
+  try {
+    if (typeof AudioEncoder === 'undefined' || !rows.length) return false;
+    const SR = 44100;
+    let aErr = null;   // gli errori encoder non devono essere swallowati: il
+                       // file uscirebbe (quasi) muto senza alcun avviso
+    const aenc = new AudioEncoder({
+      output: (chunk, meta) => { try { muxer.addAudioChunk(chunk, meta); } catch (e) {} },
+      error: e => { aErr = aErr || e; },
+    });
+    aenc.configure({ codec: 'mp4a.40.2', sampleRate: SR, numberOfChannels: 1, bitrate: 128000 });
+    const t0 = rows[0].t, tEnd = rows[rows.length - 1].t;
+    const s = slow || { base: 1 };
+    const stepUs_ = (stepUs && stepUs > 0) ? stepUs : 33333;
+    const stepSec = stepUs_ / 1e6;
+    const SAMP_FRAME = Math.round(SR * stepSec);
+    let tsUs = 0, phase = 0;
+    // Chunk da 0.5 s: pochi encode, memoria costante.
+    const CH = Math.floor(SR / 2);
+    let cur = new Float32Array(CH), n = 0;
+    const flushCur = () => {
+      if (!n) return;
+      const data = new AudioData({
+        format: 'f32', sampleRate: SR, numberOfFrames: n, numberOfChannels: 1,
+        timestamp: tsUs, data: cur.slice(0, n).buffer,
       });
-      aenc.configure({ codec: 'mp4a.40.2', sampleRate: SR, numberOfChannels: 1, bitrate: 128000 });
-      const t0 = rows[0].t, tEnd = rows[rows.length - 1].t;
-      const s = slow || { base: 1 };
-      const stepUs_ = (stepUs && stepUs > 0) ? stepUs : 33333;
-      const stepSec = stepUs_ / 1e6;
-      const SAMP_FRAME = Math.round(SR * stepSec);
-      let tsUs = 0, phase = 0;
-      // Chunk da 0.5 s: pochi encode, memoria costante.
-      const CH = Math.floor(SR / 2);
-      let cur = new Float32Array(CH), n = 0;
-      const flushCur = () => {
-        if (!n) return;
-        const data = new AudioData({
-          format: 'f32', sampleRate: SR, numberOfFrames: n, numberOfChannels: 1,
-          timestamp: tsUs, data: cur.slice(0, n).buffer,
-        });
-        tsUs += Math.round((n / SR) * 1e6);
-        try { aenc.encode(data); } catch (e) { aErr = aErr || e; }
-        try { data.close(); } catch (e) {}
-        n = 0;
-      };
-      // L'audio scorre nel TEMPO VIDEO (stessa progressione tSim di videoOfflineLoop),
-      // non nel tempo delle righe: altrimenti mult/slow-mo desincronizzerebbero
-      // audio e video. Pitch/vento letti dalla riga a tSim via findRowAt.
-      let tSim = t0, k = 0;
-      while (tSim < tEnd) {
-        const i = Math.max(0, findRowAt(rows, tSim));
-        const r = rows[i] || {};
-        const f = engineToneFor(r.speedKmh || 0), g = windGainFor(r.speedKmh || 0);
-        for (let s2 = 0; s2 < SAMP_FRAME; s2++) {
-          phase += f / SR;
-          cur[n++] = ((phase % 1) * 2 - 1) * 0.06 + (Math.random() * 2 - 1) * g;
-          if (n >= CH) flushCur();
-        }
-        tSim += stepSec * slowMultAt(tSim, s);
-        k++;
-        if (k % 60 === 0 && typeof videoJob !== 'undefined' && videoJob && videoJob.cancelled) {
-          try { aenc.close(); } catch (e) {} resolve(false); return;
+      tsUs += Math.round((n / SR) * 1e6);
+      try { aenc.encode(data); } catch (e) { aErr = aErr || e; }
+      try { data.close(); } catch (e) {}
+      n = 0;
+    };
+    // L'audio scorre nel TEMPO VIDEO (stessa progressione tSim di videoOfflineLoop),
+    // non nel tempo delle righe: altrimenti mult/slow-mo desincronizzerebbero
+    // audio e video. Pitch/vento letti dalla riga a tSim via findRowAt.
+    let tSim = t0, k = 0;
+    while (tSim < tEnd) {
+      const i = Math.max(0, findRowAt(rows, tSim));
+      const r = rows[i] || {};
+      const f = engineToneFor(r.speedKmh || 0), g = windGainFor(r.speedKmh || 0);
+      for (let s2 = 0; s2 < SAMP_FRAME; s2++) {
+        phase += f / SR;
+        cur[n++] = ((phase % 1) * 2 - 1) * 0.06 + (Math.random() * 2 - 1) * g;
+        if (n >= CH) flushCur();
+      }
+      tSim += stepSec * slowMultAt(tSim, s);
+      k++;
+      // Yield ogni ~4 s di audio: UI viva, "Annulla" processabile, progress.
+      if (k % 120 === 0) {
+        await new Promise(res => setTimeout(res, 0));
+        if (typeof videoJob !== 'undefined' && videoJob && videoJob.cancelled) {
+          try { aenc.close(); } catch (e) {}
+          return false;
         }
       }
-      flushCur();
-      if (aErr) { try { aenc.close(); } catch (e2) {} resolve(false); return; }
-      aenc.flush().then(() => { try { aenc.close(); } catch (e) {} resolve(true); })
-        .catch(() => { try { aenc.close(); } catch (e) {} resolve(false); });
-      void t0;
-    } catch (e) { resolve(false); }
-  });
+    }
+    flushCur();
+    if (aErr) { try { aenc.close(); } catch (e2) {} return false; }
+    await new Promise((res, rej) => {
+      aenc.flush().then(() => res()).catch(err => rej(err));
+    });
+    try { aenc.close(); } catch (e) {}
+    return true;
+  } catch (e) { return false; }
 }
 
 /* Entry MP4: offline più veloce del realtime (niente captureStream: si

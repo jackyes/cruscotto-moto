@@ -365,9 +365,17 @@ function updateGyroSign(rollRate, leanAcc, dt, credible) {
       state.gyroSignScore = (state.gyroSignScore || 0) * f;
       state.gyroSignEnergy = (state.gyroSignEnergy || 0) * f;
     }
+    // Buco lungo fra due campioni (app in background, sensore muto): la
+    // baseline _gsPrev è vecchia di secondi e la prossima dLean = Δ/dt_frame
+    // esploderebbe, mandando score/energia oltre soglia con un singolo
+    // campione → doppio flip spurio appena dopo lo scadere del lock.
+    if (dSec > GSIGN_MAX_GAP_S) state._gsPrev = null;
   }
   state._gsEnergyT = nowP;
-  if ((state.gyroSignEnergy || 0) < GSIGN_MIN_ENERGY * 0.37) state.gyroSignLocked = false;
+  if ((state.gyroSignEnergy || 0) < GSIGN_MIN_ENERGY * 0.37) {
+    if (state.gyroSignLocked) state._gsPrev = null;   // baseline stantia al risblocco
+    state.gyroSignLocked = false;
+  }
   if (!(dt > 0) || !credible) {
     state._gsPrev = leanAcc;
     return false;

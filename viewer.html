@@ -623,6 +623,13 @@ const canvasTheme = {
         series: [{ key: 'gyro_roll_dps', color: getCss('--acc-lon') }],
         datasets: ovDs((r, k) => r.gyro_roll_dps),
       });
+      // Quota: altMin/altMax erano calcolati ma mai usati — il canvas cAlt
+      // restava vuoto (il grafico quota semplicemente non esisteva).
+      drawLine($('cAlt'), rows, (r, k) => r.alt_m, {
+        min: altMin, max: altMax, t0: speedT0, t1: speedT1,
+        series: [{ key: 'alt_m', color: getCss('--good') }],
+        datasets: ovDs((r, k) => r.alt_m),
+      });
       $('lblVib').textContent = st.vibMax != null ? 'max ' + st.vibMax.toFixed(2) + 'g' : '';
       $('lblGyro').textContent = '±' + gyroMax + ' dps';
       renderMap(trackPts);

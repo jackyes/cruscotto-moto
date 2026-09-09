@@ -6,12 +6,21 @@ function appendTrackPoint(lat, lon, alt) {
   lastTrackT = now;
   // alt assente (null/NaN): null, non 0 — `alt || 0` fabbricava <ele>0.0</ele>
   // nel GPX e alt_m=0 nel CSV per fix senza dati di quota.
-  state.track.push({ lat, lon, alt: (alt != null && isFinite(alt)) ? alt : null, t: now, ts: Date.now() });
+  const pt = { lat, lon, alt: (alt != null && isFinite(alt)) ? alt : null, t: now, ts: Date.now() };
+  state.track.push(pt);
+  // La traccia completa non può vivere solo nella mappa live (cap TRACK_MAX):
+  // trackFull cresce senza cap ed è la fonte di GPX/storico, altrimenti un
+  // giro oltre ~2,8 h veniva troncato silenziosamente in export e salvataggio.
+  state.trackFull.push(pt);
   if (state.track.length > TRACK_MAX) {
-    state.track.splice(0, state.track.length - TRACK_MAX);
+    const removed = state.track.length - TRACK_MAX;
+    state.track.splice(0, removed);
     // Il trim toglie i punti più vecchi: la polyline Leaflet non ha API per
     // rimuoverli dal davanti, quindi si marca il rebuild completo.
     state._leafTrim = true;
+    // Gli indici della traccia live slittano: il contatore dei punti scritti
+    // nei chunk resta su coordinate globali (written − trimmed).
+    state._trackTrimmed = (state._trackTrimmed || 0) + removed;
   }
   updateMap();
 }
@@ -37,6 +46,7 @@ function rebuildCamGrid() {
     a.push(c);
   }
   state.camGrid = g;
+  state.camGridVer = (state.camGridVer || 0) + 1;   // invalida la cache di camsToDraw
 }
 
 function camsNear(lat, lon, radiusM) {
@@ -44,17 +54,28 @@ function camsNear(lat, lon, radiusM) {
   const dLat = radiusM / 111320;
   const dLon = radiusM / (111320 * Math.max(0.15, Math.cos(lat * Math.PI / 180)));
   const y0 = Math.floor((lat - dLat) / CAM_GRID_DEG), y1 = Math.floor((lat + dLat) / CAM_GRID_DEG);
-  const x0 = Math.floor((lon - dLon) / CAM_GRID_DEG), x1 = Math.floor((lon + dLon) / CAM_GRID_DEG);
   const out = [];
-  const la0 = lat - dLat, la1 = lat + dLat, lo0 = lon - dLon, lo1 = lon + dLon;
-  for (let y = y0; y <= y1; y++) {
-    for (let x = x0; x <= x1; x++) {
-      const a = state.camGrid.get(y + ':' + x);
-      if (!a) continue;
-      for (const c of a) {
-        // pre-filtro bbox: evita haversine/allocazioni per i punti ai bordi cella
-        if (c.lat < la0 || c.lat > la1 || c.lon < lo0 || c.lon > lo1) continue;
-        out.push(c);
+  const la0 = lat - dLat, la1 = lat + dLat;
+  // Wrap antimeridiano: una camera a lon −179,99 con query a +179,99 sta nella
+  // colonna di celle "oltre il bordo" della griglia. Senza la seconda/terza
+  // spazzata veniva scartata dal pre-filtro bbox anche a 20 m di distanza.
+  const cols = [];
+  cols.push([Math.floor((lon - dLon) / CAM_GRID_DEG), Math.floor((lon + dLon) / CAM_GRID_DEG)]);
+  if (lon - dLon < -180) cols.push([Math.floor((lon + 360 - dLon) / CAM_GRID_DEG), Math.floor((lon + 360 + dLon) / CAM_GRID_DEG)]);
+  if (lon + dLon > 180) cols.push([Math.floor((lon - 360 - dLon) / CAM_GRID_DEG), Math.floor((lon - 360 + dLon) / CAM_GRID_DEG)]);
+  for (const [x0, x1] of cols) {
+    for (let y = y0; y <= y1; y++) {
+      for (let x = x0; x <= x1; x++) {
+        const a = state.camGrid.get(y + ':' + x);
+        if (!a) continue;
+        for (const c of a) {
+          // pre-filtro bbox wrap-aware: evita haversine/allocazioni per i punti
+          // ai bordi cella, senza bucare il confine ±180°.
+          if (c.lat < la0 || c.lat > la1) continue;
+          const dlo = dlonWrapDeg(lon, c.lon);
+          if (dlo > dLon || dlo < -dLon) continue;
+          out.push(c);
+        }
       }
     }
   }

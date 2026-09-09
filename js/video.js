@@ -374,6 +374,19 @@ function startVideoRender2D(pre) {
 
 function beginVideoCapture(job, canvas, mime) {
   if (job.cancelled) return;
+  // iOS/Safari ≥16.4: WebCodecs presenti ma MediaRecorder/captureStream
+  // possono mancare — il WebM offline passerebbe i check iniziali e il
+  // fallback realtime crashava qui con TypeError muto (modale appesa).
+  if (typeof MediaRecorder === 'undefined' ||
+      typeof HTMLCanvasElement === 'undefined' ||
+      typeof HTMLCanvasElement.prototype.captureStream !== 'function') {
+    job.running = false;
+    toast('Registrazione realtime non supportata su questo browser.', 'err', 6000);
+    cleanupVideoJob(job);
+    if (videoJob === job) videoJob = null;
+    if (els.videoStart) els.videoStart.disabled = false;
+    return;
+  }
   job.stream = canvas.captureStream(30);
   // 1080p ha 2.25x pixel del 720p: a 5 Mbps gli artefatti mangiano i dettagli mappa.
   const bps = videoBitrateFor(canvas.width);

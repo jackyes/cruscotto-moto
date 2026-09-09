@@ -19,6 +19,9 @@ function startLog() {
   state._flushBackoffUntil = 0;
   state.rows = [];
   state.track = [];
+  state.trackFull = [];
+  state._trackWritten = 0;
+  state._trackTrimmed = 0;
   state._leafN = 0;
   state._leafTrim = false;
   state.sessionId = 's_' + Date.now();

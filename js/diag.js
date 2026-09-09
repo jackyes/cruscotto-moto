@@ -101,7 +101,10 @@ function diagVerdict(state) {
 }
 
 function updateDiag() {
-  if (els.diagVerdict) els.diagVerdict.textContent = 'Stato sensori: ' + diagVerdict(state);
+  // Verdetto ricalcolato e scritto SOLO se cambia: a 15 Hz (pannello chiuso
+  // compreso) si riscriveva lo stesso textContent a ogni tick per niente.
+  const v = 'Stato sensori: ' + diagVerdict(state);
+  if (els.diagVerdict && els.diagVerdict.textContent !== v) els.diagVerdict.textContent = v;
   if (!els.diagPanel.open) return;
   els.dgHz.textContent = state.sensorHz ? state.sensorHz.toFixed(0) + ' Hz' : '—';
   els.dgVib.textContent = state.vibG.toFixed(3) + ' g';

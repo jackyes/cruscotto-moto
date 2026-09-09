@@ -204,8 +204,13 @@ async function navRequestRoute(from, to, hdg, why) {
       // navMaybeReroute): nel ramo "ripresa" di navStart (status ACTIVE/IDLE)
       // nessun push è avvenuto e un pop toglierebbe una voce legittima del log.
       if (prev.status === 'REROUTING' && prev.rerouteLog && prev.rerouteLog.length) prev.rerouteLog.pop();
-      prev.status = 'OFF_NONET';
-      prev.lastRerouteEnd = Date.now();
+      if (prev.status === 'REROUTING') {
+        prev.status = 'OFF_NONET';
+        prev.lastRerouteEnd = Date.now();
+      }
+      // Nuova destinazione/ripresa fallita: la rotta attiva è SANA e va lasciata
+      // tale — prima OFF_NONET veniva applicato anche qui, degradando la guida
+      // (e il circuito di ricalcolo) per un errore di rete non dovuto a deviazione.
       navSetStatus('Senza rete: percorso non aggiornato. ' + (err ? err.message : ''));
     } else {
       navSetStatus('Nessun motore di routing raggiungibile: ' + (err ? err.message : 'errore'));
