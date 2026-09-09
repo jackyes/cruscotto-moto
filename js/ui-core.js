@@ -59,7 +59,16 @@ function buildGauge() {
     line.setAttribute('x2', cx + r2 * Math.cos(ang * Math.PI / 180));
     line.setAttribute('y2', cy - r2 * Math.sin(ang * Math.PI / 180));
     line.setAttribute('class', major ? 'gauge-tick major' : 'gauge-tick');
-    line.setAttribute('stroke-width', major ? 2.5 : 1.2);
+    line.setAttribute('stroke-width', major ? (a === 0 ? 3.5 : 2.5) : 1.4);
+    if (a === 0) {
+      line.setAttribute('style', 'stroke: var(--text);');
+    } else if (Math.abs(a) >= 50) {
+      line.setAttribute('style', 'stroke: var(--bad);');
+    } else if (a > 0) {
+      line.setAttribute('style', 'stroke: var(--accent);');
+    } else {
+      line.setAttribute('style', 'stroke: var(--good);');
+    }
     svg.appendChild(line);
     if (major) {
       const txt = mk('text');
@@ -67,7 +76,7 @@ function buildGauge() {
       txt.setAttribute('y', cy - (r - 38) * Math.sin(ang * Math.PI / 180) + 4);
       txt.setAttribute('text-anchor', 'middle');
       txt.setAttribute('font-size', '12');
-      txt.setAttribute('font-weight', '600');
+      txt.setAttribute('font-weight', '800');
       txt.setAttribute('class', 'gauge-label');
       txt.textContent = Math.abs(a);
       svg.appendChild(txt);
@@ -79,8 +88,8 @@ function buildGauge() {
   num.setAttribute('x', cx); num.setAttribute('y', 166);
   num.setAttribute('text-anchor', 'middle');
   num.setAttribute('class', 'gauge-val');
-  num.setAttribute('font-size', '34');
-  num.setAttribute('font-weight', '800');
+  num.setAttribute('font-size', '36');
+  num.setAttribute('font-weight', '900');
   const tspan = mk('tspan');
   tspan.setAttribute('id', 'leanVal');
   tspan.textContent = '--';
@@ -94,26 +103,32 @@ function buildGauge() {
 
   /* Marker di picco: un punto sull'arco per il massimo destro e sinistro. */
   const peakR = mk('circle');
-  peakR.setAttribute('r', 4); peakR.setAttribute('class', 'gauge-peak');
-  peakR.style.display = 'none';
+  peakR.setAttribute('r', 5);
+  peakR.setAttribute('class', 'gauge-peak peak-r');
+  peakR.setAttribute('style', 'fill:var(--accent);stroke:#fff;stroke-width:1.5;display:none;');
   svg.appendChild(peakR);
   const peakL = mk('circle');
-  peakL.setAttribute('r', 4); peakL.setAttribute('class', 'gauge-peak');
-  peakL.style.display = 'none';
+  peakL.setAttribute('r', 5);
+  peakL.setAttribute('class', 'gauge-peak peak-l');
+  peakL.setAttribute('style', 'fill:var(--good);stroke:#fff;stroke-width:1.5;display:none;');
   svg.appendChild(peakL);
 
   const needle = mk('g');
   const nline = mk('line');
   nline.setAttribute('x1', cx); nline.setAttribute('y1', cy);
-  nline.setAttribute('x2', cx); nline.setAttribute('y2', cy - (r - 30));
+  nline.setAttribute('x2', cx); nline.setAttribute('y2', cy - (r - 28));
   nline.setAttribute('class', 'gauge-needle');
-  nline.setAttribute('stroke-width', '5');
+  nline.setAttribute('stroke-width', '4.5');
   nline.setAttribute('stroke-linecap', 'round');
   needle.appendChild(nline);
-  const hub = mk('circle');
-  hub.setAttribute('cx', cx); hub.setAttribute('cy', cy); hub.setAttribute('r', 8);
-  hub.setAttribute('class', 'gauge-hub');
-  needle.appendChild(hub);
+  const hubRing = mk('circle');
+  hubRing.setAttribute('cx', cx); hubRing.setAttribute('cy', cy); hubRing.setAttribute('r', 9);
+  hubRing.setAttribute('style', 'fill:var(--surface-3);stroke:var(--accent);stroke-width:2.5;');
+  needle.appendChild(hubRing);
+  const hubDot = mk('circle');
+  hubDot.setAttribute('cx', cx); hubDot.setAttribute('cy', cy); hubDot.setAttribute('r', 4);
+  hubDot.setAttribute('fill', 'var(--accent)');
+  needle.appendChild(hubDot);
   svg.appendChild(needle);
 
   state._needle = needle;
@@ -216,7 +231,7 @@ function applyTheme() {
   canvasTheme.reset();
   resetVideoColors();
   state._lastDisp = null;
-  if (els.metaTheme) els.metaTheme.content = resolved === 'light' ? '#eef2f6' : '#0a0e14';
+  if (els.metaTheme) els.metaTheme.content = resolved === 'light' ? '#eef3f8' : '#070a0e';
   if (state.currentTab === 'charts') drawCharts();
   if (state.currentTab === 'map' && state.mapType === 'canvas') drawCanvasMap();
 }

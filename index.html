@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-<meta name="theme-color" content="#0a0e14" id="metaTheme">
+<meta name="theme-color" content="#070a0e" id="metaTheme">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -27,78 +27,78 @@
 <title>Cruscotto Moto</title>
 <style>
   /* ============ Token ============
-     Tema scuro (default) e tema chiaro ad alto contrasto per il sole diretto.
+     Tema scuro (default Racing Telemetria) e tema chiaro ad alto contrasto per il sole diretto.
      `data-theme` viene risolto in "dark" o "light" dal JS; non si usa "auto" nel CSS. */
   :root {
-    --bg: #0a0e14;
-    --surface: #121924;
-    --surface-2: #1a2432;
-    --surface-3: #0d1118;
-    --line: #263243;
-    --line-2: #3a4a5f;
-    --text: #f4f8fc;
-    --text-2: #a8b8c8;
-    --text-3: #6b7c8e;
-    --accent: #38bdf8;
-    --accent-ink: #03232f;
-    --good: #34d399;
-    --good-ink: #03251a;
-    --warn: #fbbf24;
-    --warn-ink: #2a1a04;
-    --bad: #f87171;
-    --bad-ink: #2a0808;
-    --acc-lat: #38bdf8;   /* laterale  */
-    --acc-lon: #fbbf24;   /* longitudinale */
-    --acc-vert: #a78bfa;  /* verticale */
-    --c-bg: #121924;      /* sfondo canvas (grafici / mappa di riserva) */
-    --c-grid: #263243;
-    --c-axis: #8a99aa;
-    --c-route: #a78bfa;   /* percorso del navigatore: distinto da traccia e autovelox */
-    --c-accent: #38bdf8;  /* HUD video + grafici: specchio di --accent */
-    --c-good: #34d399;    /* piega destra / marker: specchio di --good */
-    --c-bad: #f87171;     /* piega sinistra / marker: specchio di --bad */
-    --c-warn: #fbbf24;    /* specchio di --warn */
-    --c-txt: #f4f8fc;     /* testo HUD: specchio di --text */
-    --c-acc-lat: #38bdf8;   /* barre G cruscotto 2D */
-    --c-acc-lon: #fbbf24;
-    --c-acc-vert: #a78bfa;
-    --shadow: 0 8px 28px rgba(0,0,0,.45);
+    --bg: #070a0e;
+    --surface: #0f1622;
+    --surface-2: #172233;
+    --surface-3: #0a0f18;
+    --line: #1c2b3d;
+    --line-2: #283e58;
+    --text: #f5f9fc;
+    --text-2: #8da4be;
+    --text-3: #506478;
+    --accent: #00e5ff;
+    --accent-ink: #00222b;
+    --good: #00e676;
+    --good-ink: #002812;
+    --warn: #ffb300;
+    --warn-ink: #2a1b00;
+    --bad: #ff1744;
+    --bad-ink: #2b0008;
+    --acc-lat: #00e5ff;   /* laterale  */
+    --acc-lon: #ffb300;   /* longitudinale */
+    --acc-vert: #b388ff;  /* verticale */
+    --c-bg: #0f1622;      /* sfondo canvas (grafici / mappa di riserva) */
+    --c-grid: #1c2b3d;
+    --c-axis: #728ca6;
+    --c-route: #b388ff;   /* percorso del navigatore: distinto da traccia e autovelox */
+    --c-accent: #00e5ff;  /* HUD video + grafici: specchio di --accent */
+    --c-good: #00e676;    /* piega destra / marker: specchio di --good */
+    --c-bad: #ff1744;     /* piega sinistra / marker: specchio di --bad */
+    --c-warn: #ffb300;    /* specchio di --warn */
+    --c-txt: #f5f9fc;     /* testo HUD: specchio di --text */
+    --c-acc-lat: #00e5ff;   /* barre G cruscotto 2D */
+    --c-acc-lon: #ffb300;
+    --c-acc-vert: #b388ff;
+    --shadow: 0 10px 32px rgba(0,0,0,.6);
     color-scheme: dark;
   }
   :root[data-theme="light"] {
-    --bg: #eef2f6;
+    --bg: #eef3f8;
     --surface: #ffffff;
-    --surface-2: #e7edf3;
-    --surface-3: #d9e2ea;
-    --line: #c6d2dd;
-    --line-2: #9aabb9;
-    --text: #0b1522;
-    --text-2: #34424f;
-    --text-3: #5b6c7b;
-    --accent: #0069c2;
+    --surface-2: #e3ebf4;
+    --surface-3: #d3dfed;
+    --line: #b9cbe0;
+    --line-2: #89a3c0;
+    --text: #050b14;
+    --text-2: #2a394a;
+    --text-3: #516479;
+    --accent: #0070d6;
     --accent-ink: #ffffff;
-    --good: #00794a;
+    --good: #008744;
     --good-ink: #ffffff;
-    --warn: #8a5700;
+    --warn: #c26900;
     --warn-ink: #ffffff;
-    --bad: #c1272d;
+    --bad: #d5001c;
     --bad-ink: #ffffff;
-    --acc-lat: #0069c2;
-    --acc-lon: #8a5700;
-    --acc-vert: #5b2fb8;
+    --acc-lat: #0070d6;
+    --acc-lon: #c26900;
+    --acc-vert: #6200ea;
     --c-bg: #ffffff;
-    --c-grid: #d5dfe8;
-    --c-axis: #5b6c7b;
-    --c-route: #5b2fb8;
-    --c-accent: #0069c2;
-    --c-good: #00794a;
-    --c-bad: #c1272d;
-    --c-warn: #8a5700;
-    --c-txt: #0b1522;
-    --c-acc-lat: #0069c2;
-    --c-acc-lon: #8a5700;
-    --c-acc-vert: #5b2fb8;
-    --shadow: 0 8px 24px rgba(15,23,32,.12);
+    --c-grid: #d3dfed;
+    --c-axis: #516479;
+    --c-route: #6200ea;
+    --c-accent: #0070d6;
+    --c-good: #008744;
+    --c-bad: #d5001c;
+    --c-warn: #c26900;
+    --c-txt: #050b14;
+    --c-acc-lat: #0070d6;
+    --c-acc-lon: #c26900;
+    --c-acc-vert: #6200ea;
+    --shadow: 0 8px 24px rgba(10,24,40,.12);
     color-scheme: light;
   }
 
@@ -128,54 +128,62 @@
 
   /* ============ Top bar ============ */
   header {
-    display: flex; align-items: center; gap: 12px;
-    flex-shrink: 0; min-height: 44px;
+    display: flex; align-items: center; gap: 10px;
+    flex-shrink: 0; min-height: 48px;
   }
-  header h1 { font-size: 17px; font-weight: 800; letter-spacing: .6px; white-space: nowrap; }
+  header h1 {
+    font-size: 16px; font-weight: 900; letter-spacing: 1.2px; white-space: nowrap;
+    text-shadow: 0 0 16px rgba(0,229,255,.3);
+  }
   header h1 .dot { color: var(--accent); }
   .top-spacer { flex: 1; }
-  /* Le righe di stato sono gli unici figli dell'header che possono cedere: titolo, tempo
-     e pulsante hanno larghezza fissa. Senza min-width:0 un figlio flex non scende mai
-     sotto il proprio contenuto, e con due status-row la barra usciva dallo schermo
-     (il pulsante Start finiva fuori gia' a 360px, anche prima del badge autovelox). */
-  .status-row { display: flex; align-items: center; gap: 7px; font-size: 12px; color: var(--text-2); white-space: nowrap; min-width: 0; overflow: hidden; }
+  .status-row {
+    display: flex; align-items: center; gap: 7px; font-size: 11px; font-weight: 700;
+    color: var(--text-2); white-space: nowrap; min-width: 0; overflow: hidden;
+    background: var(--surface-3); padding: 5px 10px; border-radius: 20px;
+    border: 1px solid var(--line);
+  }
   .status-row > span:last-child { overflow: hidden; text-overflow: ellipsis; }
-  .status-dot { flex: 0 0 auto; width: 9px; height: 9px; border-radius: 50%; background: var(--text-3); }
-  .status-dot.ok { background: var(--good); box-shadow: 0 0 8px var(--good); }
-  .status-dot.err { background: var(--bad); }
+  .status-dot { flex: 0 0 auto; width: 8px; height: 8px; border-radius: 50%; background: var(--text-3); }
+  .status-dot.ok { background: var(--good); box-shadow: 0 0 10px var(--good); }
+  .status-dot.err { background: var(--bad); box-shadow: 0 0 8px var(--bad); }
   .status-dot.wait { background: var(--warn); }
-  /* Due .status-row non ci stanno accanto al titolo su un telefono stretto: header e'
-     flex con figli tutti nowrap, e l'unico elemento che cede (.top-spacer) collassa a 0.
-     Sotto i 480px il titolo lascia il posto allo stato, che in marcia serve di piu'. */
-  /* Il titolo cede il posto finche' le due righe di stato non ci stanno per intero:
-     serve circa 560px per titolo + due stati + tempo + pulsante. Sotto quella soglia
-     e' lo stato a valere di piu' in marcia, non il nome dell'app. */
   @media (max-width: 599px) { header h1 { display: none; } }
   @media (max-width: 400px) {
-    header { gap: 8px; }
-    #btnLogTop { padding: 10px 12px; }
+    header { gap: 6px; }
+    #btnLogTop { padding: 8px 12px; font-size: 13px; }
   }
-  .rec-badge { display: none; color: var(--bad); font-weight: 800; font-size: 13px; white-space: nowrap; }
-  .rec-badge.on { display: inline; }
-  #topTime { color: var(--text); font-weight: 800; font-size: 15px; }
-  /* Ingranaggio impostazioni: stesso tocco dei controlli mappa, apre Storico+scroll. */
-  #btnSettings { background: var(--surface-2); color: var(--text); border: 1px solid var(--line); border-radius: 12px; min-height: 44px; min-width: 44px; font-size: 18px; cursor: pointer; touch-action: manipulation; }
+  @keyframes pulse-rec { 0%, 100% { opacity: 1; filter: drop-shadow(0 0 8px var(--bad)); } 50% { opacity: .35; filter: none; } }
+  .rec-badge { display: none; color: var(--bad); font-weight: 900; font-size: 13px; white-space: nowrap; letter-spacing: 1px; }
+  .rec-badge.on { display: inline-flex; align-items: center; gap: 4px; animation: pulse-rec 1.2s infinite; }
+  #topTime { color: var(--text); font-weight: 800; font-size: 16px; letter-spacing: .5px; }
+  #btnSettings {
+    background: var(--surface-2); color: var(--text); border: 1px solid var(--line);
+    border-radius: 12px; min-height: 44px; min-width: 44px; font-size: 18px; cursor: pointer;
+    touch-action: manipulation; transition: transform .1s, border-color .15s;
+  }
+  #btnSettings:active { transform: scale(.95); }
   #btnLogTop {
     background: var(--accent); color: var(--accent-ink); border: 1px solid var(--accent);
-    border-radius: 12px; padding: 10px 16px; font-size: 14px; font-weight: 800; cursor: pointer;
-    min-height: 44px; touch-action: manipulation; white-space: nowrap;
+    border-radius: 12px; padding: 10px 18px; font-size: 14px; font-weight: 800; letter-spacing: .8px;
+    text-transform: uppercase; cursor: pointer; min-height: 46px; touch-action: manipulation;
+    white-space: nowrap; box-shadow: 0 0 14px rgba(0,229,255,.25); transition: transform .1s, filter .15s;
   }
+  #btnLogTop:active { transform: scale(.96); }
   /* Modalita' Guida: token ingranditi per guanti/vibrazione, solo layout, mai colori. */
   body.guida {
     --tap: 56px;
     --font-hud: clamp(56px, 20vw, 120px);
   }
-  body.guida #btnLogTop { min-height: var(--tap); padding: 12px 20px; font-size: 16px; }
+  body.guida #btnLogTop { min-height: var(--tap); padding: 12px 22px; font-size: 16px; }
   body.guida .speed-val { font-size: var(--font-hud); }
   body.guida nav.tabbar button { min-height: 60px; }
   body.guida .card-session, body.guida .card-accel { display: none; }
   body.guida .map-ctrl button { min-height: 48px; min-width: 48px; }
-  #btnLogTop.rec { background: var(--bad); color: var(--bad-ink); border-color: var(--bad); }
+  #btnLogTop.rec {
+    background: var(--bad); color: var(--bad-ink); border-color: var(--bad);
+    box-shadow: 0 0 16px rgba(255,23,68,.4);
+  }
 
   /* ============ Panels ============ */
   main { flex: 1; min-height: 0; display: flex; flex-direction: column; overflow-y: auto; }
@@ -184,15 +192,22 @@
 
   .grid { display: grid; grid-template-columns: 1fr; gap: 10px; }
   .card {
-    background: var(--surface);
+    background: linear-gradient(180deg, var(--surface) 0%, var(--surface-3) 100%);
     border: 1px solid var(--line);
-    border-radius: 18px;
+    border-radius: 16px;
     padding: 12px 14px;
     min-width: 0;
+    position: relative;
+    box-shadow: var(--shadow);
   }
   .card h2 {
-    font-size: 11px; text-transform: uppercase; letter-spacing: 1.3px;
-    color: var(--text-2); font-weight: 700; margin-bottom: 8px;
+    font-size: 11px; text-transform: uppercase; letter-spacing: 1.6px;
+    color: var(--text-2); font-weight: 800; margin-bottom: 8px;
+    display: flex; align-items: center; gap: 6px;
+  }
+  .card h2::before {
+    content: ''; display: inline-block; width: 4px; height: 11px;
+    background: var(--accent); border-radius: 2px;
   }
 
   /* ============ Dashboard: riempie il viewport, niente scroll ============ */
@@ -207,9 +222,13 @@
   #tab-dashboard .controls { flex-shrink: 0; }
 
   /* Velocità */
-  .speed-row { display: flex; align-items: baseline; gap: 10px; }
-  .speed-val { font-size: clamp(48px, 17vw, 110px); font-weight: 800; line-height: 1; letter-spacing: -1px; }
-  .speed-unit { font-size: 22px; color: var(--text-2); font-weight: 700; }
+  .speed-row { display: flex; align-items: baseline; gap: 12px; }
+  .speed-val {
+    font-size: clamp(52px, 18vw, 114px); font-weight: 900; line-height: 0.95;
+    letter-spacing: -2px; color: var(--text);
+    text-shadow: 0 0 28px rgba(0, 229, 255, 0.22);
+  }
+  .speed-unit { font-size: 20px; color: var(--accent); font-weight: 800; letter-spacing: 1px; text-transform: uppercase; }
 
   /* Piega */
   .card-lean { display: flex; flex-direction: column; min-height: 0; }
@@ -228,16 +247,24 @@
   #gauge .gauge-val { fill: var(--text); }
   #gauge .gauge-deg { fill: var(--text-2); }
   #gauge .gauge-peak { fill: var(--accent); }
-  .lean-dir { font-size: 15px; color: var(--text-2); font-weight: 800; letter-spacing: 3px; min-height: 1.2em; text-align: center; }
-  #leanCalibBtn { background: var(--accent); color: var(--accent-ink); border: 1px solid var(--accent); border-radius: 10px; padding: 8px 18px; font-size: 14px; font-weight: 800; letter-spacing: 2px; cursor: pointer; min-height: 44px; }
-  .lean-dir.right { color: var(--accent); }
-  .lean-dir.left { color: var(--good); }
-  .lean-max { display: flex; justify-content: space-between; width: 100%; font-size: 13px; color: var(--text-2); margin-top: 4px; }
-  .lean-max b { font-size: 18px; color: var(--text); }
+  .lean-dir { font-size: 15px; color: var(--text-2); font-weight: 900; letter-spacing: 3px; min-height: 1.2em; text-align: center; }
+  #leanCalibBtn {
+    background: var(--accent); color: var(--accent-ink); border: 1px solid var(--accent);
+    border-radius: 10px; padding: 8px 20px; font-size: 13px; font-weight: 900; letter-spacing: 2px;
+    cursor: pointer; min-height: 44px; box-shadow: 0 0 14px rgba(0,229,255,.3);
+  }
+  .lean-dir.right { color: var(--accent); text-shadow: 0 0 12px rgba(0,229,255,.4); }
+  .lean-dir.left { color: var(--good); text-shadow: 0 0 12px rgba(0,230,118,.4); }
+  .lean-max { display: flex; justify-content: space-between; width: 100%; font-size: 12px; color: var(--text-2); font-weight: 800; margin-top: 6px; }
+  .lean-max span {
+    background: var(--surface-3); border: 1px solid var(--line); border-radius: 8px;
+    padding: 4px 10px; display: inline-flex; align-items: center; gap: 6px;
+  }
+  .lean-max b { font-size: 16px; font-weight: 900; }
   .lean-max .mx-r { color: var(--accent); }
   .lean-max .mx-l { color: var(--good); }
-  .lean-conf { display: flex; align-items: center; gap: 8px; width: 100%; margin-top: 6px; font-size: 11px; color: var(--text-2); }
-  .lean-conf .cbar { flex: 1; height: 5px; border-radius: 3px; background: var(--surface-3); overflow: hidden; }
+  .lean-conf { display: flex; align-items: center; gap: 8px; width: 100%; margin-top: 8px; font-size: 11px; font-weight: 700; color: var(--text-2); }
+  .lean-conf .cbar { flex: 1; height: 6px; border-radius: 3px; background: var(--surface-3); border: 1px solid var(--line); overflow: hidden; }
   .lean-conf .cbar i { display: block; height: 100%; width: 100%; background: var(--good); }
   .lean-conf.warn .cbar i { background: var(--warn); }
   .lean-conf.bad .cbar i { background: var(--bad); }
@@ -245,36 +272,55 @@
 
   /* Accelerazioni: una barra per canale, colore dedicato e direzione per posizione */
   .accel-row { display: flex; flex-direction: column; gap: 8px; }
-  .accel-top { display: flex; justify-content: space-between; font-size: 13px; margin-bottom: 3px; }
-  .accel-top .lbl { color: var(--text-2); font-weight: 700; }
-  .accel-top .val { font-weight: 800; }
-  .bar { position: relative; height: 10px; background: var(--surface-3); border-radius: 6px; overflow: hidden; }
-  .bar .mid { position: absolute; left: 50%; top: 0; bottom: 0; width: 2px; background: var(--line-2); }
-  .bar .fill { position: absolute; top: 0; bottom: 0; left: 50%; width: 0; border-radius: 6px; }
-  .accel-lat .fill { background: var(--acc-lat); }
-  .accel-lon .fill { background: var(--acc-lon); }
-  .accel-vert .fill { background: var(--acc-vert); }
-  .bar .fill.neg { filter: brightness(.75) saturate(.6); }
+  .accel-top { display: flex; justify-content: space-between; font-size: 12px; margin-bottom: 3px; }
+  .accel-top .lbl { color: var(--text-2); font-weight: 800; text-transform: uppercase; letter-spacing: .5px; }
+  .accel-top .val { font-weight: 900; font-size: 13px; color: var(--text); }
+  .bar {
+    position: relative; height: 14px; background: var(--surface-3); border-radius: 7px;
+    overflow: hidden; border: 1px solid var(--line);
+  }
+  .bar .mid {
+    position: absolute; left: 50%; top: 0; bottom: 0; width: 3px;
+    background: var(--text-2); z-index: 2; transform: translateX(-50%);
+  }
+  .bar .fill {
+    position: absolute; top: 0; bottom: 0; left: 50%; width: 0;
+    border-radius: 6px; transition: width .05s ease-out;
+  }
+  .accel-lat .fill { background: var(--acc-lat); box-shadow: 0 0 10px rgba(0,229,255,.4); }
+  .accel-lon .fill { background: var(--acc-lon); box-shadow: 0 0 10px rgba(255,179,0,.4); }
+  .accel-vert .fill { background: var(--acc-vert); box-shadow: 0 0 10px rgba(179,136,255,.4); }
+  .bar .fill.neg { filter: brightness(.85) saturate(.75); }
 
   /* Statistiche sessione */
-  .stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
-  .stat { text-align: center; }
-  .stat .v { font-size: 24px; font-weight: 800; }
-  .stat .k { font-size: 10px; color: var(--text-2); text-transform: uppercase; letter-spacing: .8px; }
+  .stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+  .stat {
+    text-align: center; background: var(--surface-3); border: 1px solid var(--line);
+    border-radius: 12px; padding: 8px 6px;
+  }
+  .stat .v { font-size: 22px; font-weight: 900; color: var(--text); }
+  .stat .k { font-size: 9.5px; color: var(--text-2); text-transform: uppercase; letter-spacing: 1px; font-weight: 800; margin-top: 2px; }
 
   /* Pulsanti */
   .controls { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
   button {
     background: var(--surface-2); color: var(--text);
-    border: 1px solid var(--line); border-radius: 13px;
-    padding: 12px 10px; font-size: 14px; font-weight: 700;
-    cursor: pointer; min-height: 46px; touch-action: manipulation;
-    font-family: inherit;
+    border: 1px solid var(--line); border-radius: 12px;
+    padding: 12px 12px; font-size: 13px; font-weight: 800;
+    letter-spacing: .4px; cursor: pointer; min-height: 48px;
+    touch-action: manipulation; font-family: inherit;
+    transition: transform .1s, background .15s, border-color .15s, box-shadow .15s;
   }
-  button:active { background: var(--line); }
-  button.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
-  button.on { background: var(--good); color: var(--good-ink); border-color: var(--good); }
-  button.danger { background: transparent; color: var(--bad); border-color: var(--bad); }
+  button:active { transform: scale(.97); background: var(--line); }
+  button.primary {
+    background: var(--accent); color: var(--accent-ink); border-color: var(--accent);
+    box-shadow: 0 0 16px rgba(0,229,255,.25);
+  }
+  button.on {
+    background: var(--good); color: var(--good-ink); border-color: var(--good);
+    box-shadow: 0 0 16px rgba(0,230,118,.25);
+  }
+  button.danger { background: rgba(255,23,68,.12); color: var(--bad); border-color: var(--bad); }
   button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
   /* ============ Mappa ============ */
@@ -312,26 +358,43 @@
   }
 
   /* ============ Grafici ============ */
-  .chart-item { margin-bottom: 14px; }
-  .chart-item .clbl { display: flex; justify-content: space-between; font-size: 12px; color: var(--text-2); margin-bottom: 4px; font-weight: 700; }
-  .chart-item canvas { width: 100%; height: 130px; border-radius: 10px; display: block; }
+  .chart-item {
+    margin-bottom: 14px; background: var(--surface-3); border: 1px solid var(--line);
+    border-radius: 14px; padding: 10px 12px; box-shadow: var(--shadow);
+  }
+  .chart-item .clbl {
+    display: flex; justify-content: space-between; font-size: 11.5px;
+    color: var(--text-2); margin-bottom: 6px; font-weight: 800; text-transform: uppercase;
+    letter-spacing: .8px;
+  }
+  .chart-item canvas { width: 100%; height: 130px; border-radius: 8px; display: block; }
 
   /* ============ Storico ============ */
   .hist-list { display: flex; flex-direction: column; gap: 10px; }
   .sess-card {
-    background: var(--surface); border: 1px solid var(--line); border-radius: 15px;
-    padding: 14px; cursor: pointer;
+    background: linear-gradient(180deg, var(--surface) 0%, var(--surface-3) 100%);
+    border: 1px solid var(--line); border-radius: 14px;
+    padding: 14px 16px; cursor: pointer; transition: transform .1s, border-color .15s, box-shadow .15s;
+    box-shadow: 0 4px 16px rgba(0,0,0,.3);
   }
-  .sess-card:active { background: var(--surface-2); }
-  .sess-card .sdate { font-size: 14px; font-weight: 800; margin-bottom: 4px; }
-  .sess-card .srow { display: flex; gap: 14px; font-size: 13px; color: var(--text-2); flex-wrap: wrap; }
-  .sess-card .srow b { color: var(--text); }
+  .sess-card:hover { border-color: var(--line-2); }
+  .sess-card:active { transform: scale(.98); border-color: var(--accent); }
+  .sess-card .sdate { font-size: 14.5px; font-weight: 900; letter-spacing: .5px; margin-bottom: 8px; color: var(--text); }
+  .sess-card .srow { display: flex; gap: 8px 12px; font-size: 12px; color: var(--text-2); flex-wrap: wrap; }
+  .sess-card .srow span {
+    display: inline-flex; align-items: baseline; gap: 4px; background: var(--surface-2);
+    padding: 3px 8px; border-radius: 6px; border: 1px solid var(--line); font-weight: 700;
+  }
+  .sess-card .srow b { color: var(--text); font-weight: 900; }
   .sess-detail { margin-top: 12px; }
   .sess-detail .dstats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 10px; }
-  .sess-detail .dstat { background: var(--surface); border: 1px solid var(--line); border-radius: 11px; padding: 10px; text-align: center; }
-  .sess-detail .dstat .v { font-size: 20px; font-weight: 800; }
-  .sess-detail .dstat .k { font-size: 10px; color: var(--text-2); text-transform: uppercase; letter-spacing: .6px; }
-  .sess-detail canvas { width: 100%; height: 200px; border-radius: 12px; background: var(--surface); }
+  .sess-detail .dstat {
+    background: var(--surface-3); border: 1px solid var(--line); border-radius: 12px;
+    padding: 10px 8px; text-align: center;
+  }
+  .sess-detail .dstat .v { font-size: 20px; font-weight: 900; color: var(--text); }
+  .sess-detail .dstat .k { font-size: 9.5px; color: var(--text-2); text-transform: uppercase; letter-spacing: .8px; font-weight: 800; margin-top: 2px; }
+  .sess-detail canvas { width: 100%; height: 200px; border-radius: 12px; background: var(--surface-3); border: 1px solid var(--line); }
   .dbtns { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-top: 10px; }
   .empty { color: var(--text-2); font-size: 14px; text-align: center; padding: 24px 0; }
 
@@ -340,7 +403,7 @@
     border: none; padding: 16px; background: transparent;
     max-width: none; max-height: none;
   }
-  dialog.modal-overlay::backdrop { background: rgba(0,0,0,.55); }
+  dialog.modal-overlay::backdrop { background: rgba(0,0,0,.65); backdrop-filter: blur(8px); }
   dialog.modal-overlay[hidden] { display: none; }
   /* L'overlay dipende solo da [hidden], mai da showModal(): un <dialog> senza
      [open] e' display:none da UA stylesheet, quindi con un js/video.js
@@ -351,22 +414,31 @@
   dialog.modal-overlay.open-fb {
     position: fixed; inset: 0; z-index: 400;
     display: flex; align-items: center; justify-content: center;
-    background: rgba(0,0,0,.55);
+    background: rgba(0,0,0,.65); backdrop-filter: blur(8px);
   }
   .modal {
-    background: var(--surface); color: var(--text); border: 1px solid var(--line);
-    border-radius: 18px; padding: 18px; width: 100%; max-width: 420px;
-    box-shadow: var(--shadow);
+    background: rgba(15, 22, 34, 0.96); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px);
+    color: var(--text); border: 1.5px solid var(--line-2);
+    border-radius: 20px; padding: 20px; width: 100%; max-width: 440px;
+    box-shadow: 0 20px 60px rgba(0,0,0,.8), 0 0 24px rgba(0,229,255,.15);
   }
-  .modal h2 { font-size: 17px; font-weight: 800; margin-bottom: 14px; }
-  .modal .m-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; font-size: 14px; }
-  .modal select { background: var(--surface-2); color: var(--text); border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; font-size: 14px; min-height: 40px; }
-  .modal .m-progress { height: 8px; background: var(--surface-2); border-radius: 6px; overflow: hidden; margin: 6px 0 4px; }
-  .modal .m-progress > div { height: 100%; width: 0%; background: var(--accent); }
+  .modal h2 { font-size: 18px; font-weight: 900; letter-spacing: .8px; margin-bottom: 16px; }
+  .modal .m-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; font-size: 13.5px; font-weight: 700; color: var(--text-2); }
+  .modal select {
+    background: var(--surface-2); color: var(--text); border: 1px solid var(--line-2);
+    border-radius: 10px; padding: 8px 10px; font-size: 13.5px; font-weight: 700; min-height: 40px;
+  }
+  .modal .m-progress { height: 8px; background: var(--surface-3); border-radius: 6px; overflow: hidden; margin: 8px 0 6px; border: 1px solid var(--line); }
+  .modal .m-progress > div { height: 100%; width: 0%; background: var(--accent); box-shadow: 0 0 10px var(--accent); }
   .modal .m-status { font-size: 12px; color: var(--text-2); margin-bottom: 12px; font-variant-numeric: tabular-nums; }
   .modal .m-btns { display: flex; gap: 10px; justify-content: flex-end; flex-wrap: wrap; }
-  .modal .m-btns button { padding: 10px 14px; min-height: 40px; border-radius: 11px; font-weight: 800; font-size: 14px; cursor: pointer; background: var(--surface-2); color: var(--text); border: 1px solid var(--line); }
-  .modal .m-btns button.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+  .modal .m-btns button {
+    padding: 10px 16px; min-height: 44px; border-radius: 11px; font-weight: 800; font-size: 13.5px;
+    cursor: pointer; background: var(--surface-2); color: var(--text); border: 1px solid var(--line);
+    transition: transform .1s, background .15s;
+  }
+  .modal .m-btns button:active { transform: scale(.96); }
+  .modal .m-btns button.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); box-shadow: 0 0 14px rgba(0,229,255,.25); }
   .modal .m-btns button:disabled { opacity: .5; cursor: default; }
 
   /* ============ Navigatore ============ */
@@ -384,92 +456,116 @@
   .nav-results button b { display: block; font-size: 14px; }
   .nav-results button span { color: var(--text-2); font-size: 12px; }
   .nav-summary { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
-  /* .dstat e' definita solo sotto .sess-detail: qui serve la stessa resa, non l'ereditarieta'. */
-  .nav-summary .dstat { background: var(--surface); border: 1px solid var(--line); border-radius: 11px; padding: 10px; text-align: center; }
-  .nav-summary .dstat .v { font-size: 20px; font-weight: 800; }
-  .nav-summary .dstat .k { font-size: 10px; color: var(--text-2); text-transform: uppercase; letter-spacing: .6px; }
-  .nav-steps { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
-  .nav-steps li {
-    display: flex; gap: 10px; align-items: baseline;
-    padding: 9px 4px; border-top: 1px solid var(--line); font-size: 14px; line-height: 1.35;
+  .nav-summary .dstat {
+    background: var(--surface-3); border: 1px solid var(--line); border-radius: 12px;
+    padding: 10px 8px; text-align: center;
   }
-  .nav-steps li:first-child { border-top: 0; }
-  .nav-steps li.done { opacity: .38; }
-  .nav-steps li.cur { background: var(--surface-2); border-radius: 9px; font-weight: 700; }
-  .nav-steps .sd { color: var(--accent); font-variant-numeric: tabular-nums; white-space: nowrap; min-width: 68px; }
+  .nav-summary .dstat .v { font-size: 22px; font-weight: 900; color: var(--text); }
+  .nav-summary .dstat .k { font-size: 9.5px; color: var(--text-2); text-transform: uppercase; letter-spacing: 1px; font-weight: 800; margin-top: 2px; }
+  .nav-steps { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+  .nav-steps li {
+    display: flex; gap: 12px; align-items: baseline;
+    padding: 10px 10px; border-radius: 10px; font-size: 13.5px; line-height: 1.35;
+    background: var(--surface-3); border: 1px solid transparent;
+  }
+  .nav-steps li.done { opacity: .35; }
+  .nav-steps li.cur {
+    background: var(--surface-2); border-color: var(--accent);
+    box-shadow: 0 0 14px rgba(0,229,255,.15); font-weight: 800;
+  }
+  .nav-steps .sd { color: var(--accent); font-weight: 900; font-variant-numeric: tabular-nums; white-space: nowrap; min-width: 68px; }
 
   /* ============ Tab bar ============ */
   nav.tabbar {
-    display: grid; grid-template-columns: repeat(5, 1fr); gap: 5px;
+    display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px;
     position: fixed; bottom: 0; left: 0; right: 0;
     z-index: 50;
     max-width: 1080px; margin: 0 auto;
-    padding: 6px 12px calc(6px + env(safe-area-inset-bottom));
-    background: var(--bg);
+    padding: 6px 10px calc(6px + env(safe-area-inset-bottom));
+    background: rgba(7, 10, 14, 0.94);
+    backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px);
     border-top: 1px solid var(--line);
   }
+  :root[data-theme="light"] nav.tabbar { background: rgba(238, 243, 248, 0.94); }
   nav.tabbar button {
-    min-height: 52px; padding: 7px 2px; font-size: 11px; border-radius: 13px;
-    display: flex; flex-direction: column; align-items: center; gap: 3px;
+    min-height: 52px; padding: 6px 2px; font-size: 10px; font-weight: 800;
+    letter-spacing: .5px; text-transform: uppercase; border-radius: 12px;
+    display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px;
     background: transparent; color: var(--text-2); border: 1px solid transparent;
+    transition: all .15s;
   }
-  nav.tabbar button .ico { width: 22px; height: 22px; }
-  /* Con cinque voci le etichette non ci stanno piu' a 11px su un telefono stretto. */
-  @media (max-width: 420px) { nav.tabbar button { font-size: 10px; letter-spacing: -.2px; } }
-  nav.tabbar button.active { background: var(--surface-2); color: var(--accent); border-color: var(--line); }
-  nav.tabbar button.active .ico { color: var(--accent); }
+  nav.tabbar button .ico { width: 22px; height: 22px; transition: transform .15s; }
+  @media (max-width: 420px) { nav.tabbar button { font-size: 9.5px; letter-spacing: 0; } }
+  nav.tabbar button.active {
+    background: var(--surface-2); color: var(--accent); border-color: var(--line-2);
+    box-shadow: inset 0 2.5px 0 var(--accent), 0 4px 12px rgba(0,0,0,.3);
+  }
+  nav.tabbar button.active .ico { color: var(--accent); transform: scale(1.08); }
 
   /* Banner di manovra: persistente (niente auto-hide come .cam-alert), e sotto di essa
      nello z-order — un avviso autovelox deve poter coprire una svolta, non viceversa.
      Non a top:10px: li' coprirebbe stato GPS e Start/Stop. In fullscreen l'header
      sparisce e il banner puo' risalire. */
   .nav-banner {
-    position: fixed; top: 58px; left: 50%; transform: translateX(-50%);
-    z-index: 150; background: var(--surface-2); color: var(--text);
-    border: 1px solid var(--accent); border-radius: 14px;
-    padding: 12px 18px; font-size: 17px; font-weight: 800; text-align: center;
-    max-width: 92%; box-shadow: var(--shadow); line-height: 1.25;
+    position: fixed; top: 60px; left: 50%; transform: translateX(-50%);
+    z-index: 150; background: rgba(15, 22, 34, 0.96); color: var(--text);
+    border: 1.5px solid var(--accent); border-radius: 16px;
+    padding: 12px 20px; font-size: 17px; font-weight: 800; text-align: center;
+    max-width: 92%; box-shadow: 0 10px 36px rgba(0,0,0,.65), 0 0 16px rgba(0,229,255,.2);
+    line-height: 1.25; backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
   }
-  .nav-banner .nb-dist { color: var(--accent); }
+  .nav-banner .nb-dist { color: var(--accent); font-weight: 900; }
   .nav-banner .nb-speed {
-    color: var(--text); background: var(--surface-3); border: 1px solid var(--line);
-    border-radius: 9px; padding: 2px 10px; margin-right: 8px;
-    font-variant-numeric: tabular-nums; white-space: nowrap;
+    color: var(--text); background: var(--surface-3); border: 1px solid var(--line-2);
+    border-radius: 9px; padding: 3px 10px; margin-right: 8px;
+    font-weight: 900; font-variant-numeric: tabular-nums; white-space: nowrap;
   }
   body.guida .nav-banner .nb-speed { font-size: 26px; }
   /* XXL in marcia: distanza manovra leggibile a colpo d'occhio con guanti e vibrazione. */
-  body.guida .nav-banner { font-size: 20px; padding: 14px 20px; }
-  body.guida .nav-banner .nb-dist { font-size: 30px; display: block; line-height: 1.1; }
-  .nav-banner .nb-street { display: block; font-size: 13px; font-weight: 600; color: var(--text-2); margin-top: 2px; max-width: 88vw; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .nav-banner .nb-then { display: block; font-size: 12px; font-weight: 700; color: var(--warn); margin-top: 3px; max-width: 88vw; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .nav-banner.off { border-color: var(--bad); }
-  body.map-fullscreen .nav-banner { top: 10px; }
+  body.guida .nav-banner { font-size: 20px; padding: 14px 22px; }
+  body.guida .nav-banner .nb-dist { font-size: 32px; display: block; line-height: 1.1; font-weight: 900; }
+  .nav-banner .nb-street { display: block; font-size: 13px; font-weight: 700; color: var(--text-2); margin-top: 3px; max-width: 88vw; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .nav-banner .nb-then { display: block; font-size: 12px; font-weight: 800; color: var(--warn); margin-top: 3px; max-width: 88vw; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .nav-banner.off { border-color: var(--bad); box-shadow: 0 10px 36px rgba(0,0,0,.65), 0 0 16px rgba(255,23,68,.25); }
+  body.map-fullscreen .nav-banner { top: 12px; }
 
   .cam-alert {
-    position: fixed; top: 10px; left: 50%; transform: translateX(-50%);
-    z-index: 200; background: var(--bad); color: var(--bad-ink); font-weight: 800;
-    padding: 12px 20px; border-radius: 13px; font-size: 18px; text-align: center;
-    max-width: 92%; box-shadow: var(--shadow);
+    position: fixed; top: 12px; left: 50%; transform: translateX(-50%);
+    z-index: 200; background: var(--bad); color: var(--bad-ink); font-weight: 900;
+    padding: 12px 24px; border-radius: 14px; font-size: 18px; text-align: center;
+    max-width: 92%; box-shadow: 0 12px 32px rgba(0,0,0,.7), 0 0 24px rgba(255,23,68,.6);
+    border: 2px solid #ffffff; letter-spacing: .6px;
   }
   .map-full-btn {
     position: absolute; top: 10px; right: 10px; z-index: 900;
-    min-height: 44px; padding: 6px 14px; font-size: 18px; border-radius: 11px;
-    background: var(--surface); color: var(--text); border: 1px solid var(--line);
+    min-height: 44px; padding: 6px 14px; font-size: 18px; border-radius: 12px;
+    background: rgba(15, 22, 34, 0.9); color: var(--text); border: 1px solid var(--line);
+    backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+    box-shadow: 0 4px 16px rgba(0,0,0,.4);
   }
   .map-ctrl {
     position: absolute; top: 10px; left: 10px; z-index: 900;
     display: flex; flex-direction: column; gap: 6px;
+    background: rgba(15, 22, 34, 0.88); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+    border: 1px solid var(--line); border-radius: 14px; padding: 4px;
+    box-shadow: 0 6px 20px rgba(0,0,0,.45);
   }
   .map-ctrl button {
-    min-height: 44px; min-width: 44px; padding: 6px 8px; font-size: 18px;
-    border-radius: 11px; background: var(--surface); color: var(--text);
-    border: 1px solid var(--line); cursor: pointer; touch-action: manipulation;
+    min-height: 42px; min-width: 42px; padding: 6px 8px; font-size: 18px;
+    border-radius: 10px; background: transparent; color: var(--text-2);
+    border: 1px solid transparent; cursor: pointer; touch-action: manipulation;
     display: flex; align-items: center; justify-content: center;
+    transition: all .15s;
   }
-  .map-ctrl button.on { color: var(--accent); border-color: var(--accent); }
+  .map-ctrl button:active { transform: scale(.95); }
+  .map-ctrl button.on {
+    color: var(--accent); background: rgba(0,229,255,.18);
+    border-color: rgba(0,229,255,.4); box-shadow: 0 0 10px rgba(0,229,255,.2);
+  }
   /* Voce attiva = onda e colore accento (come gli altri toggle); muta = croce e rosso. */
   #btnNavMute .v-off { display: none; }
-  #btnNavMute.muted { color: var(--bad); border-color: var(--bad); }
+  #btnNavMute.muted { color: var(--bad); }
+  #btnNavMute.muted.on { background: rgba(255,23,68,.18); border-color: rgba(255,23,68,.4); }
   #btnNavMute.muted .v-on { display: none; }
   #btnNavMute.muted .v-off { display: inline; }
 
@@ -490,15 +586,49 @@
   .set-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 9px 0; border-top: 1px solid var(--line); font-size: 14px; }
   .set-row:first-of-type { border-top: 0; }
   .set-row > span:first-child { color: var(--text); }
-  select { background: var(--surface-2); color: var(--text); border: 1px solid var(--line); border-radius: 9px; padding: 8px; font-size: 14px; font-family: inherit; }
-  input[type=checkbox] { width: 22px; height: 22px; accent-color: var(--accent); }
+  select {
+    background: var(--surface-2); color: var(--text); border: 1px solid var(--line-2);
+    border-radius: 10px; padding: 10px 12px; font-size: 14px; font-family: inherit;
+    font-weight: 700; min-height: 44px; outline: none;
+  }
+  select:focus { border-color: var(--accent); }
+  input[type=checkbox] {
+    appearance: none; -webkit-appearance: none;
+    width: 46px; height: 26px;
+    background: var(--surface-3);
+    border: 1.5px solid var(--line-2);
+    border-radius: 13px;
+    position: relative;
+    cursor: pointer;
+    outline: none;
+    transition: background .2s, border-color .2s;
+    flex-shrink: 0;
+  }
+  input[type=checkbox]::after {
+    content: '';
+    position: absolute;
+    top: 3px; left: 3px;
+    width: 17px; height: 17px;
+    border-radius: 50%;
+    background: var(--text-2);
+    transition: transform .2s cubic-bezier(.4, 0, .2, 1), background .2s;
+  }
+  input[type=checkbox]:checked {
+    background: rgba(0, 229, 255, 0.2);
+    border-color: var(--accent);
+  }
+  input[type=checkbox]:checked::after {
+    transform: translateX(20px);
+    background: var(--accent);
+    box-shadow: 0 0 10px var(--accent);
+  }
   .hint { font-size: 12px; color: var(--text-2); line-height: 1.4; }
 
   /* ============ Diagnostica ============ */
   .diag-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; margin: 10px 0; }
-  .diag-grid div { background: var(--surface-2); border: 1px solid var(--line); border-radius: 11px; padding: 8px 10px; }
-  .diag-grid .k { display: block; font-size: 10px; color: var(--text-2); text-transform: uppercase; letter-spacing: .6px; }
-  .diag-grid b { font-size: 16px; }
+  .diag-grid div { background: var(--surface-3); border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; }
+  .diag-grid .k { display: block; font-size: 10px; color: var(--text-2); text-transform: uppercase; letter-spacing: .8px; font-weight: 800; margin-bottom: 2px; }
+  .diag-grid b { font-size: 15px; font-weight: 800; color: var(--text); }
   .bench-out { margin-top: 10px; font-size: 13px; line-height: 1.5; }
   .bench-out .verdict { font-weight: 800; font-size: 14px; display: block; margin-bottom: 4px; }
   .bench-out .verdict.ok { color: var(--good); }
@@ -533,9 +663,9 @@
     /* barre affiancate: 3 colonne compatte invece di 3 righe alte */
     .accel-row { flex-direction: row; gap: 8px; }
     .accel-item { flex: 1; min-width: 0; }
-    .accel-top { font-size: 11px; margin-bottom: 2px; }
+    .accel-top { font-size: 10.5px; margin-bottom: 2px; }
     .accel-top .val { font-size: 11px; }
-    .bar { height: 6px; }
+    .bar { height: 8px; }
     .stats .v { font-size: 16px; }
     .lean-max { margin-top: 2px; font-size: 11px; }
     .lean-dir { font-size: 12px; min-height: 1.1em; }
@@ -545,7 +675,7 @@
     #topTime { font-size: 13px; }
     /* i tre pulsanti restano raggiungibili, più bassi */
     #tab-dashboard .controls { margin-top: 6px !important; }
-    #tab-dashboard .controls button { min-height: 38px; padding: 6px 6px; font-size: 12px; }
+    #tab-dashboard .controls button { min-height: 40px; padding: 6px 6px; font-size: 12px; }
   }
 
   /* ============ Desktop (finestra ampia) ============ */

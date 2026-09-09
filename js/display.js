@@ -113,9 +113,16 @@ function updateDisplay() {
 
   if (state.demo || state.calib) {
     els.leanVal.textContent = Math.abs(state.lean).toFixed(1);
-    if (Math.abs(state.lean) < 1) { els.leanDir.textContent = ' '; els.leanDir.className = 'lean-dir'; }
-    else if (state.lean > 0) { els.leanDir.textContent = 'DESTRA ▶'; els.leanDir.className = 'lean-dir right'; }
-    else { els.leanDir.textContent = '◀ SINISTRA'; els.leanDir.className = 'lean-dir left'; }
+    if (Math.abs(state.lean) < 1) {
+      els.leanDir.textContent = ' '; els.leanDir.className = 'lean-dir';
+      els.leanVal.style.fill = 'var(--text)';
+    } else if (state.lean > 0) {
+      els.leanDir.textContent = 'DESTRA ▶'; els.leanDir.className = 'lean-dir right';
+      els.leanVal.style.fill = 'var(--accent)';
+    } else {
+      els.leanDir.textContent = '◀ SINISTRA'; els.leanDir.className = 'lean-dir left';
+      els.leanVal.style.fill = 'var(--good)';
+    }
   } else {
     // Non calibrato: CALIBRA e' un bottone che porta dritto a startCalibration.
     // Si crea UNA volta: la guardia su firstChild era morta perché textContent=''
@@ -123,6 +130,7 @@ function updateDisplay() {
     // bottone+listener a ogni frame (proprio lo scenario che DISPLAY_HZ dovrebbe
     // evitare: telefono al sole sul manubrio).
     els.leanVal.textContent = '--';
+    els.leanVal.style.fill = 'var(--text-3)';
     if (!els.leanDir.firstChild || els.leanDir.firstChild.id !== 'leanCalibBtn') {
       els.leanDir.textContent = '';
       els.leanDir.className = 'lean-dir';
