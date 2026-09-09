@@ -20,6 +20,7 @@ function startLog() {
   state.rows = [];
   state.track = [];
   state._leafN = 0;
+  state._leafTrim = false;
   state.sessionId = 's_' + Date.now();
   state.flushSeq = 0;
   state.flushedRows = 0;
@@ -52,6 +53,10 @@ async function stopLog() {
   updateGuidaMode();
   await flushLog();
   await saveSession();
+  // Senza questo aggiornamento finale cronometro (endWall) e statistiche
+  // restavano congelati sull'ultimo frame di logging: un utente che ferma il
+  // log vedeva massimi/distanza/tempo fermi fino al prossimo input.
+  updateDisplay();
   // Aggiornamento service worker rimandato perché si stava registrando: ora
   // che la sessione è salvata su disco, si può ripartire col codice nuovo.
   if (state._swUpdatePending) {

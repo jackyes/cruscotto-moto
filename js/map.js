@@ -212,8 +212,12 @@ function updateLeaflet() {
   const n = state.track.length;
   const drawn = state._leafN || 0;
   if (n) {
-    if (!drawn || !state.mapPoly.getLatLngs().length) {
+    // Dopo il trim a TRACK_MAX i punti più vecchi escono da state.track ma
+    // restano nella polyline (addLatLng non rimuove mai dal davanti): senza il
+    // rebuild il disegno si congelava sui primi 10000 punti dei giri lunghi.
+    if (state._leafTrim || !drawn || !state.mapPoly.getLatLngs().length) {
       state.mapPoly.setLatLngs(state.track.map(p => [p.lat, p.lon]));
+      state._leafTrim = false;
     } else {
       for (let k = drawn; k < n; k++) state.mapPoly.addLatLng([state.track[k].lat, state.track[k].lon]);
     }

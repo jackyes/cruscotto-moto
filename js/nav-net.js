@@ -268,7 +268,7 @@ async function navGeocode(q) {
   }
   if (!res.ok) {
     let detail = '';
-    try { const j = await res.json(); detail = (j && (j.message || j.error)) ? ' — ' + (j.message || j.error) : ''; } catch (e) {}
+    try { const j = await jsonUnderTimeout(res); detail = (j && (j.message || j.error)) ? ' — ' + (j.message || j.error) : ''; } catch (e) {}
     if (gCached && gCached.stale) return gCached.body;
     throw new Error('HTTP ' + res.status + detail);
   }

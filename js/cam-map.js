@@ -7,7 +7,12 @@ function appendTrackPoint(lat, lon, alt) {
   // alt assente (null/NaN): null, non 0 — `alt || 0` fabbricava <ele>0.0</ele>
   // nel GPX e alt_m=0 nel CSV per fix senza dati di quota.
   state.track.push({ lat, lon, alt: (alt != null && isFinite(alt)) ? alt : null, t: now, ts: Date.now() });
-  if (state.track.length > TRACK_MAX) state.track.splice(0, state.track.length - TRACK_MAX);
+  if (state.track.length > TRACK_MAX) {
+    state.track.splice(0, state.track.length - TRACK_MAX);
+    // Il trim toglie i punti più vecchi: la polyline Leaflet non ha API per
+    // rimuoverli dal davanti, quindi si marca il rebuild completo.
+    state._leafTrim = true;
+  }
   updateMap();
 }
 

@@ -213,6 +213,9 @@ async function startVideoRenderMp4(pre, mode) {
       m = '2d';
     }
   }
+  // Re-check dopo l'await: chiudere la modale durante il load CDN (~12 s)
+  // lasciava partire lo stesso il render MP4 → canvas orfano + video fantasma.
+  if (videoSessionGone() || (videoJob && videoJob.cancelled)) return;
   // Muxer assente/non valido: si RIFIUTA (throw), non si risolve in silenzio —
   // il .catch() di startVideoRender (video.js) è l'unico che esegue il fallback
   // realtime WebM; con un return la promessa risolve e il catch non scatta mai,

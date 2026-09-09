@@ -3,6 +3,8 @@ const SPEED_LIMIT_AROUND_M = 40;
 const SPEED_LIMIT_MIN_MS = 15000;
 const SPEED_LIMIT_MIN_M = 150;
 const SPEED_LIMIT_FAIL_MS = 120000;
+const SPEED_LIMIT_EMPTY_MS = 60000;
+const SPEED_LIMIT_EMPTY_MAX_MS = 300000;
 const SPEED_LIMIT_OVER_KMH = 3;
 
 function parseMaxspeed(raw) {
@@ -72,7 +74,18 @@ async function fetchSpeedLimit(lat, lon) {
     state.speedLimit = pickNearestMaxspeed(data.elements, lat, lon);
     state.speedLimitAt = Date.now();
     state.speedLimitPos = { lat, lon };
-    state.speedLimitRetryAfter = 0;
+    if (state.speedLimit == null) {
+      // Strada senza tag maxspeed: il risultato vuoto è legittimo, ma ripetere
+      // la query ogni 15 s / 150 m (a 130 km/h ≈ 850 richieste/ora contro un
+      // endpoint pubblico) è spam. Backoff esponenziale da 60 s fino a 5 min.
+      const n = (state.speedLimitEmptyN || 0) + 1;
+      state.speedLimitEmptyN = n;
+      state.speedLimitRetryAfter = Date.now() +
+        Math.min(SPEED_LIMIT_EMPTY_MAX_MS, SPEED_LIMIT_EMPTY_MS * Math.pow(2, n - 1));
+    } else {
+      state.speedLimitEmptyN = 0;
+      state.speedLimitRetryAfter = 0;
+    }
   } catch (e) {
     state.speedLimitRetryAfter = Date.now() + SPEED_LIMIT_FAIL_MS;
   } finally {

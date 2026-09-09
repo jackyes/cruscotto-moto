@@ -278,7 +278,13 @@ function updateCamStatus() {
   } else if (!p) {
     cls = 'wait'; txt = 'Autovelox attesa';
   } else if (Date.now() < state.camRetryAfter) {
-    cls = 'err'; txt = 'Autovelox offline';
+    if (state.cameras.length || imported) {
+      // Backoff attivo ma ci sono dati (cache offline / raggio minore, camTs=0):
+      // mostrare "offline" come se non ci fosse nulla è falso e spaventa.
+      cls = 'ok'; txt = 'Autovelox cache';
+    } else {
+      cls = 'err'; txt = 'Autovelox offline';
+    }
   } else if (!state.cameras.length && !imported) {
     cls = 'err'; txt = 'Autovelox nessun dato';
   } else if (!imported && (!state.camCenter || haversine(state.camCenter, p) * 1000 > state.camRadius)) {

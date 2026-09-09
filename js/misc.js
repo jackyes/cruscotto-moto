@@ -132,19 +132,40 @@ async function renderHistory() {
   }
   list.innerHTML = '';
   for (const s of sessions) {
+    // Valori da IndexedDB: mai in innerHTML (unico vettore di injection del
+    // gruppo). textContent + coercizione numerica: né HTML eseguibile, né
+    // TypeError se un campo è assente/stringa (import da terzi).
+    const num = v => {
+      if (typeof v === 'number' && isFinite(v)) return v;
+      const n = Number(v);
+      return isFinite(n) ? n : 0;
+    };
     const card = document.createElement('div');
     card.className = 'sess-card';
     const d = new Date(s.meta.startISO);
     const pad = n => String(n).padStart(2, '0');
-    card.innerHTML =
-      '<div class="sdate">' + d.getDate() + '/' + (d.getMonth()+1) + '/' + d.getFullYear() +
-      ' ' + pad(d.getHours()) + ':' + pad(d.getMinutes()) + '</div>' +
-      '<div class="srow">' +
-        '<span>Durata <b>' + fmtDur(s.meta.duration) + '</b></span>' +
-        '<span>V max <b>' + Math.round(s.meta.maxSpeed) + ' km/h</b></span>' +
-        '<span>Piega <b>' + Math.abs(s.meta.maxLeanR).toFixed(0) + '°D / ' + Math.abs(s.meta.maxLeanL).toFixed(0) + '°S</b></span>' +
-        '<span>Distanza <b>' + (s.meta.distKm||0).toFixed(2) + ' km</b></span>' +
-      '</div>';
+    const sdate = document.createElement('div');
+    sdate.className = 'sdate';
+    sdate.textContent = isFinite(d.getTime())
+      ? d.getDate() + '/' + (d.getMonth() + 1) + '/' + d.getFullYear() +
+        ' ' + pad(d.getHours()) + ':' + pad(d.getMinutes())
+      : 'Data sconosciuta';
+    const srow = document.createElement('div');
+    srow.className = 'srow';
+    const stat = (label, val) => {
+      const span = document.createElement('span');
+      span.textContent = label + ' ';
+      const b = document.createElement('b');
+      b.textContent = val;
+      span.appendChild(b);
+      return span;
+    };
+    srow.appendChild(stat('Durata ', fmtDur(num(s.meta.duration))));
+    srow.appendChild(stat('V max ', Math.round(num(s.meta.maxSpeed)) + ' km/h'));
+    srow.appendChild(stat('Piega ', Math.abs(num(s.meta.maxLeanR)).toFixed(0) + '°D / ' + Math.abs(num(s.meta.maxLeanL)).toFixed(0) + '°S'));
+    srow.appendChild(stat('Distanza ', num(s.meta.distKm).toFixed(2) + ' km'));
+    card.appendChild(sdate);
+    card.appendChild(srow);
     card.addEventListener('click', () => openSessionDetail(s.id));
     list.appendChild(card);
   }

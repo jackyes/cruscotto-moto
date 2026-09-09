@@ -10,8 +10,11 @@ async function fetchWithTimeout(url, ms) {
   const ctl = new AbortController();
   let timed = false;
   const kill = setTimeout(() => { timed = true; ctl.abort(); }, ms);
-  try { return await fetch(url, { signal: ctl.signal }); }
-  catch (e) {
+  let res;
+  try {
+    res = await fetch(url, { signal: ctl.signal });
+  } catch (e) {
+    clearTimeout(kill);
     if (timed || (e && e.name === 'AbortError')) throw new TimeoutError('timeout dopo ' + ms + ' ms');
     // Solo un navigator.onLine === false dà diritto al diagnóstico "offline":
     // un TypeError è CORS/DNS/mixed-content e dire "Senza rete" mentiva
@@ -20,15 +23,30 @@ async function fetchWithTimeout(url, ms) {
       throw new OfflineError((e && e.message) || 'offline');
     throw e;
   }
-  finally { clearTimeout(kill); }
+  // Il timer NON si ferma agli header: resta vivo finché jsonUnderTimeout non
+  // ha letto tutto il body. Un server che manda gli header e poi stalla il body
+  // (galleria, cella satura) lasciava la promise appesa per sempre: ricalcolo
+  // bloccato in REROUTING e coda navGate paralizzata per la sessione.
+  res._tmoKill = kill;
+  res._tmoMs = ms;
+  return res;
+}
+function clearResTmo(res) {
+  if (res && res._tmoKill) { clearTimeout(res._tmoKill); res._tmoKill = null; }
 }
 /* Il timer abortisce anche la lettura del body (spec fetch), ma il caller che
    fa .json() dopo vedrebbe un AbortError nudo invece del TimeoutError — e la
    UI confonderebbe "bloccato" con "lento". Tutto il body va letto da qui. */
 async function jsonUnderTimeout(res) {
-  try { return await res.json(); }
-  catch (e) {
-    if (e && e.name === 'AbortError') throw new TimeoutError('body non ricevuto entro il timeout');
+  try {
+    const j = await res.json();
+    clearResTmo(res);
+    return j;
+  } catch (e) {
+    clearResTmo(res);
+    if (e && e.name === 'AbortError') {
+      throw new TimeoutError('body non ricevuto entro il timeout' + (res && res._tmoMs ? ' di ' + res._tmoMs + ' ms' : ''));
+    }
     throw e;
   }
 }

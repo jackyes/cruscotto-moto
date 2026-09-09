@@ -273,14 +273,14 @@ function startVideoRender(s) {
   // Giro senza GPS (solo IMU, es. rulli): la mappa 3D centrerebbe l'Italia
   // di default e centrerebbe il nulla. Forza il 2D SOLO per questo render —
   // scrivere els.videoType.value sovrascriveva la preferenza utente in
-  // permanente, anche per i giri successivi con GPS.
+  // permanente, anche per i giri successivi con GPS. La scelta MP4/offline
+  // resta valida: prima questo ramo imponeva sempre il WebM realtime,
+  // ignorando il formato richiesto.
+  let mode = (els.videoType && els.videoType.value === '2d') ? '2d' : '3d';
   if (!videoHasGps(pre)) {
     toast('Giro senza GPS: uso il render 2D (grafici+HUD).', 'err', 6000);
-    if (wantMp4Early && !mp4ok) toast('MP4 non supportato qui, uso WebM.', 'err', 6000);
-    startVideoRender2D(pre);
-    return;
+    mode = '2d';
   }
-  const mode = (els.videoType && els.videoType.value === '2d') ? '2d' : '3d';
   const go = () => {
     if (videoSessionGone()) return;    // modale chiusa durante il probe satellite
     // Disabilitato QUI, non quando il job parte: fra go() e la creazione del

@@ -85,6 +85,9 @@ async function startVideoRenderWebmOffline(pre, mode) {
       m = '2d';
     }
   }
+  // Re-check dopo l'await: modale chiusa durante il load CDN (~12 s) = niente
+  // render fantasma (stesso difetto del ramo MP4).
+  if (videoSessionGone() || (videoJob && videoJob.cancelled)) return;
   await startVideoRenderWebmOfflineInner(pre, m, Muxer, picked);
 }
 
