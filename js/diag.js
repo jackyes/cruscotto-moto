@@ -120,7 +120,12 @@ function updateDiag() {
   els.dgAccBias.textContent = state._abPending ? 'misura in corso…'
     : (state.accBias ? g2(state.accBias.lat) + ' / ' + g2(state.accBias.lon) + ' / ' + g2(state.accBias.vert)
                      : 'non stimato');
-  els.dgGrav.textContent = state.gravNative ? 'fusione di piattaforma' : 'da attitudine (g·û)';
+  els.dgGrav.textContent = (state.gravNative ? 'fusione di piattaforma' : 'da attitudine (g·û)') +
+    (state.gravAgreeDeg != null ? ' · Δ ' + state.gravAgreeDeg.toFixed(1) + '°' : '');
+  els.dgAdapt.textContent = '×' + (state.vibScaleVal || 1).toFixed(2) +
+    ' · Kp ' + (state.attKp || ATT_KP).toFixed(2) + ' /s';
+  els.dgRect.textContent = (state.vibRectG != null && Math.abs(state.vibRectG) > 0.005)
+    ? g2(state.vibRectG) + ' g' + (state.rectNull ? ' (corretto)' : '') : 'non rilevato';
 
   const REF = { centrip: 'compensato (curva valida)', norm: 'da norma (senza GPS)',
                 raw: 'accelerometro grezzo', gyro: 'solo giroscopio', none: '—' };

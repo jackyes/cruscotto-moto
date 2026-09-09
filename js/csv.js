@@ -6,7 +6,7 @@
 const CSV_HEADER = 't,speed_kmh,speed_ms,lean_deg,lat_accel_g,lon_accel_g,vert_accel_g,' +
   'lat_peak_g,lon_peak_g,vert_peak_g,lat_accel_fus_g,lon_accel_fus_g,' +
   'gyro_roll_dps,gap,vib_g,lat,lon,alt_m,heading_deg,gps_acc_m,' +
-  'pitch_deg,gyro_yaw_dps,speed_fus_ms,lean_kin_deg,vib_hi_g,lean_ref';
+  'pitch_deg,gyro_yaw_dps,speed_fus_ms,lean_kin_deg,vib_hi_g,lean_ref,vib_rect_g';
 
 function csvMeta(meta) {
   return [
@@ -29,7 +29,7 @@ function csvRows(rows) {
     num(r.gyro || 0, 2), r.gap ? '1' : '0', num(r.vib || 0, 3),
     num(r.lat, 6), num(r.lon, 6), num(r.alt, 1), num(r.heading, 1), num(r.gpsAcc, 1),
     num(r.pitch, 2), num(r.yaw, 2), num(r.speedFus, 2), num(r.leanKin, 2),
-    num(r.vibHi, 3), r.leanRef || ''
+    num(r.vibHi, 3), r.leanRef || '', num(r.vibRect, 3)
   ].join(',')).join('\n');
 }
 

@@ -201,6 +201,29 @@ stesso risultato finale dopo l'auto-correzione.
 > Sono numeri di **simulazione**: verificano l'algoritmo, non il tuo supporto. La vibrazione è
 > modellata come rumore bianco, che è ciò che il filtro può togliere. L'aliasing no — vedi sotto.
 
+### Con la vibrazione: prima e dopo l'adattamento
+
+Stessa catena reale, ma con rumore bianco su **tutti e tre gli assi** dell'accelerometro e sul
+giroscopio, a 60 Hz, velocità GPS nota (niente ritardo Doppler: isola il contributo del filtro).
+Errore medio sulla piega, transitorio di avvio escluso, curva tenuta a 20 m/s:
+
+| scenario | prima (filtro fisso) | adesso (adattivo) |
+|---|---|---|
+| curva tenuta 30°, quieta | 0,0° | **0,0°** |
+| curva tenuta 30° + vibrazione 0,3 g RMS, gyro 5 °/s | 2,9° | **0,7°** |
+| curva tenuta 30° + vibrazione 0,6 g RMS, gyro 5 °/s | 2,3° | **1,4°** |
+| curva tenuta 30° + vibrazione 0,6 g RMS, gyro 20 °/s | 1,3° | **1,9°** |
+| curva tenuta 40° + vibrazione 0,6 g RMS, gyro 5 °/s | 3,9° | **1,4°** |
+| chicane ±40° a 0,25 Hz, quieta | 1,1° | **1,5°** |
+| chicane ±40° + vibrazione 0,3 g RMS | 1,1° | **2,1°** |
+| chicane ±40° + vibrazione 0,6 g RMS, gyro 5 °/s | 2,1° | **3,6°** |
+
+La lettura: in curva tenuta (la situazione in cui si guida con la moto che vibra) l'errore si
+riduce di 2-3 volte; nella chicane veloce la dinamica paga ~1° per l'adattamento. Il caso
+peggiore resta il rumore bianco fortissimo e indipendente sul giroscopio (20 °/s su tutti gli
+assi): lì l'adattamento pesa di meno del filtro fisso, ma è un corner sintetico — su un device
+reale accelerometro e giroscopio vibrano insieme e il filtro sull'imbardata lavora meglio.
+
 Puoi disattivare la fusione da **Impostazioni → Fusione giroscopio**: si torna a inseguire il
 solo riferimento accelerometrico.
 
@@ -244,7 +267,20 @@ Cosa fa l'app, in concreto:
 - media dei campioni nell'intervallo di log (anti-alias in decimazione 60→20 Hz);
 - mediana mobile sul vettore accelerazione, con finestra dimensionata sulla frequenza **reale**
   del sensore e non su un numero fisso di campioni;
-- passa-basso vettoriale prima della norma;
+- passa-basso vettoriale prima della norma, **di 2° ordine** (biquad Butterworth): a parità di
+  costante di tempo il rolloff è il doppio dell'EMA di 1° ordine, quindi la banda 5–30 Hz viene
+  reiettata il doppio senza ritardo aggiuntivo in banda utile;
+- **adattamento alla vibrazione**: le costanti di tempo del filtraggio si allungano (fino a ×2,5)
+  e i guadagni del Mahony si riducono con l'energia fuori banda. La metrica che lo guida
+  (`vibAdaptG`) è il residuo sopra ~2 Hz, **non** la vibrazione storica `vibHiG`: il moto reale
+  del telaio (chicane, sconnessioni <1 Hz) non deve allungare i filtri, altrimenti taglia la
+  dinamica proprio dove serve. Il gate di coerenza `ATT_TOL_G` resta **fisso** — la lezione
+  delle versioni precedenti è che allargarlo cancella l'unico rilevatore di curva funzionante;
+- **filtro sull'imbardata guidato dal rumore del canale stesso**: la compensazione centripeta ha
+  errore `v·δω_up/g` (a 20 m/s un grado/s di rumore su yaw costa 2° di piega). Un filtro veloce
+  segue la ψ̇ reale senza ritardo; il residuo fra yaw grezzo e quel filtro è la stima del rumore,
+  e il tau del filtro che alimenta la compensazione cresce con essa. Una ψ̇ pulita paga ~zero
+  ritardo di fase, un canale sporco viene filtrato;
 - **tutti i guadagni espressi in costanti di tempo**, non per campione. Prima predizione e
   correzione erano in unità diverse, quindi la frequenza di crossover del filtro scalava con la
   frequenza degli eventi: su un device a 30 Hz la reiezione della deriva si dimezzava;
@@ -257,6 +293,36 @@ Cosa fa l'app, in concreto:
 - colonne `vib_g` e `vib_hi_g` nel CSV, indicatore di affidabilità e riferimento attivo sul
   cruscotto.
 
+### Gravità: fusione di piattaforma vs propria, con cross-check
+
+La gravità per le tre accelerazioni viene, in ordine di preferenza:
+
+1. dalla **fusione di piattaforma** — `GravitySensor` / `LinearAccelerationSensor`, che su Android
+   mappano su `TYPE_GRAVITY` e `TYPE_LINEAR_ACCELERATION`, sensori compositi che la CDD impone
+   siano assistiti dal giroscopio quando il giroscopio esiste;
+2. dalla **soluzione di attitudine**, `g·û` per costruzione.
+
+Ma la fusione di piattaforma non è tarata per la vibrazione del motore, e la propria sì. Da
+**Impostazioni → Stima gravità**:
+
+- **Auto (cross-check)**: la gravità nativa si confronta con `g·û` a ogni campione (direzione e
+  norma); se divergono oltre soglia, si butta e si usa la propria. La diagnostica mostra l'angolo
+  di disaccordo;
+- **Fusione di piattaforma** / **Propria attitudine**: forzano il percorso.
+
+### Rettificazione MEMS (offset DC da vibrazione)
+
+La massa sismica dei MEMS non è perfettamente lineare: una vibrazione ad alta frequenza può
+indurre un **offset DC** sul canale accelerometrico lungo l'asse che vibra (per lo più il
+verticale del telaio). Non era verificabile a banco, quindi prima restava un sospetto.
+
+Adesso l'app la **stima**: a moto quasi dritta, senza frenata e senza colpi verticali,
+l'accelerazione verticale vera è ~0, quindi una media sistematica di `vertG` (EMA a 5 s) sotto
+vibrazione è offset indotto, non moto. La stima è sempre visibile in diagnostica e nel CSV
+(`vib_rect_g`); l'applicazione è opzionale (**Impostazioni → Correggi offset da vibrazione**) e
+limitata a ±0,05 g, solo sul canale verticale. La conferma su dispositivo reale resta da fare:
+usate la diagnostica per valutare se il valore è stabile e riproducibile al regime di giri.
+
 ### Supporto: la leva più efficace
 
 Serve **rigido in rotazione, smorzato in alta frequenza**. Morsetto a serraggio con inserto in gomma o silicone, oppure isolatore a fune. Da evitare snodi a sfera e frizioni: cedono lentamente e introducono oscillazioni a 1–5 Hz, che cadono *dentro* la banda della piega — peggiorano la misura invece di migliorarla.
@@ -267,12 +333,7 @@ Ricevono lo stesso trattamento della piega dove ha senso, ma non ovunque — e p
 
 **Reiezione impulsi.** Non con una mediana né con Hampel: su queste grandezze un colpo secco **è segnale**. Hampel in particolare fallisce, perché la soglia è `k·MAD` e su una baseline quieta il MAD collassa — misurato, un colpo vero da 0,9 / 1,4 / 1,2 g veniva riscritto in 0,11 / 0,11 / 0,12 g. Il discriminante corretto è la **durata**: un evento fisico dura 2–3 campioni a 60 Hz, un glitch di sensore uno solo con i vicini che restano simili. Si valuta il campione centrale di una finestra di 3, al costo di ~17 ms di ritardo.
 
-**Frenate sostenute.** La gravità non viene più da un passa-basso con congelamento. Quel percorso aveva una lunga catena di soglie e un caso patologico: sopra ~30° di piega il residuo verticale `g·(1/cos φ − 1)` supera da solo la soglia di congelamento, quindi in curva la stima restava **congelata lì in permanenza**.
-
-Adesso la gravità viene, in ordine di preferenza:
-
-1. dalla **fusione di piattaforma** — `GravitySensor` / `LinearAccelerationSensor`, che su Android mappano su `TYPE_GRAVITY` e `TYPE_LINEAR_ACCELERATION`, sensori compositi che la CDD impone siano assistiti dal giroscopio quando il giroscopio esiste;
-2. dalla **soluzione di attitudine**, `g·û` per costruzione.
+**Frenate sostenute.** La gravità non viene più da un passa-basso con congelamento. Quel percorso aveva una lunga catena di soglie e un caso patologico: sopra ~30° di piega il residuo verticale `g·(1/cos φ − 1)` supera da solo la soglia di congelamento, quindi in curva la stima restava **congelata lì in permanenza**. La scelta fra fusione di piattaforma e propria attitudine, con il cross-check, è descritta sopra (vedi *Gravità*).
 
 Se il HAL non espone i sensori compositi, Chromium ripiega su una propria fusione che è letteralmente un passa-basso del prim'ordine senza giroscopio: la diagnostica dice quale dei due percorsi è attivo, invece di lasciarlo supporre.
 
@@ -288,7 +349,7 @@ Se il HAL non espone i sensori compositi, Chromium ripiega su una propria fusion
 
 Corretto anche il caso in cui `coords.speed` è `null` (provider fuso, uscita da una galleria, pagina in background): prima veniva scritto come 0, il tachimetro andava a zero a velocità di marcia e — peggio — il rilevatore di "fermo" del bias giroscopio scattava **in corsa**, mangiando due secondi di rollio vero come se fosse bias. Adesso "velocità non riportata" e "velocità zero" sono cose diverse, e il fermo si accerta con evidenza **positiva**: fix fresco che riporta velocità bassa, più assenza di rotazione, più vibrazione bassa.
 
-Sotto ~0,1 Hz comanda il GPS, sopra l'accelerometro. In curva a regime l'accelerometro legge 0,000 g di laterale (la risultante è ⟂ al telaio): il canale fuso legge 0,500 g su una curva da 0,5 g. Le colonne originali restano invariate, quelle fuse si aggiungono.
+Sotto ~0,1 Hz comanda il GPS, sopra l'accelerometro. In curva a regime l'accelerometro legge 0,000 g di laterale (la risultante è ⟂ al telaio): il canale fuso legge 0,500 g su una curva da 0,5 g. Le colonne originali restano invariate, quelle fuse si aggiungono. Il ramo inerziale della fusione (residuo rispetto al passa-basso) riceve un **LP proprio con tau adattivo alla vibrazione**: prima la vibrazione passava tutta dentro `lat_accel_fus_g`/`lon_accel_fus_g`, adesso i canali fusi restano leggibili anche al minimo del motore, senza toccare lo stato stazionario né i picchi (che stanno nelle colonne `*_peak_g`).
 
 **Media e picco insieme.** La media sull'intervallo serve contro l'aliasing, ma cancella i transitori: una buca vera da 2,0 g finisce a 1,43 g nella colonna media. Le colonne `*_peak_g` conservano il valore esatto.
 
@@ -296,7 +357,7 @@ Sotto ~0,1 Hz comanda il GPS, sopra l'accelerometro. In curva a regime l'acceler
 
 ### Diagnostica e test a banco
 
-**Storico → Diagnostica vibrazioni** mostra in tempo reale frequenza del sensore, vibrazione RMS e fuori banda, norma filtrata, fiducia nel riferimento, bias giroscopio (rollio e modulo del vettore), piega e beccheggio letti, imbardata, piega cinematica, velocità fusa contro velocità GPS, le tre accelerazioni con il rispettivo riferimento GPS, l'offset rilevato, la sorgente sensori attiva (Generic Sensor API o `devicemotion`), l'origine della gravità e il **riferimento attivo in quell'istante**:
+**Storico → Diagnostica vibrazioni** mostra in tempo reale frequenza del sensore, vibrazione RMS e fuori banda, norma filtrata, fiducia nel riferimento, bias giroscopio (rollio e modulo del vettore), piega e beccheggio letti, imbardata, piega cinematica, velocità fusa contro velocità GPS, le tre accelerazioni con il rispettivo riferimento GPS, l'offset rilevato, la sorgente sensori attiva (Generic Sensor API o `devicemotion`), l'origine della gravità (con l'angolo di disaccordo del cross-check), il **fattore di adattamento alla vibrazione** con il guadagno effettivo, la **stima di rettificazione MEMS** e il **riferimento attivo in quell'istante**:
 
 | riferimento | significato |
 |---|---|
@@ -360,6 +421,7 @@ Colonne del CSV:
 | `lean_kin_deg` | piega cinematica `atan(v·ψ̇/g)`: stima indipendente, per verifica — **nuova** |
 | `vib_hi_g` | vibrazione fuori banda (g) — **nuova** |
 | `lean_ref` | riferimento attivo: `centrip` / `norm` / `raw` / `gyro` — **nuova** |
+| `vib_rect_g` | offset verticale stimato da rettificazione MEMS (g), diagnostico — **nuova** |
 
 Le colonne nuove sono **in coda**, quindi un parser che legge per posizione non si rompe; le sessioni salvate prima dell'aggiornamento le esportano vuote.
 
@@ -419,9 +481,10 @@ for f in $(find js -name '*.js'); do node --check "$f"; done
   limite del filtro né di `devicemotion`: non esiste il rimedio "campiona più veloce". Vedi la
   sezione *Vibrazioni*. L'unica leva è il supporto smorzato.
 - **Rettificazione da vibrazione nei MEMS** (offset DC indotto da vibrazione ad alta frequenza per
-  non linearità della massa sismica): plausibile e documentata in letteratura, **non verificata in
-  questo progetto**. Se esiste, si somma all'aliasing e si comporta come un offset, quindi vale la
-  riga sopra.
+  non linearità della massa sismica): l'app ora la **stima** sul canale verticale (vedi la sezione
+  dedicata) e può correggerla in modo limitato, ma la **conferma su dispositivo reale resta da
+  fare**. Se si comporta come un offset, in ogni caso si somma all'aliasing e la leva principale
+  resta il supporto.
 - **Curva molto lunga senza GPS**: con la compensazione centripeta attiva l'accelerometro resta
   valido in curva, quindi la deriva è chiusa in anello. Ma se manca la velocità *e* manca il
   giroscopio, non resta nessun riferimento sul segno della piega.

@@ -1,5 +1,49 @@
 'use strict';
 /* js/sensors-core.js (step 6): nucleo sensori/attitude (despike, clampG/01, pushBounded, speed-fusion, attitudeReference/Attitude, updateGyroSign). Usa state/logAcc da js/core.js. No DOM. */
+/* Fattore di adattamento alla vibrazione. Cresce linearmente con l'energia fuori
+   banda (vibAdaptG) fino a ×2,5: moltiplica le costanti di tempo del filtraggio e
+   divide i guadagni del Mahony. Non tocca il gate di coerenza (ATT_TOL_G). */
+function vibScale() {
+  const v = Math.min(Math.max(state.vibAdaptG || 0, 0), VIB_ADAPT_MAX);
+  return 1 + VIB_ADAPT_K * v;
+}
+
+/* Passa-basso Butterworth 2° ordine (Direct Form II transposed), vettoriale.
+   A parita' di costante di tempo l'EMA del 1° ordine ha rolloff 6 dB/ottava,
+   questo 12: il doppio di reiezione sulla banda 5-30 Hz dove cade la vibrazione
+   del motore, a parita' di ritardo nella banda utile. I coefficienti si
+   ricalcolano a ogni campione perche' tau_eff e' adattivo e dt varia. */
+function biquadCoeff(dt, tau) {
+  const k = Math.min(Math.max(dt / (2 * tau), 1e-4), 1.1);
+  const w0 = Math.tan(k);
+  const w2 = w0 * w0;
+  const den = 1 + Math.SQRT2 * w0 + w2;
+  return { b0: w2 / den, b1: 2 * w2 / den, b2: w2 / den,
+           a1: 2 * (w2 - 1) / den, a2: (1 - Math.SQRT2 * w0 + w2) / den };
+}
+/* Inizializzazione in regime: stato che riproduce esattamente il pass-through
+   del primo campione, cosi' non c'e' rampa di salita a inizio sessione (che
+   ritarderebbe l'inizializzazione dell'attitudine). */
+function biquadInit(st, x, dt, tau) {
+  const c = biquadCoeff(dt, tau);
+  const k1 = 1 - c.b0, k2 = c.b2 - c.a2;
+  st.z1 = { x: k1 * x.x, y: k1 * x.y, z: k1 * x.z };
+  st.z2 = { x: k2 * x.x, y: k2 * x.y, z: k2 * x.z };
+  return x;
+}
+function biquadStep(st, x, dt, tau) {
+  const c = biquadCoeff(dt, tau);
+  const z1 = st.z1, z2 = st.z2;
+  const y = { x: c.b0 * x.x + z1.x, y: c.b0 * x.y + z1.y, z: c.b0 * x.z + z1.z };
+  z1.x = c.b1 * x.x - c.a1 * y.x + z2.x;
+  z1.y = c.b1 * x.y - c.a1 * y.y + z2.y;
+  z1.z = c.b1 * x.z - c.a1 * y.z + z2.z;
+  z2.x = c.b2 * x.x - c.a2 * y.x;
+  z2.y = c.b2 * x.y - c.a2 * y.y;
+  z2.z = c.b2 * x.z - c.a2 * y.z;
+  return y;
+}
+
 function despike(st, x) {
   if (!st.b) st.b = [];
   st.b.push(x);
@@ -225,8 +269,13 @@ function attitudeReference(f, w, B, dt) {
   return { u: vscale(ref, 1 / mag), trust: trust, mode: 'raw' };
 }
 
-function updateAttitude(f, w, B, dt) {
-  const R = attitudeReference(f, w, B, dt);
+function updateAttitude(f, w, B, dt, wRef) {
+  /* wRef: copia di w con la componente di IMBARDATA filtrata piu' forte (vedi
+     processSample). La compensazione centripeta usa wRef, perche' il suo errore
+     e' v·δω_up/g — a 20 m/s un grado/s di rumore su yaw costa 2° di piega. La
+     propagazione invece usa w intero: i picchi di rollio in ingresso curva non
+     vanno smussati. */
+  const R = attitudeReference(f, wRef || w, B, dt);
   if (!state._attU) {
     /* Inizializzazione: mai su un campione grezzo isolato, mai senza riferimento, e
        mai su un riferimento in cui non si crede.
@@ -259,17 +308,28 @@ function updateAttitude(f, w, B, dt) {
   const e = R ? vscale(vcross(u, R.u), R.trust) : { x: 0, y: 0, z: 0 };
 
   if (hasGyro) {
+    /* Guadagni adattivi: sotto vibrazione il riferimento filtrato resta piu'
+       rumoroso. Il proporzionale scende debolmente (il rumore del riferimento
+       entra come Kp·e), l'integrale scende di piu' (il bias imparato da un
+       riferimento rumoroso e' esso stesso rumore). Il termine proporzionale
+       resta comunque vicino al valore nominale: il random walk del giroscopio
+       sotto vibrazione e' il peggior nemico, e a chiuderlo e' lui. */
+    const vs = vibScale();
+    const kp = ATT_KP / Math.sqrt(vs);
+    const ki = ATT_KI / vs;
+    state.vibScaleVal = vs;
+    state.attKp = kp;
     /* Integrale: impara il bias quando il riferimento e' credibile e continua ad
        applicarlo quando non lo e' (in curva). Il segno e' POSITIVO: se il giroscopio
        ha un bias b, il termine proporzionale si stabilizza su Kp·e ≈ b, quindi
        accumulare +Ki·e fa convergere la stima su b — non su −b. */
-    state.attBias = vadd(state.attBias, vscale(e, ATT_KI * dt * 180 / Math.PI));
+    state.attBias = vadd(state.attBias, vscale(e, ki * dt * 180 / Math.PI));
     const bmax = ATT_BIAS_MAX_DPS;
     state.attBias.x = Math.max(-bmax, Math.min(bmax, state.attBias.x));
     state.attBias.y = Math.max(-bmax, Math.min(bmax, state.attBias.y));
     state.attBias.z = Math.max(-bmax, Math.min(bmax, state.attBias.z));
 
-    const wEff = vsub(vscale(vsub(w, state.attBias), Math.PI / 180), vscale(e, ATT_KP));
+    const wEff = vsub(vscale(vsub(w, state.attBias), Math.PI / 180), vscale(e, kp));
     u = vadd(u, vscale(vcross(wEff, u), -dt));
   } else if (R) {
     // Senza giroscopio non c'e' nulla da propagare: si insegue solo il riferimento.

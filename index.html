@@ -951,6 +951,18 @@
           <input type="checkbox" id="gyroFusion" checked>
         </div>
         <div class="set-row">
+          <span>Stima gravità</span>
+          <select id="gravityModeSel">
+            <option value="auto" selected>Auto (cross-check)</option>
+            <option value="native">Fusione di piattaforma</option>
+            <option value="own">Propria attitudine</option>
+          </select>
+        </div>
+        <div class="set-row">
+          <span>Correggi offset da vibrazione (rettificazione MEMS)</span>
+          <input type="checkbox" id="rectNull">
+        </div>
+        <div class="set-row">
           <span>Solo autovelox davanti (±60°)</span>
           <input type="checkbox" id="camAhead" checked>
         </div>
@@ -1070,6 +1082,8 @@
           <div><span class="k">Velocità fusa</span><b id="dgSpeed">—</b></div>
           <div><span class="k">Segno giroscopio</span><b id="dgSign">—</b></div>
           <div><span class="k">Vibrazione fuori banda</span><b id="dgVibHi">—</b></div>
+          <div><span class="k">Adattamento vibrazione</span><b id="dgAdapt">—</b></div>
+          <div><span class="k">Rettificazione stimata</span><b id="dgRect">—</b></div>
         </div>
         <p class="hint">
           <b>Test a banco.</b> Moto sul cavalletto, <b>dritta e ferma</b>: la piega vera è 0°
@@ -1254,6 +1268,7 @@ const els = {
   videoCardDl: $('videoCardDl'),
   btnCenter: $('btnCenter'), btnFollow: $('btnFollow'), btnTrackUp: $('btnTrackUp'), btnNavMute: $('btnNavMute'), compassOffsetSel: $('compassOffset'),
   gyroFusion: $('gyroFusion'), camAheadChk: $('camAhead'),
+  gravityModeSel: $('gravityModeSel'), rectNull: $('rectNull'),
   guidaAlwaysChk: $('guidaAlways'),
   toasts: $('toasts'), secWarn: $('secWarn'), mapBox: document.querySelector('.map-box'),
   leanConf: $('leanConf'), leanConfFill: $('leanConfFill'), leanConfTxt: $('leanConfTxt'),
@@ -1262,6 +1277,7 @@ const els = {
   dgAcc: $('dgAcc'), dgAccGps: $('dgAccGps'), dgAccBias: $('dgAccBias'), dgGrav: $('dgGrav'),
   dgSrc: $('dgSrc'), dgRef: $('dgRef'), dgPitch: $('dgPitch'), dgLeanKin: $('dgLeanKin'),
   dgSpeed: $('dgSpeed'), dgSign: $('dgSign'), dgVibHi: $('dgVibHi'),
+  dgAdapt: $('dgAdapt'), dgRect: $('dgRect'),
   btnBench: $('btnBench'), benchOut: $('benchOut'),
   themeSel: $('themeSel'), metaTheme: $('metaTheme'),
 };
@@ -1956,6 +1972,12 @@ function init() {
   });
   els.invertLean.addEventListener('change', () => { state.invertLean = els.invertLean.checked; saveSettings(); });
   els.gyroFusion.addEventListener('change', () => { state.gyroFusion = els.gyroFusion.checked; state._attU = null; saveSettings(); });
+  els.gravityModeSel.addEventListener('change', () => {
+    state.gravityMode = (els.gravityModeSel.value === 'native' || els.gravityModeSel.value === 'own')
+      ? els.gravityModeSel.value : 'auto';
+    saveSettings();
+  });
+  els.rectNull.addEventListener('change', () => { state.rectNull = els.rectNull.checked; saveSettings(); });
   els.camAheadChk.addEventListener('change', () => { state.camAhead = els.camAheadChk.checked; saveSettings(); });
   els.wakeLockChk.addEventListener('change', () => {
     state.wakeLockOn = els.wakeLockChk.checked;

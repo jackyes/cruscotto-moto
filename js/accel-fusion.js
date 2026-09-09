@@ -19,9 +19,39 @@ function updateAccelFusion(dt) {
   }
   const a = step / (FUS_TAU_S + step);
   state._lpLat = (state._lpLat == null) ? state.latG : state._lpLat + a * (state.latG - state._lpLat);
-  state._lpLon = (state._lpLon == null) ? state.lonG : state._lpLon + a * (state.lonG - state._lpLon);
-  state.latFus = (state._lpLatGps == null) ? state.latG : clampG((state.latG - state._lpLat) + state._lpLatGps);
-  state.lonFus = (state._lpLonGps == null) ? state.lonG : clampG((state.lonG - state._lpLon) + state._lpLonGps);
+  state._lpLon = (state._lpLon == null) ? state.lonG : state._lpLon + a * (state._lpLon - state._lpLon);
+  /* Il ramo inerziale della fusione portava la vibrazione non attenuata: il
+     residuo (latG − lpLat) e' un passa-alto, e la banda di vibrazione passa
+     tutta. Qui il residuo riceve un LP proprio, con tau adattivo: lo stato
+     stazionario (residuo ~0) non cambia, i transitori reali durano 2-3
+     campioni e il tau base di 50 ms li lascia passare quasi per intero.
+     Le colonne *_peak_g conservano comunque i picchi esatti. */
+  const ar = step / (ACC_FUS_RES_TAU_S * vibScale() + step);
+  const rLat = state.latG - state._lpLat;
+  const rLon = state.lonG - state._lpLon;
+  state._resLat = (state._resLat == null) ? rLat : state._resLat + ar * (rLat - state._resLat);
+  state._resLon = (state._resLon == null) ? rLon : state._resLon + ar * (rLon - state._resLon);
+  state.latFus = (state._lpLatGps == null) ? state.latG : clampG(state._resLat + state._lpLatGps);
+  state.lonFus = (state._lpLonGps == null) ? state.lonG : clampG(state._resLon + state._lpLonGps);
+}
+
+/* Detector di rettificazione MEMS. A moto quasi dritta, senza frenata e senza
+   colpi verticali, l'accelerazione verticale vera e' ~0: una media sistematica
+   di vertG in quelle condizioni e' offset indotto dalla vibrazione (la massa
+   sismica rettifica il rumore ad alta frequenza). L'EMA a 5 s tiene fuori le
+   buche (transitori) e il rumore a media nulla. La stima si aggiorna solo col
+   gate aperto e resta ferma altrimenti: e' diagnostica, e la correzione — se
+   abilitata — e' limitata a ±RECT_NULL_MAX_G in sensors-pipe. */
+function updateRectDetector(dt) {
+  const gate = Math.abs(state.lean) < RECT_LEAN_MAX_DEG
+    && Math.abs(state.lonG) < RECT_LON_MAX_G
+    && Math.abs(state.vertG) < RECT_VERT_MAX_G
+    && state.vibAdaptG > RECT_VIB_MIN_G;
+  if (gate) {
+    const a = dt / (RECT_TAU_S + dt);
+    state._rectEma = (state._rectEma == null) ? state.vertG : state._rectEma + a * (state.vertG - state._rectEma);
+  }
+  state.vibRectG = state._rectEma || 0;
 }
 
 /* Riferimenti derivati dal GPS, aggiornati a ogni fix (~1 Hz). */
@@ -73,8 +103,11 @@ function updateGpsAccel(c, tsMs) {
 function medianWindow() {
   // Dimensionata sulla frequenza REALE: a 20 Hz una finestra di 7 campioni ritarda
   // 150 ms invece di 50, e il ritardo entra dritto nell'anello di attitudine.
+  // Sotto vibrazione si allarga (fino al tetto di 9): la mediana toglie gli
+  // impulsi senza ritardo di fase, quindi allargarla costa poco e guadagna
+  // reiezione proprio dove il passa-basso deve allungarsi.
   const hz = state.sensorHz > 5 ? state.sensorHz : 60;
-  let n = Math.round(ACC_MEDIAN_S * hz);
+  let n = Math.round(ACC_MEDIAN_S * vibScale() * hz);
   if (n % 2 === 0) n++;
   return n < 3 ? 3 : (n > 9 ? 9 : n);
 }
@@ -114,5 +147,17 @@ function updateVibration(ig, dt) {
     state._vibPow = (state._vibPow == null) ? pw : state._vibPow + a * (pw - state._vibPow);
     state.vibHiG = Math.sqrt(state._vibPow) / G;
     state.vibG = state.vibHiG;
+    /* Metrica di ADATTAMENTO separata: residuo rispetto a un LP piu' veloce
+       (~2 Hz). vibHiG resta la metrica storica (indicatori, CSV, gate fermo);
+       vibAdaptG guida vibScale e deve ignorare il moto reale del telaio —
+       altrimenti una chicane pulita allunga i filtri e taglia la dinamica
+       proprio quando serve. La vibrazione del motore, anche aliasata in banda,
+       resta sopra ~5 Hz e passa quasi intera da questo residuo. */
+    const a2 = dt / (VIB_ADAPT_LP_TAU_S + dt);
+    state._accLP2 = (state._accLP2 == null) ? ig : vadd(state._accLP2, vscale(vsub(ig, state._accLP2), a2));
+    const r2 = vsub(ig, state._accLP2);
+    const pw2 = vdot(r2, r2);
+    state._vibPow2 = (state._vibPow2 == null) ? pw2 : state._vibPow2 + a * (pw2 - state._vibPow2);
+    state.vibAdaptG = Math.sqrt(state._vibPow2) / G;
   }
 }

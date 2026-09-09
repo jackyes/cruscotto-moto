@@ -173,6 +173,8 @@ function loadSettings() {
   state.navNoFerry = !!s.navNoFerry;
   state.compassOffset = s.compassOffset || 0;
   state.gyroFusion = s.gyroFusion !== false;
+  state.gravityMode = (s.gravityMode === 'native' || s.gravityMode === 'own') ? s.gravityMode : 'auto';
+  state.rectNull = !!s.rectNull;
   // Segno del giroscopio imparato a runtime (vedi updateGyroSign): si riusa il
   // verdetto della sessione precedente, così un avvio già in marcia non riparte
   // col segno di default sbagliato. Non si persistono lock/score/energy.
@@ -196,6 +198,8 @@ function loadSettings() {
   els.navNoFerry.checked = state.navNoFerry;
   els.compassOffsetSel.value = String(state.compassOffset);
   els.gyroFusion.checked = state.gyroFusion;
+  els.gravityModeSel.value = state.gravityMode;
+  els.rectNull.checked = state.rectNull;
   els.camAheadChk.checked = state.camAhead;
   if (els.guidaAlwaysChk) els.guidaAlwaysChk.checked = state.guidaAlways;
   /* Le calibrazioni salvate prima della riscrittura dell'attitudine non sono piu'
@@ -215,6 +219,7 @@ function saveSettings() {
     camAlerts: state.camAlerts, camDist: state.camDist, camRadius: state.camRadius,
     compassOffset: state.compassOffset,
     gyroFusion: state.gyroFusion, camAhead: state.camAhead, theme: state.theme,
+    gravityMode: state.gravityMode, rectNull: state.rectNull,
     navVoice: state.navVoice, navNoHw: state.navNoHw, navNoToll: state.navNoToll,
     navBackroads: state.navBackroads, navNoFerry: state.navNoFerry,
     camLegalOk: state.camLegalOk, guidaAlways: state.guidaAlways

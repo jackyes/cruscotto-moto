@@ -28,6 +28,7 @@ function snapshot() {
     speedFus: m ? m.speedFus : state.speedFusMs,
     leanKin: m ? m.leanKin : state.leanKin,
     vibHi: m ? m.vibHi : state.vibHiG,
+    vibRect: m ? m.vibRect : state.vibRectG,
     leanRef: state.attRef,
     gap,
     lat: state.pos.lat, lon: state.pos.lon, alt: state.gps.alt,

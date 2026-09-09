@@ -43,6 +43,42 @@ const ACC_MEDIAN_S = 0.117;    // finestra mediana sul vettore accelerazione (s,
 const ACC_LP_TAU_S = 0.10;     // passa-basso vettoriale prima della norma
 const VIB_TAU_S = 0.30;        // costante di tempo della stima di vibrazione
 const LEAN_VIB_MAX = 0.6;      // g RMS considerato "vibrazione piena" per gli indicatori
+const VIB_ADAPT_LP_TAU_S = 0.08; // LP di riferimento per la metrica di ADATTAMENTO:
+                                 // residuo sopra ~2 Hz. Il moto reale del telaio
+                                 // (rollio di chicane, sconnessioni <1 Hz) non deve
+                                 // allungare i filtri; la vibrazione del motore
+                                 // (in banda, 5-30 Hz) passa quasi intera.
+/* --- vibrazione: adattamento ---
+   Sotto vibrazione le costanti di tempo si ALLUNGANO (tau_eff = tau_base ·
+   vibScale) e i guadagni si riducono: il riferimento accelerometrico filtrato
+   e' piu' rumoroso, e iniettarlo con lo stesso peso di quando e' pulito e' il
+   modo classico di guadagnare errore senza guadagnare banda. Il gate di
+   coerenza ATT_TOL_G invece resta FISSO: la lezione delle versioni precedenti
+   e' che allargare la tolleranza con la vibrazione cancella l'unico rilevatore
+   di curva funzionante (‖a‖/g = 1/cos φ E' la piega). */
+const VIB_ADAPT_MAX = 0.5;       // vibAdaptG (g) oltre cui il fattore non cresce piu'
+const VIB_ADAPT_K = 3.0;         // vibScale = 1 + K·min(vibAdaptG, VIB_ADAPT_MAX): max x2.5
+const GYRO_LP_TAU_S = 0.04;      // tau base del passa-basso giroscopio (era hardcoded 0.04)
+const YAW_LP_BASE_S = 0.05;      // filtro veloce sull'imbardata: quasi zero ritardo
+const YAW_LP_TAU_S = 0.15;       // tau pieno del filtro lento su yaw (raggiunto col rumore massimo)
+const YAW_NOISE_MAX_DPS = 6;    // rumore di imbardata (°/s) che porta il tau al valore pieno
+const ACC_FUS_RES_TAU_S = 0.05;  // tau LP del residuo inerziale sui canali lat/lon fusi
+/* --- gravita': cross-check nativa vs propria ---
+   La fusione di piattaforma (TYPE_GRAVITY/TYPE_LINEAR_ACCELERATION) non e'
+   tarata per la vibrazione del motore: in 'auto' la si confronta con g·û della
+   propria attitudine e la si butta se divergono. */
+const GRAV_AGREE_DEG = 12;       // angolo oltre cui la gravita' nativa non si crede
+const GRAV_AGREE_G = 0.15;       // scarto di norma oltre cui non si crede (g)
+/* --- rettificazione MEMS: stima dell'offset DC indotto dalla vibrazione ---
+   A moto quasi dritta, senza frenata, l'accelerazione verticale vera e' ~0:
+   una media sistematica di vertG sotto vibrazione e' offset, non moto. La
+   stima e' diagnostica; la correzione opzionale e' limitata a ±RECT_NULL_MAX_G. */
+const RECT_TAU_S = 5.0;          // memoria della media di vertG (s)
+const RECT_LEAN_MAX_DEG = 8;     // gate: assetto quasi dritto
+const RECT_LON_MAX_G = 0.15;     // gate: niente frenata/accelerazione
+const RECT_VIB_MIN_G = 0.20;     // misura solo quando vibra
+const RECT_VERT_MAX_G = 0.30;    // gate: esclude buche e manovre verticali
+const RECT_NULL_MAX_G = 0.05;    // tetto della correzione applicata
 /* --- velocità fusa inerziale + GPS --- */
 const GPS_LAG_S = 0.6;         // ritardo tipico della velocità Doppler; compensato via storia di v̂
 const SPEED_HIST_S = 3;        // profondità della storia di v̂ (s)
@@ -160,8 +196,15 @@ const state = {
   speedGpsMs: null,   // ultima velocità GPS realmente riportata (null = non riportata)
   speedGpsT: 0,       // performance.now() dell'ultima velocità GPS valida
   vibHiG: 0,          // vibrazione fuori banda (g) — sostituisce la differenza prima
+  vibAdaptG: 0,       // metrica di adattamento (g): residuo sopra ~2 Hz, guida vibScale
   sensorSrc: 'none',  // 'generic' | 'devicemotion'
   gravNative: false,  // gravità/accelerazione lineare fornite dalla fusione di piattaforma
+  gravityMode: 'auto',// 'auto' (cross-check) | 'native' | 'own'
+  gravAgreeDeg: null, // disaccordo (°) fra gravità nativa e propria attitudine
+  rectNull: false,    // applica la correzione da rettificazione MEMS (limitata)
+  vibRectG: 0,        // stima offset da rettificazione MEMS (g, canale verticale)
+  vibScaleVal: 1,     // fattore di adattamento attuale (diagnostica)
+  attKp: ATT_KP,      // guadagno proporzionale effettivo (adattivo, diagnostica)
   accBias: null,      // offset accelerometro (g, frame moto) rilevato in calibrazione
   latGps: null,       // accelerazione laterale da GPS: v·dψ/dt (g)
   lonGps: null,       // accelerazione longitudinale da GPS: dv/dt (g)
@@ -176,7 +219,7 @@ const state = {
 const logAcc = {
   n: 0, lean: 0, latG: 0, lonG: 0, vertG: 0, gyro: 0, vib: 0, latFus: 0, lonFus: 0,
   // canali nuovi: beccheggio, imbardata, velocita' fusa, piega cinematica, vibrazione fuori banda
-  pitch: 0, yaw: 0, speedFus: 0, leanKin: 0, vibHi: 0,
+  pitch: 0, yaw: 0, speedFus: 0, leanKin: 0, vibHi: 0, vibRect: 0,
   // La media protegge dall'aliasing ma cancella i picchi, che sul verticale sono
   // proprio l'informazione utile: si tiene anche il massimo in modulo, con segno.
   latPk: 0, lonPk: 0, vertPk: 0,
@@ -192,7 +235,7 @@ function resetLogAcc() {
   logAcc.n = 0;
   logAcc.lean = logAcc.latG = logAcc.lonG = logAcc.vertG = 0;
   logAcc.gyro = logAcc.vib = logAcc.latFus = logAcc.lonFus = 0;
-  logAcc.pitch = logAcc.yaw = logAcc.speedFus = logAcc.leanKin = logAcc.vibHi = 0;
+  logAcc.pitch = logAcc.yaw = logAcc.speedFus = logAcc.leanKin = logAcc.vibHi = logAcc.vibRect = 0;
   logAcc.latPk = logAcc.lonPk = logAcc.vertPk = 0;
 }
 

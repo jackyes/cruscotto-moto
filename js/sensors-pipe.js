@@ -3,13 +3,25 @@
 function resetSensorFilters() {
   state._accHist = null;
   state._accLP = null;
+  state._accLP2 = null;   // LP di riferimento per la metrica di adattamento
   state._vibPow = null;
+  state._vibPow2 = null;
   state._wLP = null;
+  state._accBiq = null;   // stato del passa-basso 2° ordine sull'accelerometro
+  state._yawFilt = null;  // imbardata filtrata per la compensazione centripeta
+  state._yawFilt2 = null;
+  state._yawPow = null;
   state.gyroBias = null;
   state._biasSum = 0; state._biasN = 0; state._biasT = 0;
   state.vibG = 0; state.vibHiG = 0;
+  state.vibAdaptG = 0;
   state.gRatio = 1;
   state.leanConf = 1;
+  state.vibRectG = 0;
+  state._rectEma = null;
+  state.vibScaleVal = 1;
+  state.attKp = ATT_KP;
+  state.gravAgreeDeg = null;
   // attitudine
   state._attU = null;
   state._attLastNorm = null;
@@ -31,6 +43,8 @@ function resetSensorFilters() {
   state._lpLon = null;
   state._lpLatGps = null;
   state._lpLonGps = null;
+  state._resLat = null;
+  state._resLon = null;
   state._pv = null;
   state._pvT = null;
   state._phdg = null;
@@ -86,6 +100,12 @@ function processSample(sm) {
     // i primi campioni dopo la ripresa uscirebbero con piega spuria.
     state._accLP = null;
     state._wLP = null;
+    state._accBiq = null;
+    state._yawFilt = null;
+    state._yawFilt2 = null;
+    state._yawPow = null;
+    state._accLP2 = null;
+    state._vibPow2 = null;
     state._hbuf = null;
     state._vibPow = null;
     state._accHist = null;
@@ -116,11 +136,44 @@ function processSample(sm) {
   state.hasGyro = !!sm.gyro;
   if (sm.gyro) {
     W = vscale({ x: gyroSat(sm.gyro.x), y: gyroSat(sm.gyro.y), z: gyroSat(sm.gyro.z) }, state.gyroSign);
-    // Passa-basso leggero sul VETTORE prima dell'integrazione: riduce la varianza che
-    // alimenta il random walk. tau 40 ms, ritardo trascurabile in ingresso curva.
-    const a = dt / (0.04 + dt);
-    state._wLP = state._wLP ? vadd(state._wLP, vscale(vsub(W, state._wLP), a)) : W;
-    W = state._wLP;
+    // Passa-basso sul VETTORE prima dell'integrazione: riduce la varianza che
+    // alimenta il random walk. tau base 40 ms (adattivo con la vibrazione),
+    // ritardo trascurabile in ingresso curva. EMA del 1° ordine, NON il biquad
+    // 2° ordine dell'accelerometro: sul giroscopio la fase conta di piu'
+    // (l'integrale e' il canale veloce della piega) e il biquad, a parita' di
+    // tau, ritardava la chicane (misurato: +1° di errore dinamico).
+    const tauW = GYRO_LP_TAU_S * vibScale();
+    const aW = dt / (tauW + dt);
+    W = state._wLP ? vadd(state._wLP, vscale(vsub(W, state._wLP), aW)) : W;
+    state._wLP = W;
+  }
+
+  /* LP dedicato sull'imbardata attorno alla verticale del telaio. L'errore
+     della compensazione centripeta e' v·δω_up/g: a 20 m/s un grado/s di rumore
+     su yaw costa 2° di piega — il canale piu' sensibile di tutto il filtro. Si
+     filtra la sola COMPONENTE lungo B.up: rollio e beccheggio di W restano
+     intatti (i picchi di rollio in ingresso curva non vanno smussati), e B e'
+     la calibrazione, non l'attitudine — nessun anello di feedback. */
+  let Wc = W;
+  if (B && sm.gyro) {
+    /* Filtro sull'imbardata guidato dal RUMORE del canale stesso, non dalla
+       vibrazione dell'accelerometro. Un filtro veloce (tau 0.05 s) segue la ψ̇
+       reale con ritardo trascurabile; il residuo fra yaw grezzo e quel filtro
+       E' la stima del rumore: su una ψ̇ pulita (chicane) e' ~0, su rumore
+       bianco e' quasi tutto il rumore. Il tau del filtro lento che alimenta la
+       compensazione centripeta cresce con quel rumore — cosi' la dinamica paga
+       solo quando il canale e' davvero sporco, e l'errore v·δω_up/g resta
+       contenuto proprio dove piu' costa. */
+    const yawRaw = vdot(W, B.up);
+    const aY0 = dt / (YAW_LP_BASE_S + dt);
+    state._yawFilt = (state._yawFilt == null) ? yawRaw : state._yawFilt + aY0 * (yawRaw - state._yawFilt);
+    const rY = yawRaw - state._yawFilt;
+    const aP = dt / (VIB_TAU_S + dt);
+    state._yawPow = (state._yawPow == null) ? rY * rY : state._yawPow + aP * (rY * rY - state._yawPow);
+    const tauY = YAW_LP_TAU_S * clamp01(Math.sqrt(state._yawPow) / YAW_NOISE_MAX_DPS);
+    const aY = dt / (Math.max(tauY, 0.02) + dt);
+    state._yawFilt2 = (state._yawFilt2 == null) ? yawRaw : state._yawFilt2 + aY * (yawRaw - state._yawFilt2);
+    if (state._yawFilt2 !== yawRaw) Wc = vadd(W, vscale(B.up, state._yawFilt2 - yawRaw));
   }
 
   /* Filtro vettoriale sull'accelerometro: mediana (impulsi) poi passa-basso (norma).
@@ -131,9 +184,13 @@ function processSample(sm) {
   if (ig) {
     pushAccHist(ig);
     Am = medianAcc() || ig;
-    const a = dt / (ACC_LP_TAU_S + dt);
-    state._accLP = state._accLP ? vadd(state._accLP, vscale(vsub(Am, state._accLP), a)) : Am;
-    aLP = state._accLP;
+    /* Passa-basso 2° ordine, tau adattivo: sotto vibrazione si allunga e la
+       norma (non lineare) legge di meno il rumore rettificato. L'ordine del
+       filtro e' vettoriale: il vettore si filtra, la norma si prende dopo. */
+    const tauA = ACC_LP_TAU_S * vibScale();
+    if (state._accBiq) aLP = biquadStep(state._accBiq, Am, dt, tauA);
+    else { state._accBiq = {}; aLP = biquadInit(state._accBiq, Am, dt, tauA); }
+    state._accLP = aLP;
     updateVibration(ig, dt);
     state.gRatio = vlen(aLP) / G;
     /* La calibrazione cattura il vettore gravita' dal PASSA-BASSO, non dalla mediana:
@@ -157,7 +214,7 @@ function processSample(sm) {
      quindi usare quello sbagliato sbaglia la piega cinematica di atan(sin(phi))
      invece di phi — 3,4 gradi a 30 gradi di piega. u E' la verticale in coordinate
      telefono, quindi la proiezione e' diretta. */
-  state.yawUp = (sm.gyro && state._attU) ? vdot(W, state._attU) : state.gyroYaw;
+  state.yawUp = (sm.gyro && state._attU) ? vdot(Wc, state._attU) : state.gyroYaw;
 
   /* Fermo accertato con evidenza POSITIVA: fix GPS fresco che riporta velocita' bassa,
      piu' assenza di rotazione, piu' vibrazione bassa. Il test precedente era di fatto
@@ -183,7 +240,7 @@ function processSample(sm) {
 
   /* ---- Attitudine ---- */
   if (ig && B) {
-    const ok = updateAttitude(aLP || Am, W, B, dt);
+    const ok = updateAttitude(aLP || Am, W, B, dt, Wc);
     if (ok) {
       const u = state._attU;
       let lean = leanFromUp(u, B);
@@ -219,10 +276,35 @@ function processSample(sm) {
      il residuo verticale superava la soglia di freeze e la stima restava congelata li'
      in permanenza. */
   let la = null;
-  if (sm.lin) { la = sm.lin; state.gravNative = true; }
-  else if (sm.grav && ig) { la = vsub(ig, sm.grav); state.gravNative = true; }
-  else if (ig && state._attU) { la = vsub(ig, vscale(state._attU, G)); state.gravNative = false; }
-  else if (ig) { la = null; state.gravNative = false; }
+  let hasNat = false, gNat = null;
+  if (sm.lin && ig) { hasNat = true; gNat = vsub(ig, sm.lin); }
+  else if (sm.grav && ig) { hasNat = true; gNat = sm.grav; }
+  const own = (ig && state._attU) ? vsub(ig, vscale(state._attU, G)) : null;
+  state.gravAgreeDeg = null;
+  if (state.gravityMode === 'own' && own) {
+    la = own; state.gravNative = false;
+  } else if (hasNat) {
+    la = sm.lin ? sm.lin : vsub(ig, sm.grav);
+    state.gravNative = true;
+    /* Cross-check in 'auto': la fusione di piattaforma non e' tarata per la
+       vibrazione del motore. Si confronta la gravita' nativa con la propria
+       attitudine (g·û): se divergono in direzione o in norma, la nativa si
+       butta. La diagnostica mostra l'angolo di disaccordo. */
+    if (state.gravityMode === 'auto' && own && gNat) {
+      const mn = vlen(gNat);
+      if (mn > 1e-6) {
+        const ang = Math.acos(clamp01(vdot(gNat, state._attU) / mn)) * 180 / Math.PI;
+        state.gravAgreeDeg = ang;
+        if (ang > GRAV_AGREE_DEG || Math.abs(mn / G - 1) > GRAV_AGREE_G) {
+          la = own; state.gravNative = false;
+        }
+      }
+    }
+  } else if (own) {
+    la = own; state.gravNative = false;
+  } else {
+    state.gravNative = false;
+  }
   state.accelDerived = !state.gravNative;
 
   if (la) {
@@ -245,6 +327,14 @@ function processSample(sm) {
     state.lonG = clampG(lon);
     state.vertG = clampG(vert);
     collectAccBias(dt);
+    /* Rettificazione MEMS: sotto vibrazione la massa sismica induce un offset
+       DC. updateRectDetector stima la media sistematica di vertG in condizioni
+       in cui dovrebbe valere ~0; la correzione e' opzionale e limitata, la
+       stima resta sempre visibile in diagnostica e nel CSV. */
+    updateRectDetector(dt);
+    if (state.rectNull && state._rectEma != null && Math.abs(state._rectEma) <= RECT_NULL_MAX_G) {
+      state.vertG = clampG(state.vertG - state._rectEma);
+    }
     updateAccelFusion(dt);
   }
 
@@ -275,6 +365,7 @@ function processSample(sm) {
   logAcc.speedFus += state.speedFusMs;
   logAcc.leanKin += state.leanKin;
   logAcc.vibHi += state.vibHiG;
+  logAcc.vibRect += state.vibRectG;
   logAcc.latPk = keepPeak(logAcc.latPk, state.latG);
   logAcc.lonPk = keepPeak(logAcc.lonPk, state.lonG);
   logAcc.vertPk = keepPeak(logAcc.vertPk, state.vertG);
