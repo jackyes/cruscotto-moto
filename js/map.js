@@ -268,6 +268,7 @@ function updateMap() {
 }
 
 function drawTrackOnCanvas(canvas, track, opts) {
+  if (!canvas) return;
   const ctx = canvas.getContext('2d');
   const dpr = window.devicePixelRatio || 1;
   const w = canvas.clientWidth || canvas.parentElement.clientWidth || 300;

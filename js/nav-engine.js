@@ -133,7 +133,7 @@ function navTick(pLat, pLon, acc) {
 function navMaybeReroute(pLat, pLon, hdg, why) {
   const nv = state.nav;
   const now = Date.now();
-  if (nv.status !== 'ACTIVE') return;
+  if (!nv || nv.status !== 'ACTIVE') return;
   if (nv.rerouteAt && now - nv.rerouteAt < nv.rerouteWait) return;
   if (nv.rerouteAt && nv.travelSinceReroute < NAV_REROUTE_MOVE_M) return;
   // circuit breaker: se sto deviando apposta, il navigatore deve smettere di insistere

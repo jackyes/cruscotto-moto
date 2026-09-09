@@ -1,5 +1,5 @@
 'use strict';
-/* js/nav-ui.js (step 18): UI navigazione (NAV_ICON, navIcon, navRenderBanner, renderNavPanel, navShortCue, navAnnounce, setNavVoice). DOM/speech a runtime. Ordine: dopo js/inputs.js. */
+/* js/nav-ui.js (step 18): UI navigazione (NAV_ICON, navIcon, navRenderBanner, renderNavPanel, navRenderResults, navSetDest, navShortCue, navAnnounce, setNavVoice). DOM/speech a runtime. Ordine: dopo js/inputs.js. */
 function setNavVoice(on, opts) {
   state.navVoice = !!on;
   if (els.navVoice) els.navVoice.checked = state.navVoice;
@@ -130,16 +130,22 @@ function renderNavPanel() {
       : 'Nessuna destinazione. Sulla mappa puoi anche tenere premuto un punto per sceglierlo.';
   }
   if (els.navSumDist) {
-    // distRemain/timeRemain a 0 sono LEGITTIMI (arrivato): `|| totalM`
-    // sostituiva lo 0 con la lunghezza completa del percorso.
-    const dR = nv.distRemain != null ? nv.distRemain : nv.totalM;
-    const tR = nv.timeRemain != null ? nv.timeRemain : nv.totalS;
-    els.navSumDist.textContent = nv ? navFmtShort(nv.status === 'IDLE' ? nv.totalM : dR) : '—';
-    els.navSumTime.textContent = nv ? navFmtTime(nv.status === 'IDLE' ? nv.totalS : tR) : '—';
     if (nv) {
-      const t = new Date(Date.now() + (nv.status === 'IDLE' ? nv.totalS : tR) * 1000);
-      els.navSumEta.textContent = String(t.getHours()).padStart(2, '0') + ':' + String(t.getMinutes()).padStart(2, '0');
-    } else els.navSumEta.textContent = '—';
+      // distRemain/timeRemain a 0 sono LEGITTIMI (arrivato): `|| totalM`
+      // sostituiva lo 0 con la lunghezza completa del percorso.
+      const dR = nv.distRemain != null ? nv.distRemain : nv.totalM;
+      const tR = nv.timeRemain != null ? nv.timeRemain : nv.totalS;
+      els.navSumDist.textContent = navFmtShort(nv.status === 'IDLE' ? nv.totalM : dR);
+      if (els.navSumTime) els.navSumTime.textContent = navFmtTime(nv.status === 'IDLE' ? nv.totalS : tR);
+      if (els.navSumEta) {
+        const t = new Date(Date.now() + (nv.status === 'IDLE' ? nv.totalS : tR) * 1000);
+        els.navSumEta.textContent = String(t.getHours()).padStart(2, '0') + ':' + String(t.getMinutes()).padStart(2, '0');
+      }
+    } else {
+      els.navSumDist.textContent = '—';
+      if (els.navSumTime) els.navSumTime.textContent = '—';
+      if (els.navSumEta) els.navSumEta.textContent = '—';
+    }
   }
   const ol = els.navSteps;
   if (!ol) return;
@@ -158,4 +164,27 @@ function renderNavPanel() {
     li.appendChild(sd); li.appendChild(tx);
     ol.appendChild(li);
   }
+}
+
+function navRenderResults(list) {
+  const box = els.navResults;
+  if (!box) return;
+  box.textContent = '';
+  for (const r of (list || [])) {
+    const b = document.createElement('button');
+    const t = document.createElement('b'); t.textContent = r.label;
+    const s = document.createElement('span'); s.textContent = r.sub || '';
+    b.appendChild(t); b.appendChild(s);
+    b.addEventListener('click', () => { navSetDest(r); box.textContent = ''; if (els.navQuery) els.navQuery.value = r.label; });
+    box.appendChild(b);
+  }
+}
+
+function navSetDest(d) {
+  state.navDest = { lat: d.lat, lon: d.lon, label: d.label || '' };
+  renderNavPanel();
+  navDrawRoute();
+  const p = state.pos.lat != null ? state.pos : (state.gps.lat != null ? state.gps : null);
+  if (!p) { navSetStatus('In attesa del primo fix GPS per calcolare il percorso.'); return; }
+  navRequestRouteSafe(p, state.navDest, trackUpHeading(), null);
 }

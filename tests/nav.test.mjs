@@ -4,7 +4,9 @@ import { api, resetState } from './harness.mjs';
 
 const { decodePolyline6, navShapePlausible, navBuild, navSegNearest,
         navLowerBound, navProject, navBandDist, navFmtDist, navFmtShort, navFmtTime,
-        osrmType, osrmText, navParseCoords, NAV_BANDS } = api;
+        osrmType, osrmText, navParseCoords, NAV_BANDS,
+        renderNavPanel, navRenderResults, navSetDest, drawTrackOnCanvas,
+        els, state } = api;
 
 function encodeDelta(d) {
   let v = d < 0 ? ~(d << 1) : (d << 1);
@@ -164,3 +166,54 @@ test('navParseCoords: formati supportati', () => {
   assert.equal(navParseCoords('ciao'), null);
   assert.equal(navParseCoords('95.0, 9.0'), null);
 });
+
+test('renderNavPanel: state.nav null non lancia e resetta summary a —', () => {
+  resetState();
+  state.nav = null;
+  assert.doesNotThrow(() => renderNavPanel());
+  assert.equal(els.navSumDist.textContent, '—');
+  assert.equal(els.navSumTime.textContent, '—');
+  assert.equal(els.navSumEta.textContent, '—');
+  assert.ok(els.navDestTxt.textContent.includes('Nessuna destinazione'));
+});
+
+test('renderNavPanel: con rotta valida compila i campi', () => {
+  resetState();
+  state.nav = {
+    status: 'ACTIVE',
+    dest: { lat: 45.464, lon: 9.190, label: 'Duomo' },
+    totalM: 5000,
+    totalS: 600,
+    distRemain: 4000,
+    timeRemain: 480,
+    distToNext: 200,
+    nextMan: 0,
+    sAlong: 1000,
+    sMan: new Float64Array([0]),
+    man: [{ type: 10, text: 'Gira a destra', streets: [] }],
+  };
+  assert.doesNotThrow(() => renderNavPanel());
+  assert.equal(els.navSumDist.textContent, '4,0 km');
+  assert.equal(els.navSumTime.textContent, '8 min');
+  assert.ok(els.navDestTxt.textContent.includes('Duomo'));
+});
+
+test('navRenderResults e navSetDest: selezione destinazione', () => {
+  resetState();
+  state.pos = { lat: 45.0, lon: 9.0 };
+  const items = [
+    { lat: 45.464, lon: 9.190, label: 'Duomo', sub: 'Milano' }
+  ];
+  navRenderResults(items);
+  assert.equal(els.navResults.children.length, 1);
+  const btn = els.navResults.children[0];
+  btn.click();
+  assert.deepEqual(state.navDest, { lat: 45.464, lon: 9.190, label: 'Duomo' });
+  assert.equal(els.navQuery.value, 'Duomo');
+  assert.equal(els.navResults.textContent, '');
+});
+
+test('drawTrackOnCanvas: canvas nullo/assente non lancia', () => {
+  assert.doesNotThrow(() => drawTrackOnCanvas(null, [], {}));
+});
+

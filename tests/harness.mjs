@@ -57,6 +57,7 @@ const exportLine = `
   decodePolyline6, navShapePlausible, navBuild, navSegNearest, navLowerBound, navProject,
   navPassed, navAdvance, navBandDist, navFmtDist, navFmtShort, navFmtTime,
   osrmType, osrmText, osrmIdxOf, navFromOsrm, navParseCoords,
+  renderNavPanel, navRenderResults, navSetDest, drawTrackOnCanvas,
   csvMeta, num, csvRows, buildCsv, buildGpx, stamp, fmtDur, takeLogAvg, snapshot, findRowAt,
   pushBounded, diagVerdict, diagTicks, diagChartScale, camPrecompute, routeCacheKey, geoCacheKey, cacheGetFresh, cachePut,
   navRequestRoute, navGeocode, checkCameras, camsToDraw, maybeLoadCameras, fetchCameras,
