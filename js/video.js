@@ -224,16 +224,20 @@ function startVideoRender(s) {
   const mult = Number(els.videoSpeed.value) || 1;
 
   // Distanza cumulativa per riga (km), riusando haversine dell'app.
+  // NaN != null è vero: senza isFinite un lat NaN avvelenava bbox/keyframe/camera.
   const dist = new Float64Array(rows.length);
   for (let i = 1; i < rows.length; i++) {
     const a = rows[i - 1], b = rows[i];
-    dist[i] = dist[i - 1] + ((a.lat != null && a.lon != null && b.lat != null && b.lon != null) ? haversine(a, b) : 0);
+    dist[i] = dist[i - 1] + ((a.lat != null && a.lon != null && b.lat != null && b.lon != null &&
+      isFinite(a.lat) && isFinite(a.lon) && isFinite(b.lat) && isFinite(b.lon)) ? haversine(a, b) : 0);
   }
 
   // Punti mappa validi (con lat/lon) prefiltrati una sola volta.
   const mapPts = [];
   const src = (track && track.length) ? track : rows;
-  for (const p of src) if (p.lat != null && p.lon != null) mapPts.push(p);
+  for (const p of src) {
+    if (p.lat != null && p.lon != null && isFinite(p.lat) && isFinite(p.lon)) mapPts.push(p);
+  }
 
   // Sparkline velocità: downsampling a ~400 punti, min/max precalcolati.
   const spark = { pts: [], min: Infinity, max: -Infinity };

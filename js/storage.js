@@ -68,8 +68,10 @@ const idb = {
     });
   },
   _tx(stores, mode, fn) {
-    return new Promise((res, rej) => {
-      if (!idb.db) return rej(new Error('DB non aperto'));
+    // Lazy-open: dopo un onversionchange (o un open appena avviato) idb.db può
+    // essere null per un attimo — rifiutare "DB non aperto" subito trasformava
+    // un race innocuo in un errore fatale per il chiamante.
+    const run = () => new Promise((res, rej) => {
       let out;
       const tx = idb.db.transaction(stores, mode);
       tx.oncomplete = () => res(out);
@@ -77,6 +79,8 @@ const idb = {
       tx.onabort = () => rej(tx.error || new Error('transazione annullata'));
       out = fn(tx);
     });
+    if (idb.db) return run();
+    return idb.open().then(run);
   },
   put(obj) {
     return idb._tx(['sessions', 'meta'], 'readwrite', tx => {

@@ -49,10 +49,15 @@ function resetSensorFilters() {
 /* Un vettore con una componente non-finito (NaN/Infinity) è un campione difettoso. */
 function finiteVec(v) { return !!(v && isFinite(v.x) && isFinite(v.y) && isFinite(v.z)); }
 
+/* Saturazione simmetrica del giroscopio. Hoisted fuori da processSample: una
+   chiusura allocata a ogni campione (fino a 60 Hz) è puro lavoro del GC. */
+function gyroSat(v) {
+  return v > LEAN_GYRO_MAX_DPS ? LEAN_GYRO_MAX_DPS : (v < -LEAN_GYRO_MAX_DPS ? -LEAN_GYRO_MAX_DPS : v);
+}
+
 function processSample(sm) {
   if (state.demo) return;
   const nowP = sm.t;
-
   /* Base dei tempi. Con la Generic Sensor API `t` e' il timestamp hardware del HAL
      Android, non l'istante di consegna: e' il dt autorevole. Con devicemotion resta
      il tempo di arrivo, quindi il controllo di plausibilita' serve comunque. */
@@ -110,8 +115,7 @@ function processSample(sm) {
   let W = { x: 0, y: 0, z: 0 };
   state.hasGyro = !!sm.gyro;
   if (sm.gyro) {
-    const sat = v => v > LEAN_GYRO_MAX_DPS ? LEAN_GYRO_MAX_DPS : (v < -LEAN_GYRO_MAX_DPS ? -LEAN_GYRO_MAX_DPS : v);
-    W = vscale({ x: sat(sm.gyro.x), y: sat(sm.gyro.y), z: sat(sm.gyro.z) }, state.gyroSign);
+    W = vscale({ x: gyroSat(sm.gyro.x), y: gyroSat(sm.gyro.y), z: gyroSat(sm.gyro.z) }, state.gyroSign);
     // Passa-basso leggero sul VETTORE prima dell'integrazione: riduce la varianza che
     // alimenta il random walk. tau 40 ms, ritardo trascurabile in ingresso curva.
     const a = dt / (0.04 + dt);

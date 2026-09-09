@@ -65,15 +65,32 @@ const SHELL = [
 ];
 
 const LIB_HOSTS = ['unpkg.com'];
+// Leaflet pinnato, precaricato a install: senza, la prima esecuzione offline
+// del viewer restava senza mappa (il CDN non è raggiungibile proprio offline).
+const LIB_PRECACHE = [
+  'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css',
+  'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js',
+  'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png',
+  'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png',
+  'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png',
+];
 const TILE_HOST_RE = /\.tile\.openstreetmap\.org$/;
 const TILE_MAX = 800; // tetto approssimativo di tile conservate
 
 self.addEventListener('install', event => {
   event.waitUntil(
-    caches.open(SHELL_CACHE)
-      // addAll fallisce in blocco se una sola risorsa manca: si va a una a una.
-      .then(c => Promise.all(SHELL.map(u => c.add(u).catch(() => {}))))
-      .then(() => self.skipWaiting())
+    Promise.all([
+      caches.open(SHELL_CACHE)
+        // addAll fallisce in blocco se una sola risorsa manca: si va a una a una.
+        .then(c => Promise.all(SHELL.map(u => c.add(u).catch(() => {
+          console.warn('[sw] precache shell fallito:', u);
+        })))),
+      caches.open(LIB_CACHE)
+        .then(c => Promise.all(LIB_PRECACHE.map(u => c.add(u).catch(() => {
+          console.warn('[sw] precache lib fallito:', u);
+        })))),
+    ])
+    .then(() => self.skipWaiting())
   );
 });
 

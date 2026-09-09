@@ -24,6 +24,7 @@ function startLog() {
   state.flushSeq = 0;
   state.flushedRows = 0;
   lastSampleWall = 0;
+  lastTrackT = 0;   // altrimenti il gate 1 Hz ritarda/scarta il primo punto della sessione nuova
   state.session = {
     maxSpeed: 0, maxLeanR: 0, maxLeanL: 0, distKm: 0,
     start: performance.now(), startWall: Date.now(), endWall: 0,

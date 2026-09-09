@@ -87,9 +87,14 @@ function medianAcc() {
   const h = state._accHist;
   if (!h || !h.length) return null;
   const n = h.length;
-  const xs = new Array(n), ys = new Array(n), zs = new Array(n);
+  // Scratch riusati (max 9 slot, v. medianWindow): allocare 3 array + sort
+  // per campione a 60 Hz era GC continuo sul main thread.
+  const xs = medianAcc._xs || (medianAcc._xs = new Array(9));
+  const ys = medianAcc._ys || (medianAcc._ys = new Array(9));
+  const zs = medianAcc._zs || (medianAcc._zs = new Array(9));
   for (let i = 0; i < n; i++) { xs[i] = h[i].x; ys[i] = h[i].y; zs[i] = h[i].z; }
   const asc = (a, b) => a - b;
+  xs.length = ys.length = zs.length = n;
   xs.sort(asc); ys.sort(asc); zs.sort(asc);
   const mid = n >> 1;
   return { x: xs[mid], y: ys[mid], z: zs[mid] };

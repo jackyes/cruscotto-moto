@@ -67,19 +67,23 @@ async function navPersistRoute() {
   } catch (e) {}
 }
 let navProgT = 0;
+let navProgLastMan = -1;
+let navProgSAlong = -1;
 
 function navPersistProgress() {
   const nv = state.nav;
   if (!nv) return;
   const now = Date.now();
-  if (now - navProgT < 5000 && nv.nextMan === navProgLastMan) return;
-  navProgT = now; navProgLastMan = nv.nextMan;
+  // Su una retta lunga nextMan non cambia mai: senza il check su sAlong il
+  // riparto dopo un crash rileggeva una posizione di diversi km indietro.
+  const moved = Math.abs((nv.sAlong || 0) - navProgSAlong) > 200;
+  if (now - navProgT < 5000 && nv.nextMan === navProgLastMan && !moved) return;
+  navProgT = now; navProgLastMan = nv.nextMan; navProgSAlong = nv.sAlong || 0;
   idb.kvPut('navProgress', {
     ts: now, sAlong: nv.sAlong, nextMan: nv.nextMan,
     lat: nv.lastLat, lon: nv.lastLon,
   }).catch(() => {});
 }
-let navProgLastMan = -1;
 
 async function navRestore() {
   let r = null, pg = null;

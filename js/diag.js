@@ -37,7 +37,10 @@ function drawChart(canvas, data, field, color, min, max, zeroLine) {
   const dpr = window.devicePixelRatio || 1;
   const w = canvas.clientWidth || canvas.parentElement.clientWidth || 300;
   const h = canvas.clientHeight || 120;
-  canvas.width = w * dpr; canvas.height = h * dpr;
+  // Ridimensiona SOLO se cambia: riassegnare width/height a ogni draw (15 Hz su
+  // 3 grafici) riallocava il backing store e svuotava il canvas inutilmente.
+  const bw = Math.round(w * dpr), bh = Math.round(h * dpr);
+  if (canvas.width !== bw || canvas.height !== bh) { canvas.width = bw; canvas.height = bh; }
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   ctx.fillStyle = canvasTheme.get('c-bg'); ctx.fillRect(0, 0, w, h);
   if (!data.length) return { min: null, max: null };

@@ -61,6 +61,12 @@ function maybeLoadCameras(lat, lon) {
   if (stale || moved) fetchCameras(lat, lon);
 }
 
+/* Rete tornata: il backoff post-fallimento non deve far aspettare i 2 minuti
+   quando il motivo era proprio la rete assente (galleria, ascensore). */
+if (typeof window !== 'undefined' && window.addEventListener) {
+  try { window.addEventListener('online', () => { state.camRetryAfter = 0; }); } catch (e) {}
+}
+
 function camsToDraw() {
   const p = state.pos.lat != null ? state.pos : (state.gps.lat != null ? state.gps : null);
   // Con un DB nazionale importato non si disegna tutto: solo ciò che è vicino.

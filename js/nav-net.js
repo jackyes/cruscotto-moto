@@ -41,20 +41,32 @@ function navCostingOptions() {
   } };
 }
 
+let geoPruneDone = false, geoPruneRunning = false;
+
 async function geoCachePrune() {
+  // Una volta a sessione, mai concorrente: veniva lanciata non-awaitata a ogni
+  // geocoding — decine di prune parallele che si scavalcano a vicenda.
+  if (geoPruneDone || geoPruneRunning) return;
+  geoPruneRunning = true;
   try {
     // kv store senza indici: prune best-effort solo se idb espone keys; altrimenti no-op.
-    if (typeof idb.kvKeys !== 'function') return;
-    const keys = await idb.kvKeys();
-    const geo = (keys || []).filter(k => k.indexOf('geocodeCache:') === 0);
-    if (geo.length <= 200) return;
-    const entries = [];
-    for (const k of geo) { const e = await idb.kvGet(k); if (e) entries.push([k, e.ts || 0]); }
-    entries.sort((a, b) => a[1] - b[1]);
-    for (let i = 0; i < entries.length - 200; i++) {
-      try { await idb.kvPut(entries[i][0], null); } catch (err) {}
+    if (typeof idb.kvKeys === 'function') {
+      const keys = await idb.kvKeys();
+      const geo = (keys || []).filter(k => k.indexOf('geocodeCache:') === 0);
+      if (geo.length > 200) {
+        const entries = [];
+        for (const k of geo) { const e = await idb.kvGet(k); if (e) entries.push([k, e.ts || 0]); }
+        entries.sort((a, b) => a[1] - b[1]);
+        for (let i = 0; i < entries.length - 200; i++) {
+          try { await idb.kvPut(entries[i][0], null); } catch (err) {}
+        }
+      }
     }
-  } catch (err) {}
+    geoPruneDone = true;
+  } catch (err) {
+  } finally {
+    geoPruneRunning = false;
+  }
 }
 
 async function navRequestRoute(from, to, hdg, why) {

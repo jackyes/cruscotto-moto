@@ -849,7 +849,11 @@ const canvasTheme = {
   $('btnCardShare').addEventListener('click', async () => {
     if (!cardBlob) return;
     const f = new File([cardBlob], 'card_giro.png', { type: 'image/png' });
-    if (navigator.share && navigator.canShare && navigator.canShare({ files: [f] })) {
+    // canShare può LANCIARE (vecchi Safari) invece di tornare false: senza try
+    // l'utente restava senza né share né download.
+    let canShare = false;
+    try { canShare = !!(navigator.share && navigator.canShare && navigator.canShare({ files: [f] })); } catch (e) {}
+    if (canShare) {
       try { await navigator.share({ files: [f], title: 'Cruscotto Moto' }); } catch (e) {}
     } else {
       $('btnCardDl').click();

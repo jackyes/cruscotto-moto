@@ -37,14 +37,20 @@ function makeCanvas() {
 }
 
 function makeEl() {
-  return {
+  const listeners = {};
+  const el = {
     style: {}, className: '', textContent: '', innerHTML: '', value: '', hidden: false,
-    files: [], dataset: {},
+    // Fedeltà minima alle select/bottone reali: updateVideoSummary legge
+    // el.options[el.selectedIndex], openViewerVideo setta el.disabled.
+    options: [{ text: 'test' }], selectedIndex: 0, disabled: false, files: [], dataset: {},
     classList: { add() {}, remove() {}, toggle() {}, contains() { return false; } },
-    addEventListener() {}, removeEventListener() {},
+    addEventListener(type, fn) { (listeners[type] = listeners[type] || []).push(fn); },
+    removeEventListener() {},
+    click() { (listeners.click || []).forEach(fn => fn({ target: el })); },
     appendChild(c) { return c; }, remove() {},
     getContext: undefined,
   };
+  return el;
 }
 
 const ids = {};

@@ -207,4 +207,18 @@ async function videoOfflineLoop(job, encState, opts) {
     tSim += stepSec * slowMultAt(tSim, slow);
     k++;
   }
+  // Frame finale: il loop esce quando tSim raggiunge tEnd SENZA codificarlo —
+  // il video risultava più corto di un frame e l'ultimo istante del giro spariva.
+  if (!job.cancelled && !encState.encErr) {
+    job.tSim = tEnd;
+    drawVideoFrame(job, stepSec);
+    let frame = null;
+    try { frame = new VideoFrame(job.canvas, { timestamp: Math.round(k * stepUs), duration: stepUs }); }
+    catch (e) { frame = null; }
+    if (frame) {
+      try { enc.encode(frame, { keyFrame: true }); } catch (e) { encState.encErr = encState.encErr || e; }
+      try { frame.close(); } catch (e) {}
+      encState.frame++;
+    }
+  }
 }
