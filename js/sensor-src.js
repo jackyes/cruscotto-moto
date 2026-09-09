@@ -56,6 +56,15 @@ function setupSensors() {
 
 const sensorSrc = { list: [], acc: null, gyro: null, grav: null, lin: null };
 
+/* L'accelerometro fa da orologio, ma se Gyroscope/Gravity/Linear si fermano
+   (sospensione, errore, sensor lazy) la cache qui sotto resta congelata
+   all'ultimo valore: il campione integrerebbe per sempre un ω vecchio spacciato
+   per vivo e la attitudine marcirebbe in silenzio. >500 ms = assente. */
+const SAT_STALE_MS = 500;
+function freshSat(e) {
+  return (e && typeof e.t === 'number' && (performance.now() - e.t) < SAT_STALE_MS) ? e : null;
+}
+
 
 
 function stopGenericSensors() {
@@ -91,17 +100,17 @@ function startGenericSensors() {
   sensorSrc.gyro = mk(window.Gyroscope, function () {
     const g = this;
     if (g.x == null) return;
-    sensorSrc._gyro = { x: g.x * RAD2DEG, y: g.y * RAD2DEG, z: g.z * RAD2DEG };
+    sensorSrc._gyro = { x: g.x * RAD2DEG, y: g.y * RAD2DEG, z: g.z * RAD2DEG, t: performance.now() };
   });
   sensorSrc.grav = mk(window.GravitySensor, function () {
     const g = this;
     if (g.x == null) return;
-    sensorSrc._grav = { x: g.x, y: g.y, z: g.z };
+    sensorSrc._grav = { x: g.x, y: g.y, z: g.z, t: performance.now() };
   });
   sensorSrc.lin = mk(window.LinearAccelerationSensor, function () {
     const a = this;
     if (a.x == null) return;
-    sensorSrc._lin = { x: a.x, y: a.y, z: a.z };
+    sensorSrc._lin = { x: a.x, y: a.y, z: a.z, t: performance.now() };
   });
 
   /* L'accelerometro fa da orologio: ogni sua lettura produce un campione, usando
@@ -112,9 +121,9 @@ function startGenericSensors() {
     if (a.x == null) return;
     processSample({
       acc:  { x: a.x, y: a.y, z: a.z },
-      gyro: sensorSrc._gyro || null,
-      grav: sensorSrc._grav || null,
-      lin:  sensorSrc._lin || null,
+      gyro: freshSat(sensorSrc._gyro),
+      grav: freshSat(sensorSrc._grav),
+      lin:  freshSat(sensorSrc._lin),
       t:    (typeof a.timestamp === 'number' && isFinite(a.timestamp)) ? a.timestamp : performance.now(),
     });
   });

@@ -192,6 +192,8 @@ let lastChartT = performance.now();
 let lastDisplayT = 0;
 let lastTrackT = 0;
 let wakeLock = null;
+let wakeLockReq = null;   // una sola richiesta in volo: init + visibilitychange
+                          // insieme acquisivano DUE lock e il primo non veniva mai rilasciato
 let sampleTimer = null;
 let lastMotionT = 0;
 

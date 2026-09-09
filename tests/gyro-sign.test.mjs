@@ -48,7 +48,7 @@ test('updateGyroSign: correlazione negativa forte flippa il segno', () => {
   }
   assert.equal(s.gyroSign, -1);
   assert.equal(s.gyroSignScore, 0);
-  assert.equal(s.gyroSignEnergy, 0);
+  assert.equal(s.gyroSignEnergy, GSIGN_MIN_ENERGY); // NON 0: il lock deve scadere dopo ~1 τ
   assert.equal(s._attU, null);
 });
 

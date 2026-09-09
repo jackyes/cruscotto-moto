@@ -60,7 +60,11 @@ const idb = {
         res();
       };
       r.onerror = () => rej(r.error);
-      r.onblocked = () => rej(new Error('IndexedDB bloccato da un altra scheda'));
+      // onblocked NON rigetta: significa "aspetto che le altre schede rilascino la
+      // connessione vecchia" e l'onsuccess arriva comunque dopo. Rigettare qui
+      // uccideva la catena di boot (storico/recupero/import) anche quando la
+      // connessione poi apriva regolarmente.
+      r.onblocked = () => {};
     });
   },
   _tx(stores, mode, fn) {

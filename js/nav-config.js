@@ -98,6 +98,10 @@ async function navRestore() {
     if (nv.man[k].type === MAN_ROUNDABOUT_IN || nv.man[k].type === MAN_ROUNDABOUT_OUT) {
       for (let i = Math.max(0, nv.man[k].beginIdx); i <= Math.min(nv.n - 1, nv.man[k].endIdx); i++) nv.flags[i] |= 1;
     }
+    // L'uscita rotonda non si annuncia (navBuild lo setta, ma le manovre qui
+    // arrivano dal record persistito): senza il restore, dopo un riavvio
+    // l'app lo rimetteva nel mezzo di ogni rotonda.
+    if (nv.man[k].type === MAN_ROUNDABOUT_OUT) nv.man[k].silent = true;
   }
   const M = nv.man.length;
   nv.sMan = new Float64Array(M); nv.tEnd = new Float64Array(M);

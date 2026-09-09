@@ -131,14 +131,18 @@ async function fetchWithTimeoutSW(req, ms) {
   }
 }
 
-/* Navigazioni: rete prima (così un deploy nuovo arriva subito), cache se offline. */
+/* Navigazioni: rete prima (così un deploy nuovo arriva subito), cache se offline.
+   Una risposta NON-ok (404/500: glitch server durante un deploy) va trattata come
+   errore: restituirla significava mostrare la pagina d'errore anche se la cache
+   aveva la shell funzionante. */
 async function networkFirst(req) {
   const cache = await caches.open(SHELL_CACHE);
   try {
     const res = await fetchWithTimeoutSW(req, 2500);
-    if (res && res.ok) {
-      try { await cache.put(req, res.clone()); } catch (_) {}
-    }
+    if (!res || !res.ok) throw new Error('bad status ' + (res ? res.status : 'null'));
+    // Niente cache.put per URL con query string: le navigazioni cache-bustate
+    // (index.html?v=…) moltiplicavano le voci di SHELL_CACHE senza fine.
+    try { if (!new URL(req.url).search) await cache.put(req, res.clone()); } catch (_) {}
     return res;
   } catch (e) {
     const hit = await cache.match(req) || await cache.match('./index.html');

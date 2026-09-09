@@ -27,7 +27,9 @@ test('webmCodecCandidates: VP8 prima di VP9 (hardware encoder più diffuso)', ()
   const cands = webmCodecCandidates();
   assert.equal(cands.length, 2);
   assert.deepEqual(cands[0], { wc: 'vp8', mux: 'V_VP8' });
-  assert.deepEqual(cands[1], { wc: 'vp09.00.10.08', mux: 'V_VP9' });
+  // Level 4.1: il vecchio level 1.0 capava ~256×144 e isConfigSupported
+  // rifiutava 720p/1080p → candidato VP9 morto su ogni browser.
+  assert.deepEqual(cands[1], { wc: 'vp09.00.41.08', mux: 'V_VP9' });
 });
 
 test('videoOfflineFrameStepUs: 30 fps -> 33333 µs (usato da mp4FrameStepUs)', () => {

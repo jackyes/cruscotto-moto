@@ -127,9 +127,11 @@ function videoMp4MuxAudio(muxer, rows, slow, stepUs) {
     try {
       if (typeof AudioEncoder === 'undefined' || !rows.length) { resolve(false); return; }
       const SR = 44100;
+      let aErr = null;   // gli errori encoder non devono essere swallowati: il
+                         // file uscirebbe (quasi) muto senza alcun avviso
       const aenc = new AudioEncoder({
         output: (chunk, meta) => { try { muxer.addAudioChunk(chunk, meta); } catch (e) {} },
-        error: () => {},
+        error: e => { aErr = aErr || e; },
       });
       aenc.configure({ codec: 'mp4a.40.2', sampleRate: SR, numberOfChannels: 1, bitrate: 128000 });
       const t0 = rows[0].t, tEnd = rows[rows.length - 1].t;
@@ -148,7 +150,7 @@ function videoMp4MuxAudio(muxer, rows, slow, stepUs) {
           timestamp: tsUs, data: cur.slice(0, n).buffer,
         });
         tsUs += Math.round((n / SR) * 1e6);
-        try { aenc.encode(data); } catch (e) {}
+        try { aenc.encode(data); } catch (e) { aErr = aErr || e; }
         try { data.close(); } catch (e) {}
         n = 0;
       };
@@ -172,6 +174,7 @@ function videoMp4MuxAudio(muxer, rows, slow, stepUs) {
         }
       }
       flushCur();
+      if (aErr) { try { aenc.close(); } catch (e2) {} resolve(false); return; }
       aenc.flush().then(() => { try { aenc.close(); } catch (e) {} resolve(true); })
         .catch(() => { try { aenc.close(); } catch (e) {} resolve(false); });
       void t0;
@@ -226,7 +229,7 @@ async function startVideoRenderMp4Inner(pre, mode, Muxer, cfg) {
   // Guard sulla RAM: ArrayBufferTarget + slice finale = picco ~2-3× la dimensione
   // del file. Bloccare prima di allocare evita il crash silenzioso del tab mobile.
   const tooBig = videoOfflineGuard(pre, cfg);
-  if (tooBig) { toast(tooBig, 'err', 8000); return; }
+  if (tooBig) { toast(tooBig, 'err', 8000); if (els.videoStart) els.videoStart.disabled = false; return; }
   const muted = !!(els.videoAudio && els.videoAudio.value === 'off');
   const muxerOpts = {
     target: new Muxer.ArrayBufferTarget(),

@@ -17,7 +17,7 @@ async function navTryOsrm(from, to, hdg) {
   // stesso ruolo dell'heading in Valhalla: evita che riparta con un'inversione a U
   if (hdg != null && isFinite(hdg)) url += '&bearings=' + Math.round(hdg) + ',60;';
   const res = await navGate(() => fetchWithTimeout(url, NAV_OSRM_TIMEOUT_MS));
-  const j = await res.json();
+  const j = await jsonUnderTimeout(res);
   if (!res.ok || !j || j.code !== 'Ok') throw new Error('OSRM ' + ((j && (j.code || j.message)) || res.status));
   return navFromOsrm(j);
 }
@@ -81,7 +81,12 @@ async function navRequestRoute(from, to, hdg, why) {
   };
   navSetStatus(why ? 'Ricalcolo in corso…' : 'Calcolo percorso…');
   let trip = null, engine = null, err = null, retried = false, lastReq = null;
-  const rKey = routeCacheKey(from, to, navCostingOptions());
+  // Il nav precedente serve a TUTTI i rami di applicazione: il backoff reroute
+  // (streak/log) si porta dietro anche quando la risposta arriva dalla cache,
+  // altrimenti un ricalcolo servito da cache azzerava il circuit breaker e la
+  // escalation non arrivava mai (reroute ogni 60 m, mai OFF_MANUAL).
+  const prev = state.nav;
+  const rKey = routeCacheKey(from, to, navCostingOptions(), useHead ? hdg : null);
   const cached = await cacheGetFresh(rKey, ROUTE_CACHE_TTL_MS);
   if (cached && !cached.stale) {
     try {
@@ -95,7 +100,9 @@ async function navRequestRoute(from, to, hdg, why) {
       nv0.offCount = 0; nv0.offTravel = 0; nv0.missCount = 0; nv0.missTravel = 0;
       nv0.wrongCount = 0; nv0.wrongTravel = 0; nv0.farCount = 0; nv0.lostCount = 0; nv0.arriveCount = 0;
       nv0.vEMA = null; nv0.lastFixAt = 0; nv0.lastGoodAt = Date.now(); nv0.lastLat = null; nv0.lastLon = null;
-      nv0.rerouteAt = 0; nv0.rerouteWait = 0; nv0.rerouteStreak = 0; nv0.rerouteLog = [];
+      nv0.rerouteAt = prev ? prev.rerouteAt : 0; nv0.rerouteWait = prev ? prev.rerouteWait : 0;
+      nv0.rerouteStreak = prev ? (prev.rerouteStreak || 0) : 0;
+      nv0.rerouteLog = prev ? (prev.rerouteLog || []) : [];
       nv0.lastRerouteEnd = Date.now(); nv0.travelSinceReroute = 0; nv0.suppressPost = false;
       nv0.shapeRaw = (cached.body.trip.legs || []).map(l => l.shape);
       nv0.reqSaved = lastReq || { from: { lat: from.lat, lon: from.lon }, to: { lat: to.lat, lon: to.lon } };
@@ -114,7 +121,7 @@ async function navRequestRoute(from, to, hdg, why) {
       lastReq = req;
       let res = await navGate(() => fetchWithTimeout(
         host + '?json=' + encodeURIComponent(JSON.stringify(req)), NAV_VALHALLA_TIMEOUT_MS));
-      let j = await res.json();
+      let j = await jsonUnderTimeout(res);
       // "No suitable edges": spesso e' l'heading. Si ritenta una volta senza.
       if (useHead && !retried && j && (j.error_code === 171 || j.error_code === 154)) {
         retried = true;
@@ -122,7 +129,7 @@ async function navRequestRoute(from, to, hdg, why) {
         lastReq = req;
         res = await navGate(() => fetchWithTimeout(
           host + '?json=' + encodeURIComponent(JSON.stringify(req)), NAV_VALHALLA_TIMEOUT_MS));
-        j = await res.json();
+        j = await jsonUnderTimeout(res);
       }
       // Valhalla riporta gli errori come JSON con error_code, non come HTTP non-2xx.
       if (j && j.error) { err = new Error('Valhalla ' + (j.error_code || '') + ': ' + j.error); continue; }
@@ -169,7 +176,6 @@ async function navRequestRoute(from, to, hdg, why) {
       return;
     } catch (e) { /* stale illeggibile: si prosegue col messaggio OFF_NONET */ }
   }
-  const prev = state.nav;
   if (!data) {
     if (reqStale()) return;
     if (prev && prev.man) {
@@ -251,7 +257,7 @@ async function navGeocode(q) {
     if (gCached && gCached.stale) return gCached.body;
     throw new Error('HTTP ' + res.status + detail);
   }
-  const j = await res.json();
+  const j = await jsonUnderTimeout(res);
   const out = (j.features || []).map(f => {
     const c = f.geometry && f.geometry.coordinates;   // [lon, lat]: invertito
     const pr = f.properties || {};

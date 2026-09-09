@@ -23,8 +23,15 @@ async function fetchCameras(lat, lon) {
       } catch (e) { lastErr = e; }
     }
     if (!res) throw lastErr || new Error('overpass non raggiungibile');
-    const data = await res.json();
-    const cams = (data.elements || []).map(el => ({
+    const data = await jsonUnderTimeout(res);
+    /* Overpass segnala i propri errori "runtime" dentro un HTTP 200 (campo
+       remark, elements assente): senza il check, cameras=[] e la cache BUONA
+       veniva sovrascritta col vuoto — zero avvisi autovelox per 15 minuti.
+       Qui si lancia: il chiamante fa backoff e la cache precedente resta. */
+    if (!Array.isArray(data.elements) || data.remark) {
+      throw new Error('Overpass: ' + ((data.remark && String(data.remark).slice(0, 80)) || 'risposta senza elements'));
+    }
+    const cams = data.elements.map(el => ({
       id: el.id,
       lat: el.lat, lon: el.lon,
       maxspeed: (el.tags && el.tags.maxspeed) || '',
@@ -34,7 +41,11 @@ async function fetchCameras(lat, lon) {
     state.camCenter = { lat, lon };
     state.camTs = Date.now();
     state.camRetryAfter = 0;
-    store.set('cruscotto.cameras', { center: { lat, lon }, ts: state.camTs, r: r, cameras: cams });
+    // Cache su IndexedDB, non localStorage: a 50 km di raggio in zona densa
+    // l'array sfora la quota di localStorage (5 MB) e la cache moriva in
+    // silenzio, oltre a JSON.stringify sincroni da centinaia di KB sul main
+    // thread a ogni download.
+    idb.kvPut('cachedCameras', { center: { lat, lon }, ts: state.camTs, r: r, cameras: cams }).catch(() => {});
     rebuildCamGrid();
     renderCameras();
   } catch (e) {

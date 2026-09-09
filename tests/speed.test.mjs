@@ -58,6 +58,7 @@ test('updateGpsAccel: accelerazione longitudinale da dv/dt', () => {
 
 test('updateAccelFusion: complementare inerziale + GPS', () => {
   resetState();
+  state.speedGpsT = Date.now();  // GPS fresco (l'orologio del sandbox è Date.now())
   state._lpLat = 0.2;
   state._lpLatGps = 0.1;
   state.latG = 0.5;
@@ -65,4 +66,20 @@ test('updateAccelFusion: complementare inerziale + GPS', () => {
   const a = 0.05 / 1.55;
   const lp = 0.2 + a * 0.3;
   assert.ok(Math.abs(state.latFus - ((0.5 - lp) + 0.1)) < 1e-9);
+});
+
+test('updateAccelFusion: GPS stale azzera i riferimenti (niente curva congelata)', () => {
+  resetState();
+  state.speedGpsT = 0;                  // galleria da sempre
+  state._lpLat = 0.2;
+  state._lpLatGps = 0.4;                // curva di mezz'ora fa
+  state._lpLonGps = 0.3;
+  state.latGps = 0.4; state.lonGps = 0.3;
+  state.latG = 0.5;
+  updateAccelFusion(0.05);
+  assert.equal(state._lpLatGps, null);
+  assert.equal(state._lpLonGps, null);
+  assert.equal(state.latGps, null);
+  assert.equal(state.lonGps, null);
+  assert.ok(Math.abs(state.latFus - 0.5) < 1e-9);  // ripiega sul grezzo, non sulla curva congelata
 });

@@ -37,13 +37,21 @@ function parseCamerasFile(text) {
     const arr = Array.isArray(data) ? data : (data.result || data.features || null);
     if (!Array.isArray(arr)) return out;
     if (arr.length && arr[0] && arr[0].geometry) {
-      // GeoJSON FeatureCollection
+      // GeoJSON FeatureCollection: le coordinate NON sono sempre [lon,lat] di un
+      // Point — MultiPoint/LineString/Polygon annidano. Prende ogni primo punto
+      // di ogni geometria invece di scartare la feature in silenzio.
+      const firstPt = g => {
+        if (!g || !g.coordinates) return null;
+        let c = g.coordinates;
+        while (Array.isArray(c) && Array.isArray(c[0])) c = c[0];
+        return (Array.isArray(c) && c.length >= 2 &&
+                typeof c[0] === 'number' && typeof c[1] === 'number') ? c : null;
+      };
       for (const f of arr) {
-        const g = f.geometry;
-        if (!g || !g.coordinates) continue;
-        const [lon, lat] = g.coordinates;
+        const c = firstPt(f.geometry);
+        if (!c) continue;
         const pr = f.properties || {};
-        out.push({ lat, lon, maxspeed: pr.vmax || pr.maxspeed || '', name: pr.name || pr.ort || '' });
+        out.push({ lat: c[1], lon: c[0], maxspeed: pr.vmax || pr.maxspeed || '', name: pr.name || pr.ort || '' });
       }
     } else {
       // SCDB autovelox.it: {lat/lng, vmax, ort, strasse}

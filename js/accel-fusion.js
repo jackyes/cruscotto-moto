@@ -8,6 +8,15 @@
    un'accelerazione verticale sostenuta non è fisicamente possibile. */
 function updateAccelFusion(dt) {
   const step = dt > 0 ? dt : 1 / 60;
+  /* I riferimenti GPS muoiono col segnale che li ha generati: in galleria (o con
+     il GPS che smette di dare velocità) updateGpsAccel non gira più, e lasciare
+     vivi _lpLatGps/_lpLonGps congela l'ultima curva dentro latFus/lonFus per
+     tutta la durata del buco (offset permanente); peggio, in 'norm' il SEGNO
+     della piega verrebbe scelto da un latGps stantio. */
+  if (performance.now() - state.speedGpsT > SPEED_STALE_MS) {
+    state.latGps = null; state.lonGps = null;
+    state._lpLatGps = null; state._lpLonGps = null;
+  }
   const a = step / (FUS_TAU_S + step);
   state._lpLat = (state._lpLat == null) ? state.latG : state._lpLat + a * (state.latG - state._lpLat);
   state._lpLon = (state._lpLon == null) ? state.lonG : state._lpLon + a * (state.lonG - state._lpLon);

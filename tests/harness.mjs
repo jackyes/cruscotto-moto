@@ -62,7 +62,7 @@ const exportLine = `
   navRequestRoute, navGeocode, checkCameras, camsToDraw, maybeLoadCameras, fetchCameras,
   startCalibration, collectCalib, finishCalibration, sampleTick, flushLog,
   navPersistRoute, navRestore, fetchWithTimeout, navTick, navMaybeReroute, navTryOsrm,
-  navSpeak,
+  navSpeak, jsonUnderTimeout, onGeolocation,
   buildCameraKeyframes, disposeVideoMoto3D, videoWheelSpin, videoTrackIndexForRow,
   requestVideoFallback, clearVideoTimers, trackVideoTimer,
   VIDEO3D_CONF, VIDEO3D_SAT_HIDE, loadVideo3DScript, ensureVideo3DLibs, initVideoMoto3D, videoRiderLean, videoCameraFor,

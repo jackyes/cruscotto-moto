@@ -91,10 +91,15 @@ function navBuild(trip) {
 async function requestWakeLock() {
   if (!state.wakeLockOn || !('wakeLock' in navigator)) return;
   if (wakeLock && !wakeLock.released) return;
-  try {
-    wakeLock = await navigator.wakeLock.request('screen');
-    wakeLock.addEventListener('release', () => { wakeLock = null; });
-  } catch (e) {}
+  if (wakeLockReq) return wakeLockReq;   // init e visibilitychange possono arrivare insieme
+  wakeLockReq = (async () => {
+    try {
+      wakeLock = await navigator.wakeLock.request('screen');
+      wakeLock.addEventListener('release', () => { wakeLock = null; });
+    } catch (e) {}
+    wakeLockReq = null;
+  })();
+  return wakeLockReq;
 }
 
 async function releaseWakeLock() {

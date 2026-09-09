@@ -89,7 +89,11 @@ function navTick(pLat, pLon, acc) {
   nv.distToNext = k < nv.man.length ? Math.max(0, nv.sMan[k] - nv.sAlong) : 0;
   nv.distRemain = Math.max(0, nv.totalM - nv.sAlong);
   const kc = Math.max(0, k - 1);
-  const span = Math.max(1, (k < nv.man.length ? nv.sMan[k] : nv.totalM) - nv.sMan[kc]);
+  // La prima manovra di rotta (kc === 0) ha span dal PARTENZA (0), non da
+  // sMan[0]: con span 0 il frac saturava a 1 dopo 1 m e il tempo della manovra
+  // 0 (spesso minuti: è quella che copre l'intero primo tratto) spariva da
+  // timeRemain/ETA dal via.
+  const span = Math.max(1, (k < nv.man.length ? nv.sMan[k] : nv.totalM) - (kc === 0 ? 0 : nv.sMan[kc]));
   const frac = Math.max(0, Math.min(1, (nv.sAlong - nv.sMan[kc]) / span));
   nv.timeRemain = (nv.tEnd[nv.man.length - 1] - nv.tEnd[kc]) + (1 - frac) * nv.man[kc].time;
 

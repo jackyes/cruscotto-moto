@@ -93,8 +93,13 @@ const navSpeak = {
     const done = () => { if (seq !== this.seq) return; this.busy = false; this.prio = -1; clearTimeout(this.timer); };
     u.onend = done; u.onerror = done;
     // onend non e' affidabile su tutti i motori Android: watchdog proporzionale.
+    // Scattando, il vecchio utterance va CANCELLATO: solo rilasciare busy
+    // lasciava la voce ancora in corsa sotto quella nuova (sovrapposte).
     clearTimeout(this.timer);
-    this.timer = setTimeout(done, Math.max(2500, text.length * 90));
+    this.timer = setTimeout(() => {
+      try { speechSynthesis.cancel(); } catch (e2) {}
+      done();
+    }, Math.max(2500, text.length * 90));
     try { speechSynthesis.speak(u); } catch (e) { done(); return false; }
     return true;
   },

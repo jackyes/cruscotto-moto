@@ -76,6 +76,14 @@ function processSample(sm) {
     state._attU = null;
     state._gsPrev = null;
     state.attRef = 'none';
+    // I filtri non ponticano il gap: _accLP/_wLP contengono lo stato pre-buco,
+    // i buffer mediana/despike interpolano fra campioni di prima e di dopo —
+    // i primi campioni dopo la ripresa uscirebbero con piega spuria.
+    state._accLP = null;
+    state._wLP = null;
+    state._hbuf = null;
+    state._vibPow = null;
+    state._accHist = null;
     return;
   }
 

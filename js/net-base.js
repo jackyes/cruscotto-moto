@@ -13,23 +13,40 @@ async function fetchWithTimeout(url, ms) {
   try { return await fetch(url, { signal: ctl.signal }); }
   catch (e) {
     if (timed || (e && e.name === 'AbortError')) throw new TimeoutError('timeout dopo ' + ms + ' ms');
-    if ((typeof navigator !== 'undefined' && navigator.onLine === false) || (e && e.name === 'TypeError'))
+    // Solo un navigator.onLine === false dà diritto al diagnóstico "offline":
+    // un TypeError è CORS/DNS/mixed-content e dire "Senza rete" mentiva
+    // all'utente (il motore era bloccato, non irraggiungibile).
+    if (typeof navigator !== 'undefined' && navigator.onLine === false)
       throw new OfflineError((e && e.message) || 'offline');
     throw e;
   }
   finally { clearTimeout(kill); }
 }
+/* Il timer abortisce anche la lettura del body (spec fetch), ma il caller che
+   fa .json() dopo vedrebbe un AbortError nudo invece del TimeoutError — e la
+   UI confonderebbe "bloccato" con "lento". Tutto il body va letto da qui. */
+async function jsonUnderTimeout(res) {
+  try { return await res.json(); }
+  catch (e) {
+    if (e && e.name === 'AbortError') throw new TimeoutError('body non ricevuto entro il timeout');
+    throw e;
+  }
+}
 
 
 /* Cache route/geocode in idb kv (stesse chiavi, no migrazione schema).
-   Route: chiave = hash(from@4dec+to+costing); TTL 24h. Geocode: chiave = query
+   Route: chiave = hash(from@4dec+to+costing[+heading]); TTL 24h. Geocode: chiave = query
    normalizzata + bias @2dec; TTL 7gg, max ~200 voci LRU. Offline: cache letta
-   anche se scaduta (stale-while-offline); TimeoutError non scrive mai. */
+   anche se scaduta (stale-while-offline); TimeoutError non scrive mai.
+   L'heading (arrotondato a 10°) entra nella chiave: una richiesta CON heading
+   servita da una cache calcolata SENZA (e viceversa) cambia il tracciato
+   vicino all'origine — è il param che evita l'inversione a U iniziale. */
 const ROUTE_CACHE_TTL_MS = 24 * 3600 * 1000, GEO_CACHE_TTL_MS = 7 * 24 * 3600 * 1000;
-function routeCacheKey(from, to, costing) {
+function routeCacheKey(from, to, costing, hdg) {
   const f = from.lat.toFixed(4) + ',' + from.lon.toFixed(4);
   const t = to.lat.toFixed(4) + ',' + to.lon.toFixed(4);
-  return 'routeCache:' + f + '>' + t + ':' + JSON.stringify(costing || {});
+  const h = (hdg != null && isFinite(hdg)) ? ':' + (Math.round(hdg / 10) * 10) : '';
+  return 'routeCache:' + f + '>' + t + ':' + JSON.stringify(costing || {}) + h;
 }
 function geoCacheKey(q, p) {
   const nq = String(q || '').toLowerCase().trim().replace(/\s+/g, ' ');

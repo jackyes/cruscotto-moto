@@ -130,10 +130,14 @@ function renderNavPanel() {
       : 'Nessuna destinazione. Sulla mappa puoi anche tenere premuto un punto per sceglierlo.';
   }
   if (els.navSumDist) {
-    els.navSumDist.textContent = nv ? navFmtShort(nv.status === 'IDLE' ? nv.totalM : nv.distRemain || nv.totalM) : '—';
-    els.navSumTime.textContent = nv ? navFmtTime(nv.timeRemain || nv.totalS) : '—';
+    // distRemain/timeRemain a 0 sono LEGITTIMI (arrivato): `|| totalM`
+    // sostituiva lo 0 con la lunghezza completa del percorso.
+    const dR = nv.distRemain != null ? nv.distRemain : nv.totalM;
+    const tR = nv.timeRemain != null ? nv.timeRemain : nv.totalS;
+    els.navSumDist.textContent = nv ? navFmtShort(nv.status === 'IDLE' ? nv.totalM : dR) : '—';
+    els.navSumTime.textContent = nv ? navFmtTime(nv.status === 'IDLE' ? nv.totalS : tR) : '—';
     if (nv) {
-      const t = new Date(Date.now() + (nv.timeRemain || nv.totalS) * 1000);
+      const t = new Date(Date.now() + (nv.status === 'IDLE' ? nv.totalS : tR) * 1000);
       els.navSumEta.textContent = String(t.getHours()).padStart(2, '0') + ':' + String(t.getMinutes()).padStart(2, '0');
     } else els.navSumEta.textContent = '—';
   }

@@ -215,7 +215,9 @@ function startVideoRender(s) {
   const rows = s.rows || [];
   const track = s.track || [];
   if (!rows.length && !track.length) { toast('Nessun dato da renderizzare.', 'err'); return; }
-  const tEnd = rows.length ? rows[rows.length - 1].t : 0;
+  // Sessione track-only (GPS sì, IMU no): tEnd anche dalla track, o il check
+  // "Nessun dato" passava ma moriva su "Sessione troppo corta".
+  const tEnd = rows.length ? rows[rows.length - 1].t : (track.length ? track[track.length - 1].t : 0);
   if (tEnd <= 0) { toast('Sessione troppo corta.', 'err'); return; }
 
   const res = videoResFor(els.videoRes ? els.videoRes.value : '720');
@@ -265,9 +267,10 @@ function startVideoRender(s) {
   const pre = { mime, res, mult, rows, track, mapPts, spark, dist, tEnd, speedMax,
     slow: buildSlowZones(rows, mult), sat: false, buildings };
   // Giro senza GPS (solo IMU, es. rulli): la mappa 3D centrerebbe l'Italia
-  // di default e centrerebbe il nulla. Forza 2D e spiega perché.
+  // di default e centrerebbe il nulla. Forza il 2D SOLO per questo render —
+  // scrivere els.videoType.value sovrascriveva la preferenza utente in
+  // permanente, anche per i giri successivi con GPS.
   if (!videoHasGps(pre)) {
-    if (els.videoType) els.videoType.value = '2d';
     toast('Giro senza GPS: uso il render 2D (grafici+HUD).', 'err', 6000);
     if (wantMp4Early && !mp4ok) toast('MP4 non supportato qui, uso WebM.', 'err', 6000);
     startVideoRender2D(pre);
@@ -276,6 +279,10 @@ function startVideoRender(s) {
   const mode = (els.videoType && els.videoType.value === '2d') ? '2d' : '3d';
   const go = () => {
     if (videoSessionGone()) return;    // modale chiusa durante il probe satellite
+    // Disabilitato QUI, non quando il job parte: fra go() e la creazione del
+    // job passano anche 12-15 s (load CDN, pick encoder) e un doppio click
+    // lanciava due job paralleli con videoJob sovrascritto (WebGL orfani).
+    if (els.videoStart) els.videoStart.disabled = true;
     // Formato MP4 (WebCodecs + muxer vendored, offline): se richiesto e
     // supportato va al loop MP4, altrimenti cade sul WebM realtime.
     const wantMp4 = !!(els.videoFormat && els.videoFormat.value === 'mp4');
@@ -287,7 +294,11 @@ function startVideoRender(s) {
         toast('MP4 non riuscito, uso WebM: ' + ((e && e.message) || 'errore') + '.', 'err', 6000);
         if (videoSessionGone()) return;
         pre.mime = pickVideoMime();
-        if (!pre.mime) { toast('Codec WebM non disponibile.', 'err'); return; }
+        if (!pre.mime) {
+          toast('Codec WebM non disponibile.', 'err');
+          if (els.videoStart) els.videoStart.disabled = false;
+          return;
+        }
         if (mode === '3d') startVideoRender3D(pre); else startVideoRender2D(pre);
       });
       return;
@@ -305,7 +316,11 @@ function startVideoRender(s) {
         // pre.mime può essere '' se il ramo MP4 era selezionato quando è
         // partito l'offline: il realtime MediaRecorder senza mime crasha.
         if (!pre.mime) pre.mime = pickVideoMime();
-        if (!pre.mime) { toast('Codec WebM non disponibile.', 'err'); return; }
+        if (!pre.mime) {
+          toast('Codec WebM non disponibile.', 'err');
+          if (els.videoStart) els.videoStart.disabled = false;
+          return;
+        }
         if (mode === '3d') startVideoRender3D(pre); else startVideoRender2D(pre);
       });
       return;
@@ -339,6 +354,7 @@ function makeVideoCanvas(res) {
 
 function startVideoRender2D(pre) {
   if (videoSessionGone()) return;    // modale chiusa durante setup async: niente ghost
+  if (els.videoStart) els.videoStart.disabled = true;   // anche qui: il 2D parte fuori da go()
   const canvas = makeVideoCanvas(pre.res);
   const ctx = canvas.getContext('2d');
   const job = {
@@ -357,7 +373,11 @@ function beginVideoCapture(job, canvas, mime) {
   job.stream = canvas.captureStream(30);
   // 1080p ha 2.25x pixel del 720p: a 5 Mbps gli artefatti mangiano i dettagli mappa.
   const bps = videoBitrateFor(canvas.width);
-  job.rec = new MediaRecorder(job.stream, { mimeType: mime, videoBitsPerSecond: bps });
+  // mime '' (ramo MP4 selezionato, mai passati da pickVideoMime): l'oggetto
+  // opzioni con mimeType:'' lancia NotSupportedError non catchato → modale appesa.
+  job.rec = new MediaRecorder(job.stream, mime
+    ? { mimeType: mime, videoBitsPerSecond: bps }
+    : { videoBitsPerSecond: bps });
   job.rec.onerror = () => {
     job.recErr = true;
     toast('Errore encoder video: prova 720p o un browser desktop.', 'err', 6000);
@@ -385,6 +405,10 @@ function beginVideoCapture(job, canvas, mime) {
 
 function cleanupVideoJob(job) {
   if (job.raf) { cancelAnimationFrame(job.raf); job.raf = 0; }
+  // I track del captureStream restavano vivi sul canvas rimosso quando il
+  // render finiva da solo (stopVideoRender li ferma solo sul cancel): track
+  // attivi = encoder attivo = batteria e RAM per niente.
+  if (job.stream) { try { job.stream.getTracks().forEach(t => t.stop()); } catch (e) {} }
   if (job.canvas && job.canvas.parentNode) job.canvas.parentNode.removeChild(job.canvas);
   if (job.moto) {
     if (typeof disposeVideoMoto3D === 'function') { try { disposeVideoMoto3D(job.moto); } catch (e) {} }

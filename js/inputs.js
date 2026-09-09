@@ -58,7 +58,10 @@ function onGeolocation(pos) {
      "Velocita' non riportata" e "velocita' zero" adesso sono cose diverse. */
   const nowP = performance.now();
   const accOk = c.accuracy == null || c.accuracy <= GPS_ACC_MAX;
-  if (c.speed != null && c.speed >= 0 && isFinite(c.speed)) {
+  /* Plausibilità sul Doppler: un glitch (multipath, provider da cella) entra
+     nella finestra di clamp della fusione e resta per sempre in maxSpeed/CSV —
+     il fallback da posizione cappa a 150 m/s, il Doppler non aveva tetto. */
+  if (c.speed != null && c.speed >= 0 && isFinite(c.speed) && c.speed <= 90) {
     state.speedGpsMs = c.speed;
     state.speedGpsT = nowP;
     // Tempo del fix sull'orologio performance: pos.timestamp e' epoch.
@@ -120,6 +123,9 @@ function onGeolocation(pos) {
   // Traccia + distanza: gate su distanza minima + accuratezza (no jitter da fermo)
   const okAcc = c.accuracy == null || c.accuracy <= GPS_ACC_MAX;
   if (!okAcc) return;
+  // Solo a log attivo: prima distKm continuava a crescere dopo lo Stop (il display
+  // divergeva dalla sessione salvata) e l'export GPX includeva punti post-stop.
+  if (!state.logging) return;
   const last = state.session.lastPos;
   if (last) {
     const d = haversine(last, { lat: c.latitude, lon: c.longitude }) * 1000; // m

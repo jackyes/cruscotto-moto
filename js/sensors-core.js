@@ -80,9 +80,14 @@ function propagateSpeed(dt, nowP) {
   let v = state._spBase + state._aInt;
   /* Rete di sicurezza: l'estrapolazione inerziale copre il secondo fra un fix e
      l'altro, non discute col GPS. Serve anche a spezzare l'anello
-     attitudine → velocità → compensazione centripeta → attitudine. */
+     attitudine → velocità → compensazione centripeta → attitudine.
+     Ma l'ancora è la velocità GPS PROIETTATA al presente (_spAnchor, scritta da
+     correctSpeed = vGps + integrale maturato dal fix): clamppare contro il
+     Doppler laggato com'è cancellava la dinamica che correctSpeed esiste per
+     reintrodurre — a 0,5 g in frenata il taglio arrivava a ~19 km/h. */
   if (state.speedGpsMs != null) {
-    const lo = state.speedGpsMs - SPEED_MAX_DEV_MS, hi = state.speedGpsMs + SPEED_MAX_DEV_MS;
+    const vRef = (state._spAnchor != null) ? state._spAnchor : state.speedGpsMs;
+    const lo = vRef - SPEED_MAX_DEV_MS, hi = vRef + SPEED_MAX_DEV_MS;
     if (v < lo) v = lo; else if (v > hi) v = hi;
   }
   state.speedFusMs = v < 0 ? 0 : v;
@@ -101,6 +106,9 @@ function correctSpeed(vGps, tFixP, noLag) {
   state._spBase = vGps - (past != null ? past : state._aInt);
   state._spCorrT = tFixP;
   const v = state._spBase + state._aInt;
+  // Proiezione del fix al presente: è l'ancora giusta per il clamp di
+  // propagateSpeed (il Doppler descrive GPS_LAG_S fa, la posizione no).
+  state._spAnchor = v;
   state.speedFusMs = v < 0 ? 0 : v;
 }
 
@@ -189,12 +197,18 @@ function attitudeReference(f, w, B, dt) {
       // mag < G (vibrazione, errore LP) rendeva G/mag > 1: clamp lo saturava a 1,
       // acos(1) = 0 e il riferimento collassava sul grezzo trascinando la stima
       // verso l'alto. Sotto g non c'è informazione d'angolo: si congela l'ultimo
-      // rotore norm valido invece di inventarne uno a 0°.
-      if (mag < G) return state._attLastNorm || null;
+      // rotore norm valido invece di inventarne uno a 0°. Con scadenza a 2 s:
+      // dopo una lunga fermata sul cavalletto il rotore salvato descrive una
+      // posa di ore prima — re-iniettarlo tira la stima verso quella.
+      if (mag < G) {
+        const ln = state._attLastNorm, lnT = state._attLastNormT;
+        return (ln && lnT && (performance.now() - lnT) < 2000) ? ln : null;
+      }
       const ang = Math.acos(clamp01(G / mag)) * sgn;
       const rot = vadd(vscale(B.up, Math.cos(ang)), vscale(B.right, Math.sin(ang)));
       const out = { u: rot, trust: NORM_MODE_TRUST, mode: 'norm' };
       state._attLastNorm = out;
+      state._attLastNormT = performance.now();
       return out;
     }
   }
@@ -278,14 +292,24 @@ function updateGyroSign(rollRate, leanAcc, dt, credible) {
      stimatore non partirebbe mai. Si usa una condizione che dipende solo
      dall'accelerometro grezzo: norma vicina a g, cioe' assetto quasi dritto, dove
      l'angolo accelerometrico segue davvero il rollio. */
+  /* L'evidenza decade a OROLOGIO, a prescindere dalla credibilità del campione:
+     prima l'energia si azzerava al verdetto e il primo campione non credibile
+     sbloccava subito (lockout da una riga di commento), mentre girando credibili
+     il ramo locked non decadeva mai e un telefono rimontato non rivoteva mai.
+     Adesso il verdetto lascia l'energia alla soglia e il lock scade dopo ~1 τ. */
+  const nowP = performance.now();
+  if (state._gsEnergyT != null) {
+    const dSec = Math.max(0, (nowP - state._gsEnergyT) / 1000);
+    if (dSec > 0) {
+      const f = Math.exp(-dSec / GSIGN_TAU_S);
+      state.gyroSignScore = (state.gyroSignScore || 0) * f;
+      state.gyroSignEnergy = (state.gyroSignEnergy || 0) * f;
+    }
+  }
+  state._gsEnergyT = nowP;
+  if ((state.gyroSignEnergy || 0) < GSIGN_MIN_ENERGY * 0.37) state.gyroSignLocked = false;
   if (!(dt > 0) || !credible) {
     state._gsPrev = leanAcc;
-    // Senza campioni credibili l'evidenza decade invece di congelarsi: il lockout
-    // post-verdetto si resetta da solo e un rimontaggio telefono da' nuovo verdetto.
-    const decay0 = !(dt > 0) ? 1 : Math.exp(-dt / GSIGN_TAU_S);
-    state.gyroSignScore = (state.gyroSignScore || 0) * decay0;
-    state.gyroSignEnergy = (state.gyroSignEnergy || 0) * decay0;
-    if (state.gyroSignEnergy < GSIGN_MIN_ENERGY) state.gyroSignLocked = false;
     return false;
   }
   if (state.gyroSignLocked) return false;   // verdetto gia' dato e ancora valido
@@ -293,18 +317,20 @@ function updateGyroSign(rollRate, leanAcc, dt, credible) {
   const dLean = (leanAcc - state._gsPrev) / dt;
   state._gsPrev = leanAcc;
   if (Math.abs(dLean) < 5 || Math.abs(rollRate) < 5) return false;   // troppo fermo: nessuna informazione
-  const decay = Math.exp(-dt / GSIGN_TAU_S);
-  state.gyroSignScore = state.gyroSignScore * decay + rollRate * dLean * dt;
-  state.gyroSignEnergy = state.gyroSignEnergy * decay + Math.abs(rollRate * dLean) * dt;
+  // (il decay temporale è già fatto sopra a orologio: qui solo accumulo)
+  state.gyroSignScore = state.gyroSignScore + rollRate * dLean * dt;
+  state.gyroSignEnergy = state.gyroSignEnergy + Math.abs(rollRate * dLean) * dt;
   if (state.gyroSignEnergy > GSIGN_MIN_ENERGY && state.gyroSignScore < -0.3 * state.gyroSignEnergy) {
     state.gyroSign = -state.gyroSign;
     // Persistito: su un device col rotationRate invertito il verdetto va imparato
     // a passo d'uomo, e senza persistenza a un avvio già in marcia (>3 m/s) il
     // gate non si apre e la piega resta nel verso sbagliato per tutta la sessione.
     try { store.set('cruscotto.gyroSign', state.gyroSign); } catch (e) {}
-    state.gyroSignScore = 0; state.gyroSignEnergy = 0;
+    state.gyroSignScore = 0;
+    state.gyroSignEnergy = GSIGN_MIN_ENERGY;  // NON 0: il lock deve durare ~GSIGN_TAU_S
     state.gyroSignLocked = true;
     state._attU = null;                       // la stima precedente e' costruita al contrario
+    state.attBias = { x: 0, y: 0, z: 0 };     // convergeva nel frame col segno vecchio
     return true;
   }
   return false;

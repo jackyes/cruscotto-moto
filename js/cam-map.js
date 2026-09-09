@@ -4,7 +4,9 @@ function appendTrackPoint(lat, lon, alt) {
   const now = performance.now();
   if (now - lastTrackT < 1000) return;
   lastTrackT = now;
-  state.track.push({ lat, lon, alt: alt || 0, t: now, ts: Date.now() });
+  // alt assente (null/NaN): null, non 0 — `alt || 0` fabbricava <ele>0.0</ele>
+  // nel GPX e alt_m=0 nel CSV per fix senza dati di quota.
+  state.track.push({ lat, lon, alt: (alt != null && isFinite(alt)) ? alt : null, t: now, ts: Date.now() });
   if (state.track.length > TRACK_MAX) state.track.splice(0, state.track.length - TRACK_MAX);
   updateMap();
 }
@@ -54,8 +56,11 @@ function camsNear(lat, lon, radiusM) {
   return out;
 }
 
-function loadCachedCameras() {
-  const c = store.get('cruscotto.cameras', null);
+async function loadCachedCameras() {
+  // Cache letta da IndexedDB (v. fetchCameras): il vecchio localStorage
+  // traboccava con DB grandi e perdeva la cache senza dire nulla.
+  let c = null;
+  try { c = await idb.kvGet('cachedCameras'); } catch (e) {}
   if (c && c.cameras && c.cameras.length) {
     state.cameras = c.cameras;
     state.camCenter = c.center;

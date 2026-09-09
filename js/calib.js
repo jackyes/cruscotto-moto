@@ -27,6 +27,7 @@ function startCalibration() {
     return;
   }
   state._calPending = true;
+  state._calMount = state.mount;   // catturato: un cambio orientamento DURANTE la finestra non deve mischiare le pose
   state._calSum = { x: 0, y: 0, z: 0 };
   state._calN = 0;
   state._calSamples = [];
@@ -40,8 +41,14 @@ function startCalibration() {
 function collectCalib() {
   if (!state._calPending || !state._lastUp) return;
   /* Un singolo scossone non deve condannare la calibrazione: si contano i campioni
-     scartati e si rifiuta solo se sono una frazione rilevante della finestra. */
-  const rotating = state.hasGyro && vlen({ x: state.gyroRoll, y: state.gyroYaw, z: 0 }) > CALIB_MAX_ROT_DPS;
+     scartati e si rifiuta solo se sono una frazione rilevante della finestra.
+     Il gate di rotazione copre tutti e tre gli assi del telaio: il rollio e lo
+     yaw stanno in gyroRoll/gyroYaw, il beccheggio (rocking sospensioni) va
+     proiettato su B.right — senza, un dondolio avanti-indietro sfuggiva al gate
+     e restava solo la dispersione a beccarlo. */
+  const wRock = (state.calib && state._wLP) ? vdot(state._wLP, state.calib.right) : 0;
+  const rotating = state.hasGyro &&
+    vlen({ x: state.gyroRoll, y: state.gyroYaw, z: wRock }) > CALIB_MAX_ROT_DPS;
   const accel = Math.abs(state.gRatio - 1) > CALIB_MAX_NORM_DEV;
   if (rotating || accel) state._calBadN++;
   /* Media FIRMATA della rotazione: la vibrazione del motore ha media zero e si
@@ -80,7 +87,7 @@ function finishCalibration(tip) {
           'A motore acceso al minimo va bene: la vibrazione non impedisce la calibrazione.', 'err', 7000);
     return;
   }
-  state.calib = buildBasis(mean);
+  state.calib = buildBasis(mean, state._calMount != null ? state._calMount : state.mount);
   state.calib.v = 2;                 // versione: invalida le calibrazioni pre-riscrittura
   resetSensorFilters();
   startAccBiasCapture();
@@ -94,10 +101,19 @@ function startAccBiasCapture() {
   state._abSum = { lat: 0, lon: 0, vert: 0 };
   state._abN = 0;
   state._abT = 0;
+  state._abStart = performance.now();
   state._abPending = true;
 }
 function collectAccBias(dt) {
   if (!state._abPending) return;
+  /* Timeout a muro: collectAccBias gira solo quando esiste `la`; su un device
+     senza e.acceleration (e senza attitudine che parta, es. rider ripartito
+     subito) non verrebbe mai chiamata e la diagnostica resterebbe "misura in
+     corso…" per sempre. ACC_BIAS_S + 10 s di grazia, poi si chiude senza bias. */
+  if (performance.now() - state._abStart > (ACC_BIAS_S + 10) * 1000) {
+    state._abPending = false;
+    return;
+  }
   state._abSum.lat += state.latG;
   state._abSum.lon += state.lonG;
   state._abSum.vert += state.vertG;

@@ -65,6 +65,10 @@ function bearing(a, b) {
   return (Math.atan2(y, x) * 180 / Math.PI + 360) % 360;
 }
 function angleDiff(a, b) {
+  // Bussola a NaN (fix senza heading, cam-track-up senza fix): senza guardia il
+  // NaN sfigura i detector di contromano/manovra mancata (NaN>x sempre falso →
+  // silenzio totale). 0 = "nessuna differenza" = nessun falso allarme.
+  if (!isFinite(a) || !isFinite(b)) return 0;
   let d = Math.abs(a - b) % 360;
   return d > 180 ? 360 - d : d;
 }

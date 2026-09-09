@@ -26,7 +26,9 @@ function webmConfigFor(W, H, codec) {
 function webmCodecCandidates() {
   return [
     { wc: 'vp8', mux: 'V_VP8' },
-    { wc: 'vp09.00.10.08', mux: 'V_VP9' },
+    // Level 4.1: il 1.0 (10) capava 36864 sample/frame (~256×144) e isConfigSupported
+    // rifiutava 720p/1080p → candidato VP9 morto su ogni browser.
+    { wc: 'vp09.00.41.08', mux: 'V_VP9' },
   ];
 }
 
@@ -91,7 +93,7 @@ async function startVideoRenderWebmOfflineInner(pre, mode, Muxer, picked) {
   // Guard sulla RAM (stesso motivo del ramo MP4): bloccare prima di allocare
   // evita il crash silenzioso del tab mobile.
   const tooBig = videoOfflineGuard(pre, picked.cfg);
-  if (tooBig) { toast(tooBig, 'err', 8000); return; }
+  if (tooBig) { toast(tooBig, 'err', 8000); if (els.videoStart) els.videoStart.disabled = false; return; }
   const muxerOpts = {
     target: new Muxer.ArrayBufferTarget(),
     video: { codec: picked.mux, width: W, height: H, frameRate: 30 },
