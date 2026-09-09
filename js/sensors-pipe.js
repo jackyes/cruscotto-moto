@@ -72,6 +72,11 @@ function gyroSat(v) {
 function processSample(sm) {
   if (state.demo) return;
   const nowP = sm.t;
+  // Orologio performance per i confronti col resto del sistema (speedGpsT è
+  // performance.now()): sm.t è il timestamp del sensore (HAL Android col
+  // Generic Sensor API) e vive in un dominio temporale diverso — confrontarli
+  // direttamente faceva scattare (o non scattare mai) i gate di stallo GPS.
+  const nowPerf = performance.now();
   /* Base dei tempi. Con la Generic Sensor API `t` e' il timestamp hardware del HAL
      Android, non l'istante di consegna: e' il dt autorevole. Con devicemotion resta
      il tempo di arrivo, quindi il controllo di plausibilita' serve comunque. */
@@ -132,10 +137,16 @@ function processSample(sm) {
   /* Velocita' angolare, vettoriale. Saturazione simmetrica (non azzeramento: mettere
      a zero i picchi e' un filtro asimmetrico e in curva i picchi cadono piu' spesso da
      un lato, quindi iniettava un errore direzionale). */
-  let W = { x: 0, y: 0, z: 0 };
+  /* Scratch riusati a ping-pong: prima ogni campione (60 Hz) allocava 2-4 oggetti
+     vettore (grezzo, filtrato, Wc) — GC continuo sul main thread. */
+  const wRaw = state._wRaw || (state._wRaw = { x: 0, y: 0, z: 0 });
+  let W = wRaw;
+  W.x = 0; W.y = 0; W.z = 0;
   state.hasGyro = !!sm.gyro;
   if (sm.gyro) {
-    W = vscale({ x: gyroSat(sm.gyro.x), y: gyroSat(sm.gyro.y), z: gyroSat(sm.gyro.z) }, state.gyroSign);
+    wRaw.x = gyroSat(sm.gyro.x) * state.gyroSign;
+    wRaw.y = gyroSat(sm.gyro.y) * state.gyroSign;
+    wRaw.z = gyroSat(sm.gyro.z) * state.gyroSign;
     // Passa-basso sul VETTORE prima dell'integrazione: riduce la varianza che
     // alimenta il random walk. tau base 40 ms (adattivo con la vibrazione),
     // ritardo trascurabile in ingresso curva. EMA del 1° ordine, NON il biquad
@@ -144,8 +155,23 @@ function processSample(sm) {
     // tau, ritardava la chicane (misurato: +1° di errore dinamico).
     const tauW = GYRO_LP_TAU_S * vibScale();
     const aW = dt / (tauW + dt);
-    W = state._wLP ? vadd(state._wLP, vscale(vsub(W, state._wLP), aW)) : W;
-    state._wLP = W;
+    const lp = state._wLP;
+    if (lp) {
+      const wF = state._wFlt || (state._wFlt = { x: 0, y: 0, z: 0 });
+      wF.x = lp.x + (wRaw.x - lp.x) * aW;
+      wF.y = lp.y + (wRaw.y - lp.y) * aW;
+      wF.z = lp.z + (wRaw.z - lp.z) * aW;
+      state._wFlt = lp;         // il vecchio stato filtro diventa il prossimo scratch
+      state._wLP = wF;
+      W = wF;
+    } else {
+      // Primo campione: lo stato filtro prende il buffer grezzo; il prossimo
+      // campione usera' l'altro buffer come scratch (mai due alias sullo stato).
+      state._wLP = wRaw;
+      state._wRaw = state._wFlt || null;
+      state._wFlt = null;
+      W = wRaw;
+    }
   }
 
   /* LP dedicato sull'imbardata attorno alla verticale del telaio. L'errore
@@ -173,7 +199,15 @@ function processSample(sm) {
     const tauY = YAW_LP_TAU_S * clamp01(Math.sqrt(state._yawPow) / YAW_NOISE_MAX_DPS);
     const aY = dt / (Math.max(tauY, 0.02) + dt);
     state._yawFilt2 = (state._yawFilt2 == null) ? yawRaw : state._yawFilt2 + aY * (yawRaw - state._yawFilt2);
-    if (state._yawFilt2 !== yawRaw) Wc = vadd(W, vscale(B.up, state._yawFilt2 - yawRaw));
+    if (state._yawFilt2 !== yawRaw) {
+      // Inline sul scratch: vadd+vscale allocavano 2 vettori per campione.
+      const d = state._yawFilt2 - yawRaw;
+      const wc = state._wcTmp || (state._wcTmp = { x: 0, y: 0, z: 0 });
+      wc.x = W.x + B.up.x * d;
+      wc.y = W.y + B.up.y * d;
+      wc.z = W.z + B.up.z * d;
+      Wc = wc;
+    }
   }
 
   /* Filtro vettoriale sull'accelerometro: mediana (impulsi) poi passa-basso (norma).
@@ -221,7 +255,7 @@ function processSample(sm) {
      `speedMs === 0`, che scattava anche quando il GPS semplicemente non riportava la
      velocita' — cioe' a 100 km/h dopo una galleria, mandando 2 s di rollio VERO dentro
      lo stimatore di bias. */
-  const gpsFresh = (nowP - state.speedGpsT) < SPEED_STALE_MS;
+  const gpsFresh = (nowPerf - state.speedGpsT) < SPEED_STALE_MS;
   state.stopped = gpsFresh && state.speedGpsMs != null && state.speedGpsMs < STOP_SPEED_MS
     && Math.abs(state.gyroRoll) < STOP_ROLL_DPS && state.vibG < STOP_VIB_G;
 
@@ -339,7 +373,7 @@ function processSample(sm) {
   }
 
   /* ---- Velocita' fusa, propagata a ogni campione ---- */
-  propagateSpeed(dt, nowP);
+  propagateSpeed(dt, nowPerf);
 
   /* Piega cinematica: stima INDIPENDENTE dall'accelerometro e dall'integrazione.
      In curva a regime vale atan(v*psi_punto/g) = phi. Serve da verifica incrociata

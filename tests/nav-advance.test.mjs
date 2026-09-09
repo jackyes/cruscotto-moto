@@ -33,7 +33,7 @@ function buildNorth() {
     }],
   });
   nv.nextMan = 0; nv.offDist = 0; nv.offThr = 50; nv.sAlong = 0;
-  nv.spoken = 0; nv.suppressPost = false;
+  nv.spoken = 0;
   return nv;
 }
 
@@ -103,7 +103,6 @@ test('navAdvance: avanza una manovra, resetta spoken', () => {
   assert.equal(moved, 1);
   assert.equal(nv.nextMan, 1);
   assert.equal(nv.spoken, 0);
-  assert.equal(nv.suppressPost, false);
 });
 
 test('navAdvance: nessuna manovra passata = 0', () => {
@@ -113,7 +112,7 @@ test('navAdvance: nessuna manovra passata = 0', () => {
   assert.equal(nv.nextMan, 0);
 });
 
-test('navAdvance: salto multiplo imposta suppressPost', () => {
+test('navAdvance: salto multiplo consuma in blocco', () => {
   const nv = buildNorth();
   nv.offDist = 0;
   // oltre entrambe le manovre: consuma 0 e 1 in un colpo
@@ -121,7 +120,6 @@ test('navAdvance: salto multiplo imposta suppressPost', () => {
   const moved = navAdvance(nv, null);
   assert.equal(moved, 2);
   assert.equal(nv.nextMan, 2);
-  assert.equal(nv.suppressPost, true);
 });
 
 test('navAdvance: congelato con offDist alto', () => {

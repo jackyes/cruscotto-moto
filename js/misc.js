@@ -35,7 +35,6 @@ function navBuild(trip) {
         text: String(m.instruction || ''),
         vAlert: String(m.verbal_transition_alert_instruction || ''),
         vPre: String(m.verbal_pre_transition_instruction || ''),
-        vPost: String(m.verbal_post_transition_instruction || ''),
         multiCue: !!m.verbal_multi_cue,
         streets: (m.street_names || []).map(String),
         beginIdx: (m.begin_shape_index | 0) + off,

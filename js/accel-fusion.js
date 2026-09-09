@@ -157,7 +157,10 @@ function updateVibration(ig, dt) {
     state._accLP2 = (state._accLP2 == null) ? ig : vadd(state._accLP2, vscale(vsub(ig, state._accLP2), a2));
     const r2 = vsub(ig, state._accLP2);
     const pw2 = vdot(r2, r2);
-    state._vibPow2 = (state._vibPow2 == null) ? pw2 : state._vibPow2 + a * (pw2 - state._vibPow2);
+    // `a` (tau 0.3 s) qui era un refuso: la metrica di adattamento deve seguire
+    // il SUO tau (0.08 s), altrimenti il residuo sopra ~2 Hz veniva smussato col
+    // filtro sbagliato e vibAdaptG leggeva energia vecchia.
+    state._vibPow2 = (state._vibPow2 == null) ? pw2 : state._vibPow2 + a2 * (pw2 - state._vibPow2);
     state.vibAdaptG = Math.sqrt(state._vibPow2) / G;
   }
 }

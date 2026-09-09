@@ -399,6 +399,12 @@ function updateGyroSign(rollRate, leanAcc, dt, credible) {
     state.gyroSignLocked = true;
     state._attU = null;                       // la stima precedente e' costruita al contrario
     state.attBias = { x: 0, y: 0, z: 0 };     // convergeva nel frame col segno vecchio
+    // Anche i filtri giroscopici sono costruiti col segno vecchio: W filtrato e
+    // imbardata altrimenti fanno un transitorio di secondi nella direzione sbagliata.
+    state._wLP = null;
+    state._yawFilt = null;
+    state._yawFilt2 = null;
+    state._yawPow = null;
     return true;
   }
   return false;

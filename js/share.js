@@ -236,17 +236,108 @@ function posterLayoutFor(fmt) {
   return posterLayout(s.w, s.h);
 }
 
-/* Pura: compone tutto in un modello piatto serializzabile (test su numeri). */
+/* Pura: compone tutto in un modello piatto serializzabile (test su numeri).
+   UNA passata su rows: prima erano 5-6 (stats + climb + curve + hist + moments
+   + spark) — su 180k righe ogni card rifaceva il giro intero sei volte. */
 function buildPosterModel(rows, track, meta) {
-  const st = posterStats(rows, track, meta);
-  const hist = leanHistogram(rows || [], 5);
-  const moments = posterMoments(rows || []);
-  const spark = [];
+  const m = meta || {};
   const arr = rows || [];
+  const bin = 5, nb = Math.ceil(60 / bin);
+  const binsR = new Array(nb).fill(0), binsL = new Array(nb).fill(0);
+  // stats (stessa semantica di posterStats)
+  let vmaxRows = 0, leanR = 0, leanL = 0, gLat = 0, decel = 0, tLean20 = 0;
+  let vSum = 0, vN = 0, prevT = null;
+  // moments (stessa semantica di posterMoments)
+  let iV = -1, vB = -1, iL = -1, lB = -1, iG = -1, gB = -1;
+  // climb (stessa semantica di climbMeters con thr 3)
+  let climbPlus = 0, climbAnchor = null, climbTot = 0;
+  // curve (stessa isteresi 15/7 di countCurves)
+  let side = 0, since = 0, nCurve = 0;
+  const spark = [];
   const step = Math.max(1, Math.floor(arr.length / 200));
-  for (let k = 0; k < arr.length; k += step) {
-    spark.push({ t: arr[k].t, v: arr[k].speedKmh || 0 });
+  for (let i = 0; i < arr.length; i++) {
+    const r = arr[i];
+    if (!r) continue;
+    const spd = isFinite(r.speedKmh) ? r.speedKmh : null;
+    const lean = isFinite(r.lean) ? r.lean : null;
+    const t = isFinite(r.t) ? r.t : i * 0.05;
+    if (spd != null) {
+      if (spd > vmaxRows) vmaxRows = spd;
+      if (spd >= 5 && !r.gap) { vSum += spd; vN++; }
+      if (spd > vB) { vB = spd; iV = i; }
+    }
+    if (lean != null) {
+      if (lean > leanR) leanR = lean;
+      if (lean < leanL) leanL = lean;
+      if (Math.abs(lean) >= 20 && !r.gap) {
+        const dt = (prevT != null) ? Math.max(0, t - prevT) : 0.05;
+        tLean20 += Math.min(dt, 1);
+      }
+      if (Math.abs(lean) > lB) { lB = Math.abs(lean); iL = i; }
+      const a = Math.abs(lean);
+      if (a >= 5) { const k = Math.min(nb - 1, Math.floor(a / bin)); if (lean > 0) binsR[k]++; else binsL[k]++; }
+      if (!side) {
+        if (a >= 15) { side = lean > 0 ? 1 : -1; since = t; }
+      } else if (a < 7) {
+        if (t - since >= 0.5) nCurve++;
+        side = 0;
+      } else if ((lean > 0 ? 1 : -1) === -side && a >= 15) {
+        if (t - since >= 0.5) nCurve++;
+        side = -side; since = t;
+      }
+    }
+    if (isFinite(r.latG)) {
+      if (Math.abs(r.latG) > gLat) gLat = Math.abs(r.latG);
+      if (Math.abs(r.latG) > gB) { gB = Math.abs(r.latG); iG = i; }
+    }
+    if (isFinite(r.lonG) && r.lonG < 0 && -r.lonG * 9.80665 > decel) decel = -r.lonG * 9.80665;
+    if (isFinite(r.alt)) {
+      climbTot++;
+      if (climbAnchor == null) climbAnchor = r.alt;
+      else {
+        const d = r.alt - climbAnchor;
+        if (d >= 3) { climbPlus += d; climbAnchor = r.alt; }
+        else if (d <= -3) { climbAnchor = r.alt; }
+      }
+    }
+    if (i % step === 0) spark.push({ t: t, v: spd || 0 });
+    if (isFinite(r.t)) prevT = t;
   }
+  // coda countCurves: la curva aperta si chiude sull'ultima riga della sorgente
+  if (side && arr.length) {
+    const lastT = arr[arr.length - 1] ? arr[arr.length - 1].t : null;
+    if (lastT - since >= 0.5) nCurve++;
+  }
+  const vmax = isFinite(m.maxSpeed) && m.maxSpeed > 0 ? m.maxSpeed : vmaxRows;
+  // climb: tot < 10 o alt tutti 0 = nessuna misura (stessa semantica climbMeters)
+  let dPlus = null;
+  if (climbTot >= 10) {
+    if (climbPlus === 0) {
+      let allZero = true;
+      for (const r of arr) { if (r && isFinite(r.alt) && r.alt !== 0) { allZero = false; break; } }
+      if (!allZero) dPlus = 0;
+    } else dPlus = climbPlus;
+  }
+  const tEnd = arr.length && isFinite(arr[arr.length - 1].t) ? arr[arr.length - 1].t : (m.duration || 0);
+  const at = i => (i >= 0 && arr[i] ? fmtDurH(arr[i].t) : '—');
+  const st = {
+    km: isFinite(m.distKm) ? m.distKm : 0,
+    dur: fmtDurH(tEnd),
+    vmax: Math.min(vmax, 399), // riga spuria a 400 km/h: mostra il meta, non il glitch
+    vAvg: vN ? vSum / vN : 0,
+    leanR: Math.round(Math.abs(leanR)), leanL: Math.round(Math.abs(leanL)),
+    gLat: gLat, decel: decel,
+    tLean20: tLean20,
+    nCurve: nCurve,
+    dPlus: dPlus,
+    startISO: m.startISO || null,
+  };
+  const hist = { binsR, binsL, max: Math.max(1, ...binsR, ...binsL) };
+  const moments = [
+    { k: 'Vmax', v: Math.round(vB > 0 ? vB : 0) + ' km/h', t: at(iV) },
+    { k: 'Piega', v: Math.round(lB > 0 ? lB : 0) + '°', t: at(iL) },
+    { k: 'G lat', v: (gB > 0 ? gB : 0).toFixed(1) + ' g', t: at(iG) },
+  ];
   return { st, hist, moments, spark, nPts: (track || []).length };
 }
 
@@ -408,7 +499,12 @@ function makeShareCard(s, cb, opts) {
   drawSharePoster(ctx, model, layout, W, H, C);
   posterToBlob(canvas, blob => {
     if (!blob) { cb(null, null); return; }
-    cb(URL.createObjectURL(blob), blob);
+    const url = URL.createObjectURL(blob);
+    // Rete di sicurezza: il caller di solito revoca dopo il download, ma un
+    // callback che non lo fa (o un download mai avvenuto) lasciava il blob in
+    // memoria per tutta la sessione. Revoca doppia = no-op innocuo.
+    setTimeout(() => { try { URL.revokeObjectURL(url); } catch (e) {} }, 60000);
+    cb(url, blob);
   });
 }
 

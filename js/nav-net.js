@@ -118,7 +118,7 @@ async function navRequestRoute(from, to, hdg, why) {
       nv0.rerouteAt = prev ? prev.rerouteAt : 0; nv0.rerouteWait = prev ? prev.rerouteWait : 0;
       nv0.rerouteStreak = prev ? (prev.rerouteStreak || 0) : 0;
       nv0.rerouteLog = prev ? (prev.rerouteLog || []) : [];
-      nv0.lastRerouteEnd = Date.now(); nv0.travelSinceReroute = 0; nv0.suppressPost = false;
+      nv0.lastRerouteEnd = Date.now(); nv0.travelSinceReroute = 0;
       nv0.shapeRaw = (cached.body.trip.legs || []).map(l => l.shape);
       nv0.reqSaved = lastReq || { from: { lat: from.lat, lon: from.lon }, to: { lat: to.lat, lon: to.lon } };
       if (reqStale()) return;
@@ -181,7 +181,7 @@ async function navRequestRoute(from, to, hdg, why) {
       nvS.wrongCount = 0; nvS.wrongTravel = 0; nvS.farCount = 0; nvS.lostCount = 0; nvS.arriveCount = 0;
       nvS.vEMA = null; nvS.lastFixAt = 0; nvS.lastGoodAt = Date.now(); nvS.lastLat = null; nvS.lastLon = null;
       nvS.rerouteAt = 0; nvS.rerouteWait = 0; nvS.rerouteStreak = 0; nvS.rerouteLog = [];
-      nvS.lastRerouteEnd = Date.now(); nvS.travelSinceReroute = 0; nvS.suppressPost = false;
+      nvS.lastRerouteEnd = Date.now(); nvS.travelSinceReroute = 0;
       nvS.shapeRaw = (cached.body.trip.legs || []).map(l => l.shape);
       nvS.reqSaved = lastReq || { from: { lat: from.lat, lon: from.lon }, to: { lat: to.lat, lon: to.lon } };
       if (reqStale()) return;
@@ -238,7 +238,6 @@ async function navRequestRoute(from, to, hdg, why) {
   nv.rerouteLog = prev ? (prev.rerouteLog || []) : [];
   nv.lastRerouteEnd = Date.now();
   nv.travelSinceReroute = 0;
-  nv.suppressPost = false;
   nv.shapeRaw = (trip.legs || []).map(l => l.shape);
   nv.reqSaved = lastReq || { from: { lat: from.lat, lon: from.lon }, to: { lat: to.lat, lon: to.lon } };
   if (reqStale()) return;

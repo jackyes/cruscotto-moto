@@ -101,15 +101,19 @@ async function recoverChunks() {
     };
     try {
       await idb.put(sess);
-      await idb.clearChunks();
-      state._recoveryPending = false;   // solo a recupero riuscito: i chunk restano protetti
-      toast('Sessione recuperata.', 'ok');
-    }
-    catch (e) {
+    } catch (e) {
       toast('Recupero fallito.', 'err');
       // _recoveryPending resta true: un successivo Start non cancellerà i chunk
       // della sessione interrotta che non è stato possibile recuperare.
+      renderHistory();
+      return;
     }
+    // Il put è riuscito: il giro è al sicuro. La pulizia dei chunk è accessoria —
+    // se fallisce non è "recupero fallito", e l'id della sessione è lo stesso,
+    // quindi un'eventuale riproposta al prossimo avvio sovrascrive, non duplica.
+    state._recoveryPending = false;
+    try { await idb.clearChunks(); } catch (e) {}
+    toast('Sessione recuperata.', 'ok');
     renderHistory();
   });
   no.addEventListener('click', () => { state._recoveryPending = false; el.remove(); idb.clearChunks().catch(() => {}); });

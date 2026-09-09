@@ -77,7 +77,12 @@ function navParseCoords(t) {
   s = s.replace(/[nNsS]/g, ' ').replace(/[eEoOwW]/g, ' ');
   const num = '-?\\d{1,3}(?:[.,]\\d+)?';
   let m = s.match(new RegExp('[!]3d(' + num + ')[!]4d(' + num + ')'));  // link Google Maps
-  if (m) return { lat: +m[1].replace(',', '.'), lon: +m[2].replace(',', '.'), label: 'Coordinate' };
+  if (m) {
+    // Stessa validazione di range degli altri rami: un link tagliato/alterato
+    // non deve produrre coordinate fuori dominio.
+    const la = parseFloat(m[1].replace(',', '.')), lo = parseFloat(m[2].replace(',', '.'));
+    if (Math.abs(la) <= 90 && Math.abs(lo) <= 180) return { lat: la, lon: lo, label: 'Coordinate' };
+  }
   m = s.match(new RegExp('@(' + num + ')\\s*,\\s*(' + num + ')'));       // .../@lat,lon,15z
   if (m) {
     const la = parseFloat(m[1].replace(',', '.')), lo = parseFloat(m[2].replace(',', '.'));

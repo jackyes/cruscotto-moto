@@ -73,6 +73,13 @@ let navProgSAlong = -1;
 function navPersistProgress() {
   const nv = state.nav;
   if (!nv) return;
+  if (nv.status === 'ARRIVED' || nv.status === 'IDLE') {
+    // La rotta conclusa è già stata azzerata su disco: senza questo guard il
+    // tick dell'arrivo (che passa di qui in coda a navTick) ricreava subito il
+    // record navProgress appena cancellato — orfano per sempre.
+    navProgT = 0; navProgLastMan = -1; navProgSAlong = -1;
+    return;
+  }
   const now = Date.now();
   // Su una retta lunga nextMan non cambia mai: senza il check su sAlong il
   // riparto dopo un crash rileggeva una posizione di diversi km indietro.

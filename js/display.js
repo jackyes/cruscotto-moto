@@ -240,7 +240,10 @@ function setBar(el, val, absVal, maxG) {
 }
 
 function mainLoop(now) {
-  tickDemo(now);
+  // Demo ferma quando la pagina non è visibile: rAF può continuare a girare in
+  // background su alcuni Android con schermo acceso, e la demo consumava
+  // batteria/cpu senza nessuno che guardi.
+  if (!document.hidden) tickDemo(now);
   // Il refresh UI è throttlato: a 60 Hz erano ~20 scritture DOM per frame, con il
   // telefono al sole sul manubrio è batteria e calore per nulla.
   if (now - lastDisplayT >= 1000 / DISPLAY_HZ) {

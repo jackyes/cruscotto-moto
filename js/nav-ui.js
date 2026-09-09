@@ -58,7 +58,10 @@ function navAnnounce(nv, vRef) {
       txt = 'Fra ' + navFmtDist(d) + ', ' + (m.vPre || m.text);
     }
     if (chainNext && (b.name === 'near' || b.name === 'now')) {
-      if (!m.multiCue) txt += ', poi ' + navShortCue(chainNext.vPre || chainNext.text);
+      // L'uscita di rotonda OSRM è marcata silent: senza questo check la catena
+      // annunciava comunque "poi esci dalla rotonda".
+      if (chainNext.silent) chainBits = 0;
+      else if (!m.multiCue) txt += ', poi ' + navShortCue(chainNext.vPre || chainNext.text);
     }
     const prio = b.name === 'now' ? 4 : b.name === 'near' ? 3 : b.name === 'mid' ? 2 : 1;
     // say() ritorna false se il canale TTS è occupato con priorità insufficiente:

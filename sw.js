@@ -126,6 +126,18 @@ async function trimCache(name, max) {
   await Promise.all(keys.slice(0, keys.length - max).map(k => cache.delete(k)));
 }
 
+/* trimCache enumera TUTTE le chiavi (e a max+1 sfora di 1 a ogni tile): con 400
+   tile in cache e un tile nuovo al secondo era una scansione completa per ogni
+   tile. Si limita a una passata ogni TRIM_INTERVAL_MS per cache. */
+const TRIM_INTERVAL_MS = 30000;
+const trimLast = {};
+async function maybeTrim(name, max) {
+  const now = Date.now();
+  if (now - (trimLast[name] || 0) < TRIM_INTERVAL_MS) return;
+  trimLast[name] = now;
+  await trimCache(name, max);
+}
+
 async function cacheFirst(req, cacheName, opts) {
   const cache = await caches.open(cacheName);
   const hit = await cache.match(req);
@@ -141,7 +153,7 @@ async function cacheFirst(req, cacheName, opts) {
         try { await cache.put(req, res.clone()); } catch (_) {}
       }
     }
-    if (opts && opts.max) await trimCache(cacheName, opts.max);
+    if (opts && opts.max) await maybeTrim(cacheName, opts.max);
   }
   return res;
 }
@@ -230,7 +242,10 @@ self.addEventListener('fetch', event => {
         try {
           const res = await fetchWithTimeoutSW(req, 2500);
           if (res && res.ok) {
-            try { await cache.put(req, res.clone()); } catch (_) {}
+            // Niente cache.put per URL con query string: ogni richiesta
+            // cache-bustata moltiplicava le voci di SHELL_CACHE senza fine
+            // (stesso motivo di networkFirst).
+            try { if (!url.search) await cache.put(req, res.clone()); } catch (_) {}
           }
           return res;
         } catch (e) {

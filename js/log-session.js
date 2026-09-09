@@ -80,8 +80,14 @@ function buildGpx(track) {
   out += '  <trk>\n    <name>Cruscotto Moto</name>\n    <trkseg>\n';
   for (const p of track) {
     out += `      <trkpt lat="${p.lat.toFixed(7)}" lon="${p.lon.toFixed(7)}">`;
-    if (p.alt != null) out += `<ele>${p.alt.toFixed(1)}</ele>`;
-    if (p.ts) out += `<time>${new Date(p.ts).toISOString()}</time>`;
+    // alt non-finito (NaN da sessioni storiche) emetteva <ele>NaN</ele>;
+    // ts invalido faceva lanciare RangeError a toISOString().
+    if (p.alt != null && isFinite(p.alt)) out += `<ele>${p.alt.toFixed(1)}</ele>`;
+    if (p.ts != null && isFinite(p.ts)) {
+      let iso = '';
+      try { iso = new Date(p.ts).toISOString(); } catch (e) {}
+      if (iso) out += `<time>${iso}</time>`;
+    }
     out += '</trkpt>\n';
   }
   out += '    </trkseg>\n  </trk>\n</gpx>\n';

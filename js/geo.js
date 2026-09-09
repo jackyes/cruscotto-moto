@@ -211,9 +211,6 @@ function navAdvance(nv, hdg) {
   while (nv.nextMan < nv.man.length && navPassed(nv, nv.nextMan, hdg)) {
     nv.nextMan++; nv.spoken = 0; moved++;
   }
-  // Le manovre consumate in blocco da un recupero GPS non devono generare il post-cue:
-  // "continua per 3 km su via X" quando via X e' gia' alle spalle e' disinformazione.
-  if (moved > 1) nv.suppressPost = true;
   return moved;
 }
 
