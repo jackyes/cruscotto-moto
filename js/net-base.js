@@ -86,7 +86,8 @@ async function cacheGetFresh(key, ttl) {
   }
 }
 async function cachePut(key, body, ttl) {
-  try { await idb.kvPut(key, { ts: Date.now(), ttl: ttl, body: body }); } catch (err) {}
+  try { await idb.kvPut(key, { ts: Date.now(), ttl: ttl, body: body }); }
+  catch (err) { try { console.warn('cachePut: scrittura fallita per ' + key, err && err.message); } catch (e) {} }
 }
 
 function takeLogAvg() {
