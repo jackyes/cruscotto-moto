@@ -282,13 +282,14 @@ async function startVideoRenderMp4Inner(pre, mode, Muxer, cfg) {
     cfg = fit.cfg;
   }
   const muted = !!(els.videoAudio && els.videoAudio.value === 'off');
-  // StreamTarget chunked: i chunk finiscono in parts e il picco RAM resta
-  // ~1× il file (ArrayBufferTarget cresceva 2× + slice finale). fastStart
-  // 'in-memory' teneva TUTTI i sample in RAM (di nuovo 1× extra): via → moov
-  // in coda, file valido per il download locale (social ri-encodano comunque).
+  // StreamTarget chunked: i chunk diventano subito Blob (memoria nativa, fuori
+  // dall'heap V8). Tenere gli Uint8Array in un array JS saturava l'heap su
+  // Chrome Android 32-bit (~512 MB) → crash del tab senza alcun errore.
+  // fastStart 'in-memory' teneva TUTTI i sample in RAM (di nuovo 1× extra):
+  // via → moov in coda, file valido per il download locale.
   const parts = [];
   const muxerOpts = {
-    target: new Muxer.StreamTarget({ chunked: true, onData: (d, pos) => parts.push(d) }),
+    target: new Muxer.StreamTarget({ chunked: true, onData: (d, pos) => parts.push(new Blob([d])) }),
     video: { codec: 'avc', width: W, height: H },
   };
   // Traccia audio AAC solo se non muto: sintetizzata offline dagli stessi
