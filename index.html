@@ -2169,6 +2169,7 @@ function init() {
         if (state.logging) { state._swUpdatePending = true; return; }
         confirmToast('Nuova versione disponibile.').then(ok => {
           if (!ok) return;
+          if (!reg.waiting) { location.reload(); return; }
           reg.waiting.postMessage('SKIP_WAITING');
           navigator.serviceWorker.addEventListener('controllerchange', () => location.reload());
         });
