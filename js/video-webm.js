@@ -117,7 +117,7 @@ async function startVideoRenderWebmOfflineInner(pre, mode, Muxer, picked) {
   }
   const parts = [];
   const muxerOpts = {
-    target: new Muxer.StreamTarget({ chunked: true, onData: d => parts.push(d) }),
+    target: new Muxer.StreamTarget({ chunked: true, onData: (d, pos) => parts.push(d) }),
     video: { codec: picked.mux, width: W, height: H, frameRate: picked.cfg.framerate || 30 },
   };
   // configure() tira su risoluzioni/profili non supportati: senza guardia

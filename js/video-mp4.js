@@ -264,7 +264,7 @@ async function startVideoRenderMp4Inner(pre, mode, Muxer, cfg) {
   // in coda, file valido per il download locale (social ri-encodano comunque).
   const parts = [];
   const muxerOpts = {
-    target: new Muxer.StreamTarget({ chunked: true, onData: d => parts.push(d) }),
+    target: new Muxer.StreamTarget({ chunked: true, onData: (d, pos) => parts.push(d) }),
     video: { codec: 'avc', width: W, height: H },
   };
   // Traccia audio AAC solo se non muto: sintetizzata offline dagli stessi

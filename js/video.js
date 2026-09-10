@@ -488,14 +488,26 @@ function videoLoop(now) {
   job.lastRaf = now;
   // Slow-mo envelope (piega/vib): fuori zone = mult base, dentro = 0.35x.
   job.tSim += dt * slowMultAt(job.tSim, job.slow || { base: job.mult });
-  if (job.tSim >= job.tEnd) {
-    job.tSim = job.tEnd;
+  const done = job.tSim >= job.tEnd;
+  if (done) job.tSim = job.tEnd;
+  // Un throw nel draw uccideva la catena rAF: loop morto, status congelato su
+  // "Render in corso…" senza barra né errore. Qui si chiude con toast visibile.
+  try {
     drawVideoFrame(job, dt);
+  } catch (e) {
+    job.running = false;
+    toast('Render fallito: ' + ((e && e.message) || e) + '.', 'err', 8000);
+    try { if (job.rec) job.rec.stop(); } catch (e2) {}
+    cleanupVideoJob(job);
+    if (videoJob === job) videoJob = null;
+    closeVideoModal();
+    return;
+  }
+  if (done) {
     job.running = false;
     try { job.rec.stop(); } catch (e) {}
     return;
   }
-  drawVideoFrame(job, dt);
   els.videoProg.style.width = Math.round((job.tSim / job.tEnd) * 100) + '%';
   els.videoStatus.textContent = fmtDur(job.tSim) + ' / ' + fmtDur(job.tEnd);
   job.raf = requestAnimationFrame(videoLoop);
