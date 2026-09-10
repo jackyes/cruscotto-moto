@@ -21,6 +21,11 @@ function navInitLive(nv) {
   nv.vEMA = null; nv.lastFixAt = 0; nv.lastGoodAt = Date.now(); nv.lastLat = null; nv.lastLon = null;
 }
 
+/* Il retry senza heading di Valhalla scatta al massimo una volta a sessione:
+   se la richiesta senza heading ha già fallito con 171/154, riprovarci è quota
+   sprecata su un motore pubblico — si parte direttamente senza heading. */
+let navHeadRetrySticky = false;
+
 async function navTryOsrm(from, to, hdg, vias) {
   const pts = [from, ...((vias || []).filter(v => v && isFinite(v.lat) && isFinite(v.lon))), to];
   const coords = pts.map(c => c.lon.toFixed(6) + ',' + c.lat.toFixed(6)).join(';');
@@ -137,33 +142,46 @@ async function navRequestRoute(from, to, hdg, why) {
   }
   // 1) Valhalla: profilo moto e preferenze. Timeout corto, cosi' se e' giu' il
   //    fallback parte in fretta invece di far aspettare venti secondi.
+  // Ricalcoli in sequenza non devono moltiplicare le richieste ai motori
+  // pubblici (FOSSGIS ~1 req/s, quota giornaliera per IP): il retry senza
+  // heading è limitato da navHeadRetrySticky, e OSRM interviene solo su guasti
+  // di RETE di Valhalla (timeout/offline/DNS), non su rifiuti applicativi
+  // (400/error_code): stessi parametri, stesso 400 quasi certo.
+  const headFirst = useHead && !navHeadRetrySticky;
+  let netFail = false;
   for (const host of NAV_HOSTS) {
     try {
-      let req = build(useHead);
+      let req = build(headFirst);
       lastReq = req;
       let res = await navGate(() => fetchWithTimeout(
         host + '?json=' + encodeURIComponent(JSON.stringify(req)), NAV_VALHALLA_TIMEOUT_MS));
       let j = await jsonUnderTimeout(res);
       // "No suitable edges": spesso e' l'heading. Si ritenta una volta senza.
-      if (useHead && !retried && j && (j.error_code === 171 || j.error_code === 154)) {
+      if (headFirst && !retried && j && (j.error_code === 171 || j.error_code === 154)) {
         retried = true;
         req = build(false);
         lastReq = req;
         res = await navGate(() => fetchWithTimeout(
           host + '?json=' + encodeURIComponent(JSON.stringify(req)), NAV_VALHALLA_TIMEOUT_MS));
         j = await jsonUnderTimeout(res);
+        // Fallito anche senza heading: l'heading non c'entra. Le prossime
+        // richieste partono già senza: un giro di richieste in meno.
+        if (j && (j.error_code === 171 || j.error_code === 154)) navHeadRetrySticky = true;
       }
       // Valhalla riporta gli errori come JSON con error_code, non come HTTP non-2xx.
       if (j && j.error) { err = new Error('Valhalla ' + (j.error_code || '') + ': ' + j.error); continue; }
       if (!res.ok) { err = new Error('HTTP ' + res.status); continue; }
       if (!j || !j.trip || j.trip.status !== 0) { err = new Error('risposta non valida'); continue; }
       trip = j.trip; engine = 'Valhalla'; break;
-    } catch (e) { err = e; }
+    } catch (e) {
+      err = e;
+      if (e && (e.name === 'TimeoutError' || e.name === 'OfflineError' || e.name === 'TypeError')) netFail = true;
+    }
   }
   // 2) OSRM: risponde sempre, ma profilo auto fisso — le preferenze moto non si applicano.
-  if (!trip) {
+  if (!trip && netFail) {
     try {
-      trip = await navTryOsrm(from, to, useHead ? hdg : null, vias);
+      trip = await navTryOsrm(from, to, headFirst ? hdg : null, vias);
       engine = 'OSRM';
     } catch (e2) { err = err || e2; }
   }
