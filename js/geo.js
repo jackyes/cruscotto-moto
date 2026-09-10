@@ -232,7 +232,7 @@ function navFmtShort(m) {
 }
 function navFmtTime(s) {
   if (!isFinite(s) || s < 0) return '—';
-  let m = Math.round(s / 60);
+  let m = Math.floor(s / 60);
   const h = Math.floor(m / 60);
   m = m % 60;
   return h ? h + ' h ' + String(m).padStart(2, '0') : m + ' min';
