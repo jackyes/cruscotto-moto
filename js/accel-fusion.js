@@ -19,7 +19,7 @@ function updateAccelFusion(dt) {
   }
   const a = step / (FUS_TAU_S + step);
   state._lpLat = (state._lpLat == null) ? state.latG : state._lpLat + a * (state.latG - state._lpLat);
-  state._lpLon = (state._lpLon == null) ? state.lonG : state._lpLon + a * (state._lpLon - state._lpLon);
+  state._lpLon = (state._lpLon == null) ? state.lonG : state._lpLon + a * (state.lonG - state._lpLon);
   /* Il ramo inerziale della fusione portava la vibrazione non attenuata: il
      residuo (latG − lpLat) e' un passa-alto, e la banda di vibrazione passa
      tutta. Qui il residuo riceve un LP proprio, con tau adattivo: lo stato

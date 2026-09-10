@@ -80,7 +80,11 @@ async function flushLog() {
   // quadratico e centinaia di MB di flash su un giro lungo. Coordinate
   // globali (written − trimmed): il trim della mappa live sposta gli indici,
   // ma qui i contatori sono immuni allo slittamento.
-  const trackStart = (state._trackWritten || 0) - (state._trackTrimmed || 0);
+  // Globali (written − trimmed): il trim della mappa live sposta gli indici,
+  // ma qui i contatori sono immuni allo slittamento. Math.max: se il flush ha
+  // saltato giri (backoff IDB) mentre la mappa trimmava, trimmed può superare
+  // written e slice(-N) prenderebbe la CODA (duplicati/punti mancanti).
+  const trackStart = Math.max(0, (state._trackWritten || 0) - (state._trackTrimmed || 0));
   const trackNew = state.track.slice(trackStart);
   const trackWrittenNew = (state._trackWritten || 0) + trackNew.length;
   if (!pending.length && !trackNew.length) return;

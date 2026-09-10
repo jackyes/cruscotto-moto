@@ -286,7 +286,7 @@ function updateAttitude(f, w, B, dt, wRef) {
        pochi secondi. Misurato partendo in frenata da 0,5 g: 27° di errore di
        beccheggio iniziale diventano 25,6° di errore di PIEGA dopo 4 s, a modulo
        costante. Meglio aspettare un secondo che partire storti. */
-    if (!R || R.trust < ATT_INIT_MIN_TRUST || state._accHist.length < medianWindow()) {
+    if (!R || R.trust < ATT_INIT_MIN_TRUST || !(state._accHist && state._accHist.length >= medianWindow())) {
       state.attTrust = R ? R.trust : 0;
       return false;
     }

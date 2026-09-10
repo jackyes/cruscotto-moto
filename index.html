@@ -2024,6 +2024,10 @@ function init() {
       if (p) fetchCameras(p.lat, p.lon); // senza fix ci pensa il prossimo maybeLoadCameras
     }
     // Restringendo, la cache e' un soprainsieme: basta ridisegnare, niente query.
+    // La cache di camsToDraw tiene chiave ver+pos, non il raggio: senza
+    // invalidazione il soprainsieme stantio resterebbe in scena fino al
+    // prossimo movimento oltre soglia.
+    state._camDraw = null;
     renderCameras();
     updateCamStatus();
   });

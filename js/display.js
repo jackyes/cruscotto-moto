@@ -200,11 +200,11 @@ function updateDisplay() {
 
   const latAbs = Math.abs(state.latG), lonAbs = Math.abs(state.lonG), vertAbs = Math.abs(state.vertG);
   setTxt(els.latVal, (state.latG >= 0 ? '+' : '') + state.latG.toFixed(2));
-  els.lonVal.textContent = (state.lonG >= 0 ? '+' : '') + state.lonG.toFixed(2);
-  els.vertVal.textContent = (state.vertG >= 0 ? '+' : '') + state.vertG.toFixed(2);
+  setTxt(els.lonVal, (state.lonG >= 0 ? '+' : '') + state.lonG.toFixed(2));
+  setTxt(els.vertVal, (state.vertG >= 0 ? '+' : '') + state.vertG.toFixed(2));
   setBar(els.latBar, state.latG, latAbs, 1.2);
   setBar(els.lonBar, state.lonG, lonAbs, 1.2);
-  setBar(els.vertBar, state.vertG, vertAbs, 1.2);
+  setBar(els.vertBar, state.vertG, vertAbs, 2.0); // verticale picca 3-4G su buche/frenate: 1.2 la teneva a fondo scala
 
   /* Massimi e cronometro avanzano solo a registrazione attiva.
      Prima session.start veniva impostato già al boot: dopo lo Stop il tempo
@@ -240,10 +240,11 @@ function setBar(el, val, absVal, maxG) {
 }
 
 function mainLoop(now) {
-  // Demo ferma quando la pagina non è visibile: rAF può continuare a girare in
-  // background su alcuni Android con schermo acceso, e la demo consumava
-  // batteria/cpu senza nessuno che guardi.
-  if (!document.hidden) tickDemo(now);
+  // Tab nascosta: su alcuni Android con schermo acceso rAF continua a girare —
+  // skip totale (demo, display, chart) invece del solo tickDemo. Batteria/calore
+  // sul manubrio. Al ritorno in visibilità il primo frame ridisegna subito.
+  if (document.hidden) { requestAnimationFrame(mainLoop); return; }
+  tickDemo(now);
   // Il refresh UI è throttlato: a 60 Hz erano ~20 scritture DOM per frame, con il
   // telefono al sole sul manubrio è batteria e calore per nulla.
   if (now - lastDisplayT >= 1000 / DISPLAY_HZ) {

@@ -10,7 +10,9 @@ function downloadBlob(name, text, type) {
   document.body.appendChild(a);
   a.click();
   document.body.removeChild(a);
-  URL.revokeObjectURL(a.href);
+  // Revoca ritardata: subito dopo click() uccide il download su Safari/Firefox
+  // (l'avvio del download è async). 1 s come nel viewer.
+  setTimeout(() => { try { URL.revokeObjectURL(a.href); } catch (e) {} }, 1000);
 }
 
 function exportCsv(rows, meta, nameSuffix) {
@@ -110,7 +112,7 @@ function slowMultAt(t, slow) {
     // Rampa: interpola base↔slow ai bordi.
     const edge = t < z.t0 ? (t - (z.t0 - ramp)) / ramp : ((z.t1 + ramp) - t) / ramp;
     const f = Math.max(0, Math.min(1, edge));
-    return slow.slow + (slow.base - slow.slow) * f;
+    return slow.base + (slow.slow - slow.base) * f;
   }
   return slow.base;
 }
@@ -211,19 +213,29 @@ function videoSessionGone() {
 }
 
 function startVideoRender(s) {
+  // Doppio click: col probe satellite go() parte ~9 s dopo il click, e il
+  // disable dentro go() arrivava troppo tardi — due probe, due go(), due job
+  // con videoJob sovrascritto (WebGL orfani). Un bottone disabled non spara
+  // click, quindi disabilitare QUI, prima di ogni ramo async, chiude la corsa.
+  if (els.videoStart) els.videoStart.disabled = true;
   const wantMp4Early = !!(els.videoFormat && els.videoFormat.value === 'mp4');
   const mp4ok = wantMp4Early && typeof videoMp4Supported === 'function' && videoMp4Supported();
   if (!mp4ok && (typeof MediaRecorder === 'undefined' || !HTMLCanvasElement.prototype.captureStream)) {
     toast('Registrazione video non supportata su questo browser.', 'err');
+    if (els.videoStart) els.videoStart.disabled = false;
     return;
   }
   const rows = s.rows || [];
   const track = s.track || [];
-  if (!rows.length && !track.length) { toast('Nessun dato da renderizzare.', 'err'); return; }
+  if (!rows.length && !track.length) {
+    toast('Nessun dato da renderizzare.', 'err');
+    if (els.videoStart) els.videoStart.disabled = false;
+    return;
+  }
   // Sessione track-only (GPS sì, IMU no): tEnd anche dalla track, o il check
   // "Nessun dato" passava ma moriva su "Sessione troppo corta".
   const tEnd = rows.length ? rows[rows.length - 1].t : (track.length ? track[track.length - 1].t : 0);
-  if (tEnd <= 0) { toast('Sessione troppo corta.', 'err'); return; }
+  if (tEnd <= 0) { toast('Sessione troppo corta.', 'err'); if (els.videoStart) els.videoStart.disabled = false; return; }
 
   const res = videoResFor(els.videoRes ? els.videoRes.value : '720');
   const mult = Number(els.videoSpeed.value) || 1;
@@ -265,7 +277,7 @@ function startVideoRender(s) {
   let mime = '';
   if (!mp4ok) {
     mime = pickVideoMime();
-    if (!mime) { toast('Codec WebM non disponibile.', 'err'); return; }
+    if (!mime) { toast('Codec WebM non disponibile.', 'err'); if (els.videoStart) els.videoStart.disabled = false; return; }
   }
   // Stile 3D: satellite solo se chiesto (default mappa leggera). Probe con
   // Image+cache-buster prima del render: eventi maplibre non segnalano tile
@@ -597,8 +609,8 @@ function videoMapBgBuild(proj, pts, w, h, grid, bg, good, bad) {
   c.beginPath();
   for (let k = 0; k < n; k++) { const px = X(pts[k].lon), py = Y(pts[k].lat); k ? c.lineTo(px, py) : c.moveTo(px, py); }
   c.stroke();
-  c.fillStyle = good; c.beginPath(); c.arc(X(pts[0].lon), Y(pts[0].lat), 8, 0, 6.283); c.fill();
-  c.fillStyle = bad; c.beginPath(); c.arc(X(pts[n - 1].lon), Y(pts[n - 1].lat), 8, 0, 6.283); c.fill();
+  c.fillStyle = good; c.beginPath(); c.arc(X(pts[0].lon), Y(pts[0].lat), 8, 0, TAU); c.fill();
+  c.fillStyle = bad; c.beginPath(); c.arc(X(pts[n - 1].lon), Y(pts[n - 1].lat), 8, 0, TAU); c.fill();
   return bgc;
 }
 
@@ -671,7 +683,7 @@ function drawVideoMap(ctx, job, x, y, w, h, rowIdx, r, grid, axis, accent, good,
   let clat = r.lat, clon = r.lon;
   if (clat == null || clon == null) { clat = pts[ridden].lat; clon = pts[ridden].lon; }
   const cxx = X(clon) + shx, cyy = Y(clat) + shy;
-  ctx.fillStyle = accent; ctx.beginPath(); ctx.arc(cxx, cyy, 12, 0, 6.283); ctx.fill();
+  ctx.fillStyle = accent; ctx.beginPath(); ctx.arc(cxx, cyy, 12, 0, TAU); ctx.fill();
   ctx.strokeStyle = bgCol; ctx.lineWidth = 3; ctx.stroke();
   ctx.restore();
 }

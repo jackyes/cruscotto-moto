@@ -48,7 +48,7 @@ function osrmText(st) {
     case 'continue': return mod && mod !== 'straight' ? 'Continua ' + dir + su : 'Continua dritto' + su;
     case 'merge': return 'Immettiti ' + dir + su;
     case 'on ramp': return 'Prendi la rampa ' + dir + su;
-    case 'off ramp': return 'Prendi l’uscita ' + dir + su;
+    case 'off ramp': return 'Prendi l\'uscita ' + dir + su;
     case 'fork': return 'Al bivio tieni ' + (dir || 'la direzione') + su;
     case 'end of road': return 'Alla fine della strada svolta ' + dir + su;
     case 'roundabout': case 'rotary':

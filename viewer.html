@@ -800,21 +800,24 @@ const canvasTheme = {
   }
 
   function handleFile(file) {
-    if (!file) return;
-    if (!/\.csv$/i.test(file.name || '')) { showError('Seleziona un file .csv.'); return; }
-    if (file.size > 50 * 1024 * 1024) { showError('File troppo grande (max 50MB).'); return; }
-    const reader = new FileReader();
-    reader.onerror = () => { showError('Errore di lettura del file.'); };
-    reader.onload = () => {
-      try {
-        metaFile = parseCsvMeta(String(reader.result));
-        const rows = parseCsv(String(reader.result));
-        render(rows);
-        if (lastDropped > 0) showError(lastDropped + ' righe scartate (dati mancanti o file troncato).');
-      }
-      catch (e) { showError('Errore di lettura: ' + e.message); }
-    };
-    reader.readAsText(file, 'utf-8');
+    if (!file) return Promise.resolve();
+    if (!/\.csv$/i.test(file.name || '')) { showError('Seleziona un file .csv.'); return Promise.resolve(); }
+    if (file.size > 50 * 1024 * 1024) { showError('File troppo grande (max 50MB).'); return Promise.resolve(); }
+    return new Promise(res => {
+      const reader = new FileReader();
+      reader.onerror = () => { showError('Errore di lettura del file.'); res(); };
+      reader.onload = () => {
+        try {
+          metaFile = parseCsvMeta(String(reader.result));
+          const rows = parseCsv(String(reader.result));
+          render(rows);
+          if (lastDropped > 0) showError(lastDropped + ' righe scartate (dati mancanti o file troncato).');
+        }
+        catch (e) { showError('Errore di lettura: ' + e.message); }
+        res();
+      };
+      reader.readAsText(file, 'utf-8');
+    });
   }
 
   // Prende tutti i .csv dalla lista: il primo si visualizza, il secondo
@@ -823,8 +826,11 @@ const canvasTheme = {
     const list = (files ? Array.from(files) : []).filter(f => /\.csv$/i.test(f.name || ''));
     if (!list.length) { showError('Seleziona un file .csv.'); return; }
     overlayRows = null;
-    handleFile(list[0]);
-    if (list[1]) {
+    // Il 2° file si legge DOPO il primo: due FileReader paralleli raceavano
+    // (se il 2° finiva prima, l'overlay si attaccava alle righe precedenti e
+    // poi il render del 1° lo buttava via).
+    handleFile(list[0]).then(() => {
+      if (!list[1]) return;
       const reader = new FileReader();
       reader.onerror = () => { showError('Errore di lettura del 2° file.'); };
       reader.onload = () => {
@@ -834,7 +840,7 @@ const canvasTheme = {
         } catch (e) { showError('Errore di lettura 2° file: ' + e.message); }
       };
       reader.readAsText(list[1], 'utf-8');
-    }
+    });
     return list;
   }
 

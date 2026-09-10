@@ -85,7 +85,7 @@ function navIcon(m) { return NAV_ICON[m.type] || '↑'; }
 function navRenderBanner() {
   const nv = state.nav, el = els.navBanner;
   if (!el) return;
-  if (!nv || nv.status === 'IDLE' || nv.status === 'ARRIVED' && nv.bannerDone) {
+  if (!nv || nv.status === 'IDLE' || (nv.status === 'ARRIVED' && nv.bannerDone)) {
     el.style.display = 'none'; return;
   }
   el.textContent = '';

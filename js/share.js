@@ -61,7 +61,8 @@ function countCurves(rows, enterDeg, exitDeg) {
   }
   if (side && arr.length) {
     const last = arr[arr.length - 1];
-    if (last.t - since >= 0.5) { n++; out.push({ side: side > 0 ? 'D' : 'S', t0: since, t1: last.t }); }
+    const lastT = last ? last.t : null;
+    if (lastT != null && lastT - since >= 0.5) { n++; out.push({ side: side > 0 ? 'D' : 'S', t0: since, t1: lastT }); }
   }
   return { n, curves: out };
 }

@@ -107,6 +107,7 @@ async function navRestore() {
   catch (e) { return; }
   // le manovre si riprendono dal record, non si ricostruiscono
   nv.man = r.man || [];
+  if (!nv.man.length) return;
   // I flag delle rotonde non sono persistiti: navBuild li ha calcolati da manovre
   // vuote, quindi qui vanno ricostruiti da r.man, o il gate di heading torna attivo
   // proprio dentro le rotonde (dove i bearing ruotano di 360°) e può far perdere

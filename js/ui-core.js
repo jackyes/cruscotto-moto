@@ -7,6 +7,11 @@ const GAUGE_LABEL_IN = 38, GAUGE_NEEDLE_IN = 28, GAUGE_NUM_Y = 166;
 const GAUGE_HUB_R = 9, GAUGE_HUB_DOT_R = 4, GAUGE_PEAK_R = 5;
 
 function toast(msg, kind, ms) {
+  // Tetto: una raffica di errori (GPS che salta, IDB bloccato) inondava il DOM
+  // di toast. Si scartano solo i toast semplici, mai i confirmToast (rimuovere
+  // un confirm lascerebbe la sua promise appesa per sempre).
+  const plain = Array.from(els.toasts.children).filter(c => c.classList.contains('toast') && !c.querySelector('button'));
+  while (plain.length >= 3) plain.shift().remove();
   const el = document.createElement('div');
   el.className = 'toast' + (kind ? ' ' + kind : '');
   el.textContent = msg;
@@ -186,7 +191,12 @@ function loadSettings() {
   state.navNoToll = !!s.navNoToll;
   state.navBackroads = !!s.navBackroads;
   state.navNoFerry = !!s.navNoFerry;
-  state.compassOffset = s.compassOffset || 0;
+  // Number(): dal localStorage arriva sempre stringa, e "90" || 0 restava
+  // stringa — compass + offset + 360 concatenava invece di sommare.
+  {
+    const co = Number(s.compassOffset);
+    state.compassOffset = [0, 90, 180, 270].indexOf(co) >= 0 ? co : 0;
+  }
   state.gyroFusion = s.gyroFusion !== false;
   state.gravityMode = (s.gravityMode === 'native' || s.gravityMode === 'own') ? s.gravityMode : 'auto';
   state.rectNull = !!s.rectNull;

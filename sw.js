@@ -239,20 +239,21 @@ self.addEventListener('fetch', event => {
     // il vecchio import → "Muxer non caricato"). Offline → cache.
     event.respondWith(
       caches.open(SHELL_CACHE).then(async cache => {
-        try {
-          const res = await fetchWithTimeoutSW(req, 2500);
-          if (res && res.ok) {
-            // Niente cache.put per URL con query string: ogni richiesta
-            // cache-bustata moltiplicava le voci di SHELL_CACHE senza fine
-            // (stesso motivo di networkFirst).
-            try { if (!url.search) await cache.put(req, res.clone()); } catch (_) {}
-          }
+        let res;
+        try { res = await fetchWithTimeoutSW(req, 2500); } catch (e) { res = null; }
+        if (res && res.ok) {
+          // Niente cache.put per URL con query string: ogni richiesta
+          // cache-bustata moltiplicava le voci di SHELL_CACHE senza fine
+          // (stesso motivo di networkFirst).
+          try { if (!url.search) await cache.put(req, res.clone()); } catch (_) {}
           return res;
-        } catch (e) {
-          const hit = await cache.match(req);
-          if (hit) return hit;
-          throw e;
         }
+        // 404/500 o rete giù: prima la cache; senza cache, alla pagina va lo
+        // status vero (o l'errore di rete) invece di una Response vuota.
+        const hit = await cache.match(req);
+        if (hit) return hit;
+        if (res) return res;
+        throw new Error('rete non disponibile e cache vuota: ' + (req && req.url));
       })
     );
   }
