@@ -198,12 +198,35 @@ async function videoMp4MuxAudio(muxer, rows, slow, stepUs) {
   } catch (e) { return false; }
 }
 
+/* Fallback MP4→WebM: prima offline (WebCodecs, memoria-safe), poi realtime.
+   Il realtime su giri lunghi accumula chunk MediaRecorder in RAM e sul
+   telefono può crashare il tab (finestra che sparisce senza toast). */
+function videoMp4FallbackToWebm(pre, mode) {
+  if (typeof startVideoRenderWebmOffline === 'function' &&
+      typeof videoWebmOfflineSupported === 'function' && videoWebmOfflineSupported()) {
+    startVideoRenderWebmOffline(pre, mode).catch(e => {
+      if (!videoSessionGone()) toast('WebM offline non riuscito, uso il realtime: ' +
+        ((e && e.message) || 'errore') + '.', 'err', 6000);
+      if (videoSessionGone()) return;
+      if (!pre.mime) pre.mime = pickVideoMime();
+      if (!pre.mime) {
+        toast('Codec WebM non disponibile.', 'err');
+        if (els.videoStart) els.videoStart.disabled = false;
+        return;
+      }
+      if (mode === '3d') startVideoRender3D(pre); else startVideoRender2D(pre);
+    });
+    return;
+  }
+  if (mode === '3d') startVideoRender3D(pre); else startVideoRender2D(pre);
+}
+
 /* Entry MP4: offline più veloce del realtime (niente captureStream: si
    disegnano i frame in ciclo e si passano a VideoEncoder con timestamp). */
 async function startVideoRenderMp4(pre, mode) {
   if (!videoMp4Supported()) {
     toast('MP4 non supportato su questo browser, uso WebM.', 'err', 6000);
-    if (mode === '3d') startVideoRender3D(pre); else startVideoRender2D(pre);
+    videoMp4FallbackToWebm(pre, mode);
     return;
   }
   // Hint hardware ('prefer-hardware'): se il browser lo rifiuta, ripiega su
@@ -213,7 +236,7 @@ async function startVideoRenderMp4(pre, mode) {
   const mp4Cfg = picked.cfg;
   if (!picked.supported) {
     toast('H.264 non supportato, uso WebM.', 'err', 6000);
-    if (mode === '3d') startVideoRender3D(pre); else startVideoRender2D(pre);
+    videoMp4FallbackToWebm(pre, mode);
     return;
   }
   // Il 3D gira su maplibre+three caricati da CDN al volo: nel ramo WebM li

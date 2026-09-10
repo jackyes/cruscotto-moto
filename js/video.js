@@ -341,6 +341,8 @@ function startVideoRender(s) {
           if (els.videoStart) els.videoStart.disabled = false;
           return;
         }
+        // Prima WebM OFFLINE (memoria-safe), realtime solo come ultima spiaggia.
+        if (typeof videoMp4FallbackToWebm === 'function') { videoMp4FallbackToWebm(pre, mode); return; }
         if (mode === '3d') startVideoRender3D(pre); else startVideoRender2D(pre);
       });
       return;

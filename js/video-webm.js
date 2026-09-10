@@ -47,8 +47,11 @@ function loadWebmMuxer() {
   return g && g.Muxer ? Promise.resolve(g) : Promise.reject(new Error('WebMMuxer non presente'));
 }
 
-function videoWebmRealtimeFallback(pre, mode) {
+function videoWebmRealtimeFallback(pre, mode, why) {
   if (videoSessionGone()) return;    // modale chiusa durante il setup: niente ghost
+  // Fallback silenzioso prima: su telefono senza WebCodecs si finiva sul
+  // realtime senza alcun segnale ("Preparo mappa 3D…" e poi finestra chiusa).
+  if (why) toast('WebM offline non disponibile, uso il realtime: ' + why + '.', 'err', 6000);
   // iOS ≥16.4: WebCodecs sì ma MediaRecorder/captureStream possono mancare —
   // il fallback realtime è impossibile, meglio un toast che un crash muto.
   if (typeof MediaRecorder === 'undefined' ||
@@ -67,11 +70,11 @@ function videoWebmRealtimeFallback(pre, mode) {
    quando la scelta iniziale era esplicitamente WebM/MP4 (comportamento
    analogo a startVideoRenderMp4). */
 async function startVideoRenderWebmOffline(pre, mode) {
-  if (!videoWebmOfflineSupported()) { videoWebmRealtimeFallback(pre, mode); return; }
+  if (!videoWebmOfflineSupported()) { videoWebmRealtimeFallback(pre, mode, 'WebCodecs assenti'); return; }
   let Muxer = null;
   try { Muxer = await loadWebmMuxer(); }
-  catch (e) { videoWebmRealtimeFallback(pre, mode); return; }
-  if (!Muxer || !Muxer.Muxer) { videoWebmRealtimeFallback(pre, mode); return; }
+  catch (e) { videoWebmRealtimeFallback(pre, mode, 'muxer non caricato'); return; }
+  if (!Muxer || !Muxer.Muxer) { videoWebmRealtimeFallback(pre, mode, 'muxer non valido'); return; }
 
   const W = pre.res[0], H = pre.res[1];
   let picked = null;
@@ -81,7 +84,7 @@ async function startVideoRenderWebmOffline(pre, mode) {
       if (res.supported) { picked = { cfg: res.cfg, mux: cand.mux }; break; }
     } catch (e) {}
   }
-  if (!picked) { videoWebmRealtimeFallback(pre, mode); return; }
+  if (!picked) { videoWebmRealtimeFallback(pre, mode, 'nessun codec VP8/VP9 supportato'); return; }
   if (videoSessionGone()) return;    // modale chiusa durante il probe encoder
 
   // Il 3D gira su maplibre+three caricati da CDN al volo (stesso motivo del
