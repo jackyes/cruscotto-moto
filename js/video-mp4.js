@@ -218,6 +218,7 @@ function videoMp4FallbackToWebm(pre, mode) {
     });
     return;
   }
+  toast('WebM offline non disponibile su questo browser, uso il realtime (più lento e a rischio memoria).', 'err', 10000);
   if (mode === '3d') startVideoRender3D(pre); else startVideoRender2D(pre);
 }
 

@@ -73,6 +73,14 @@ function videoBitrateFor(width) {
   return 5_000_000;
 }
 
+/* Cap byte per il ramo realtime: i chunk Blob del MediaRecorder vivono
+   nell'heap JS (Chrome Android spesso 32-bit, heap ~512 MB) — ben sotto il
+   tetto offline (StreamTarget). Oltre: crash silenzioso del tab. */
+function videoRealtimeMaxBytes() {
+  const off = typeof videoOfflineMaxBytes === 'function' ? videoOfflineMaxBytes() : 1536 * 1024 * 1024;
+  return Math.min(off, 384 * 1024 * 1024);
+}
+
 /* Auto-fit qualità per il ramo realtime (MediaRecorder): senza guardia un
    giro lungo accumulava chunk oltre la RAM del device. Bitrate/fps scendono
    da soli (videoOfflineFitCfg, stessa durata simulata di videoLoop); se
@@ -80,13 +88,10 @@ function videoBitrateFor(width) {
    null (bloccato). */
 function videoRealtimeFit(pre) {
   const f = typeof videoOfflineFitCfg === 'function'
-    ? videoOfflineFitCfg({ bitrate: videoBitrateFor(pre.res[0]), framerate: CAPTURE_FPS }, pre)
+    ? videoOfflineFitCfg({ bitrate: videoBitrateFor(pre.res[0]), framerate: CAPTURE_FPS }, pre, videoRealtimeMaxBytes())
     : null;
   if (!f) {
-    const msg = (typeof videoOfflineGuard === 'function' &&
-      videoOfflineGuard(pre, { bitrate: videoBitrateFor(pre.res[0]) })) ||
-      'Video troppo grande per la RAM del dispositivo. Riduci la durata o la risoluzione.';
-    toast(msg, 'err', 8000);
+    toast('Video troppo grande per la RAM su questo browser (realtime). Riduci la durata o la risoluzione.', 'err', 10000);
     if (els.videoStart) els.videoStart.disabled = false;
     return null;
   }
@@ -448,14 +453,37 @@ function beginVideoCapture(job, canvas, mime, fit) {
       const blob = new Blob(job.chunks, { type: mime });
       downloadBlob('cruscotto_video_' + stamp() + '.webm', blob, mime);
       toast('Video esportato.', 'ok');
+      cleanupVideoJob(job);
+      if (videoJob === job) videoJob = null;
+      closeVideoModal();
     } else if (!job.cancelled) {
-      toast('Registrazione vuota: codec/encoder non disponibile su questo dispositivo.', 'err', 6000);
+      // Errore persistente nella riga di stato (il toast da solo spariva e la
+      // modale si chiudeva senza che l'utente capisse cosa era successo).
+      toast('Registrazione vuota: codec/encoder non disponibile su questo dispositivo.', 'err', 10000);
+      els.videoStatus.textContent = 'Registrazione vuota: codec/encoder non disponibile.';
+      cleanupVideoJob(job);
+      if (videoJob === job) videoJob = null;
+      if (els.videoStart) els.videoStart.disabled = false;
+    } else {
+      cleanupVideoJob(job);
+      if (videoJob === job) videoJob = null;
     }
+  };
+  try {
+    job.rec.start(REC_CHUNK_MS);
+  } catch (e) {
+    // Stream senza track / encoder morto: prima usciva come throw muto con
+    // modale appesa (2D) o fallback 2D mascherato (3D). Qui status + modale
+    // aperta, così l'errore resta leggibile.
+    job.running = false;
+    const why = (e && e.message) || e;
+    toast('Registrazione realtime non avviabile: ' + why + '.', 'err', 10000);
+    els.videoStatus.textContent = 'Registrazione realtime non avviabile: ' + why;
     cleanupVideoJob(job);
     if (videoJob === job) videoJob = null;
-    closeVideoModal();
-  };
-  job.rec.start(REC_CHUNK_MS);
+    if (els.videoStart) els.videoStart.disabled = false;
+    return;
+  }
   videoJob = job;
   els.videoStart.disabled = true;
   els.videoStatus.textContent = 'Render in corso…';
@@ -493,16 +521,20 @@ function videoLoop(now) {
   const done = job.tSim >= job.tEnd;
   if (done) job.tSim = job.tEnd;
   // Un throw nel draw uccideva la catena rAF: loop morto, status congelato su
-  // "Render in corso…" senza barra né errore. Qui si chiude con toast visibile.
+  // "Render in corso…" senza barra né errore. Qui si ferma il render ma la
+  // modale resta aperta con l'errore nella riga di stato (toast da solo
+  // spariva e l'utente vedeva solo la finestra chiudersi).
   try {
     drawVideoFrame(job, dt);
   } catch (e) {
     job.running = false;
-    toast('Render fallito: ' + ((e && e.message) || e) + '.', 'err', 8000);
+    const why = (e && e.message) || e;
+    toast('Render fallito: ' + why + '.', 'err', 10000);
+    els.videoStatus.textContent = 'Render fallito: ' + why;
     try { if (job.rec) job.rec.stop(); } catch (e2) {}
     cleanupVideoJob(job);
     if (videoJob === job) videoJob = null;
-    closeVideoModal();
+    if (els.videoStart) els.videoStart.disabled = false;
     return;
   }
   if (done) {

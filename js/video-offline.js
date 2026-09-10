@@ -70,10 +70,11 @@ function videoFitBitrateLadder(W, H) {
 /* Pura: fit automatico di bitrate/fps perché l'export stia nella RAM del
    device. A bitrate fisso la dimensione file NON dipende dalla risoluzione,
    quindi qui si tocca solo bitrate (e fps: sotto certi bitrate il 30fps
-   sporca, si scende a 24/15). Ritorna {cfg, changed, msg} con cfg adattato
-   (o identico se ci sta già), null se nemmeno il floor della ladder passa
-   (il chiamante blocca col toast di videoOfflineGuard). */
-function videoOfflineFitCfg(cfg, pre) {
+   sporca, si scende a 24/15). maxBytes opzionale: il realtime passa un cap
+   più basso (chunk MediaRecorder nell'heap JS, non StreamTarget).
+   Ritorna {cfg, changed, msg} con cfg adattato (o identico se ci sta già),
+   null se nemmeno il floor della ladder passa (il chiamante blocca). */
+function videoOfflineFitCfg(cfg, pre, maxBytes) {
   const c = cfg || {};
   const bps0 = isFinite(c.bitrate) && c.bitrate > 0 ? c.bitrate : 5000000;
   const fps0 = isFinite(c.framerate) && c.framerate > 0 ? c.framerate : 30;
@@ -81,7 +82,8 @@ function videoOfflineFitCfg(cfg, pre) {
   const durSec = videoOfflineDurSec(pre && pre.rows, videoOfflineFrameStepUs(30),
     (pre && pre.slow) || { base: (pre && pre.mult) || 1 });
   if (!(durSec > 0)) return { cfg: Object.assign({}, c, { bitrate: bps0, framerate: fps0 }), changed: false, msg: '' };
-  const allowedBps = videoOfflineMaxBytes() * 8 / durSec;
+  const cap = isFinite(maxBytes) && maxBytes > 0 ? maxBytes : videoOfflineMaxBytes();
+  const allowedBps = cap * 8 / durSec;
   if (bps0 <= allowedBps) {
     return { cfg: Object.assign({}, c, { bitrate: bps0, framerate: fps0 }), changed: false, msg: '' };
   }
