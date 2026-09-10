@@ -1,7 +1,6 @@
 'use strict';
 /* ============================== Stato ============================== */
 const G = 9.80665;
-const TAU = Math.PI * 2;          // 2π: cerchi canvas/circleMarker (6.283 sparso nel codice)
 const LOG_HZ = 20;
 const FLUSH_MS = 10000;
 const MAX_ROWS = 180000;

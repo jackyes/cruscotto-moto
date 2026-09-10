@@ -3,6 +3,7 @@ import assert from 'node:assert';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
+import vm from 'node:vm';
 import { loadViewer } from './viewer-harness.mjs';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
@@ -100,4 +101,25 @@ test('viewer video: script js/* inclusi + els locali', () => {
   assert.ok(html.includes('id="videoModal"'), 'modal video');
   assert.ok(html.includes('viewerBindEls'), 'bind els locali');
   assert.ok(!html.includes('videoCard'), 'niente card PNG nel viewer');
+});
+
+test('viewer video: TAU definito senza core.js (draw.js lo porta)', () => {
+  // Regressione: il viewer non carica core.js; TAU stava lì e ogni render
+  // video dal viewer moriva con "TAU is not defined" (hudGdot/drawVideoMap).
+  const code = ['js/geo.js', 'js/parse.js', 'js/draw.js']
+    .map(s => readFileSync(join(root, s), 'utf8')).join('\n;\n');
+  const sandbox = {
+    console, navigator: {}, window: {}, document: {},
+    localStorage: { getItem: () => null, setItem: () => {} },
+    location: { href: 'https://localhost/' },
+  };
+  vm.createContext(sandbox);
+  vm.runInContext(code, sandbox, { filename: 'viewer-js' });
+  // const/let top-level in vm non diventano proprietà del global object:
+  // si verifica l'accesso lessicale dall'interno dello stesso contesto.
+  assert.equal(vm.runInContext('TAU === Math.PI * 2 && typeof hudGdot === "function"', sandbox), true);
+  vm.runInContext(`
+    const ctx = new Proxy({}, { get: () => () => {} });
+    hudGdot(ctx, 50, 50, 20, 0.3, -0.2, '#fff', '#888', '#000');
+  `, sandbox);
 });

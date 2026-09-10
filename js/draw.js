@@ -4,6 +4,9 @@
    leanGaugeModel, hudGdot, rectsOverlap, hudMotoBox, hudLayout.
    Zero dipendenze: colori via parametri. Ogni primitiva salva/ripristina lo stato
    del ctx: nessun leak di fillStyle/lineWidth/alpha verso chi la chiama. */
+/* TAU vive qui, non in core.js: il viewer non carica core.js ma usa le stesse
+   primitive (drawLeanArc/hudGdot) nel render video → ReferenceError su export. */
+const TAU = Math.PI * 2;          // 2π: cerchi canvas (6.283 sparso nel codice)
 function drawLeanArc(ctx, cx, cy, r, lean, axis, good, bad, txt) {
   const a0 = -60, a1 = 60;
   ctx.save();
