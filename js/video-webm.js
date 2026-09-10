@@ -152,29 +152,31 @@ async function startVideoRenderWebmOfflineInner(pre, mode, Muxer, picked) {
   videoJob = job;
   els.videoStart.disabled = true;
   els.videoStatus.textContent = 'Encode WebM…';
+  // Errori persistenti nella riga di stato: prima i rami di fallimento
+  // chiudevano la modale e l'utente vedeva solo la finestra sparire.
+  const failStatus = why => {
+    try { enc.close(); } catch (e2) {}
+    cleanupVideoJob(job);
+    videoJob = null;
+    const w = (why && why.message) || why || 'errore';
+    toast('Encode WebM fallito: ' + w + '.', 'err', 10000);
+    els.videoStatus.textContent = 'Encode WebM fallito: ' + w;
+    if (els.videoStart) els.videoStart.disabled = false;
+  };
   try {
     if (mode === '3d') await videoOfflineSetupMap(job, pre);
     await videoOfflineLoop(job, job.webm, { fps: picked.cfg.framerate || 30, keyframeEvery: 150, label: 'WebM' });
   } catch (e) {
-    try { enc.close(); } catch (e2) {}
-    cleanupVideoJob(job);
-    videoJob = null;
-    closeVideoModal();
-    const why = (e && e.message ? e.message : String(e)) ||
-      (encErr && encErr.message ? encErr.message : 'errore');
-    toast('Encode WebM fallito: ' + why + '.', 'err', 8000);
+    failStatus((e && e.message ? e.message : String(e)) ||
+      (encErr && encErr.message ? encErr.message : 'errore'));
     return;
   }
   // Encoder morto a metà: il loop esce con encState.encErr; senza questo controllo
   // si arrivava a finalize() con un file troncato ma valido e toast di successo.
   let fail = encErr || job.webm.encErr;
   try { await enc.flush(); } catch (e) { fail = fail || e; }
-  try { enc.close(); } catch (e) {}
   if (fail) {
-    cleanupVideoJob(job);
-    videoJob = null;
-    closeVideoModal();
-    toast('Encode WebM fallito: ' + ((fail && fail.message) || fail) + '.', 'err', 8000);
+    failStatus(fail);
     return;
   }
   // Niente audio (fuori scope: il WebM realtime oggi non ne ha comunque).
@@ -183,16 +185,18 @@ async function startVideoRenderWebmOfflineInner(pre, mode, Muxer, picked) {
     muxer.finalize();
     blob = new Blob(parts, { type: 'video/webm' });
   } catch (e) {
-    cleanupVideoJob(job);
-    videoJob = null;
-    closeVideoModal();
-    toast('Muxing WebM fallito: ' + (e && e.message ? e.message : e) + '.', 'err', 8000);
+    failStatus(e);
     return;
   }
   cleanupVideoJob(job);
   videoJob = null;
+  if (job.cancelled || !blob || !blob.size) {
+    toast('Render prodotto vuoto (encoder senza dati).', 'err', 10000);
+    els.videoStatus.textContent = 'Render prodotto vuoto (encoder senza dati).';
+    if (els.videoStart) els.videoStart.disabled = false;
+    return;
+  }
   closeVideoModal();
-  if (job.cancelled || !blob || !blob.size) { toast('Render annullato.', 'err'); return; }
   downloadBlob('cruscotto_video_' + stamp() + '.webm', blob, 'video/webm');
   toast('Video WebM esportato.', 'ok');
 }
