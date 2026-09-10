@@ -8,12 +8,14 @@
 
 /* Pura: config encode da risoluzione (stesso budget bitrate del WebM).
    hardwareAcceleration:'prefer-hardware' è solo un hint: se il browser lo
-   rifiuta, videoOfflinePickEncoderConfig ripiega su 'no-preference'. */
-function mp4ConfigFor(W, H) {
+   rifiuta, videoOfflinePickEncoderConfig ripiega su 'no-preference'.
+   fps opzionale (default 30): l'auto-fit qualità può scendere a 24/15. */
+function mp4ConfigFor(W, H, fps) {
   const w = isFinite(W) && W > 0 ? Math.round(W) : 1280;
   const h = isFinite(H) && H > 0 ? Math.round(H) : 720;
   return { codec: 'avc1.640028', width: w, height: h,
-    bitrate: videoBitrateFor(w), framerate: 30, hardwareAcceleration: 'prefer-hardware' };
+    bitrate: videoBitrateFor(w), framerate: isFinite(fps) && fps > 0 ? fps : 30,
+    hardwareAcceleration: 'prefer-hardware' };
 }
 
 /* --- audio sintetico: profili (prima letterali 60/2.2 e v/130*0.15) --- */
@@ -121,7 +123,7 @@ function videoMp4SetupMap(job, pre) {
    manuale (più veloce del realtime, niente captureStream). Wrapper sottile
    sul loop generico in video-offline.js (condiviso col WebM offline). */
 async function videoMp4Loop(job, W, H) {
-  await videoOfflineLoop(job, job.mp4, { fps: 30, keyframeEvery: 150, label: 'MP4' });
+  await videoOfflineLoop(job, job.mp4, { fps: job.mp4.fps || 30, keyframeEvery: 150, label: 'MP4' });
   void W; void H;
 }
 
@@ -243,15 +245,27 @@ async function startVideoRenderMp4(pre, mode) {
 
 async function startVideoRenderMp4Inner(pre, mode, Muxer, cfg) {
   const W = pre.res[0], H = pre.res[1];
-  // Guard sulla RAM: ArrayBufferTarget + slice finale = picco ~2-3× la dimensione
-  // del file. Bloccare prima di allocare evita il crash silenzioso del tab mobile.
-  const tooBig = videoOfflineGuard(pre, cfg);
-  if (tooBig) { toast(tooBig, 'err', 8000); if (els.videoStart) els.videoStart.disabled = false; return; }
+  // Auto-fit qualità sulla RAM: invece di bloccare subito (toast "Video troppo
+  // grande"), si prova a scendere di bitrate/fps (videoOfflineFitCfg). Solo se
+  // nemmeno il floor passa si blocca col messaggio storico. Il picco reale è
+  // ~1-1.5× il file (StreamTarget chunked, niente ArrayBufferTarget).
+  const fit = typeof videoOfflineFitCfg === 'function' ? videoOfflineFitCfg(cfg, pre) : null;
+  if (!fit) {
+    const tooBig = videoOfflineGuard(pre, cfg);
+    if (tooBig) { toast(tooBig, 'err', 8000); if (els.videoStart) els.videoStart.disabled = false; return; }
+  } else {
+    if (fit.changed) toast(fit.msg, 'ok', 6000);
+    cfg = fit.cfg;
+  }
   const muted = !!(els.videoAudio && els.videoAudio.value === 'off');
+  // StreamTarget chunked: i chunk finiscono in parts e il picco RAM resta
+  // ~1× il file (ArrayBufferTarget cresceva 2× + slice finale). fastStart
+  // 'in-memory' teneva TUTTI i sample in RAM (di nuovo 1× extra): via → moov
+  // in coda, file valido per il download locale (social ri-encodano comunque).
+  const parts = [];
   const muxerOpts = {
-    target: new Muxer.ArrayBufferTarget(),
+    target: new Muxer.StreamTarget({ chunked: true, onData: d => parts.push(d) }),
     video: { codec: 'avc', width: W, height: H },
-    fastStart: 'in-memory',
   };
   // Traccia audio AAC solo se non muto: sintetizzata offline dagli stessi
   // profili del live (engineToneFor/windGainFor), niente AudioContext aperto
@@ -286,7 +300,7 @@ async function startVideoRenderMp4Inner(pre, mode, Muxer, cfg) {
     rows: pre.rows, track: pre.track, mapPts: pre.mapPts, spark: pre.spark,
     dist: pre.dist, tEnd: pre.tEnd, mult: pre.mult, speedMax: pre.speedMax,
     slow: pre.slow, tSim: pre.rows.length ? pre.rows[0].t : 0,
-    mp4: { enc, muxer, ag: null, frame: 0, _lastV: null },
+    mp4: { enc, muxer, ag: null, frame: 0, _lastV: null, fps: cfg.framerate || 30 },
   };
   videoJob = job;
   els.videoStart.disabled = true;
@@ -322,7 +336,7 @@ async function startVideoRenderMp4Inner(pre, mode, Muxer, cfg) {
   if (!muted) {
     els.videoStatus.textContent = 'Audio MP4…';
     let audioOk = false;
-    try { audioOk = await videoMp4MuxAudio(muxer, pre.rows, pre.slow, videoOfflineFrameStepUs(30)); } catch (e) {}
+    try { audioOk = await videoMp4MuxAudio(muxer, pre.rows, pre.slow, videoOfflineFrameStepUs(job.mp4.fps || 30)); } catch (e) {}
     // Se AudioEncoder c'è e la sintesi fallisce, la traccia audio è già stata
     // dichiarata nel muxer: avvisa che il file uscirà (quasi) muto, invece di
     // consegnare un MP4 con traccia audio vuota e nessun segnale.
@@ -333,7 +347,7 @@ async function startVideoRenderMp4Inner(pre, mode, Muxer, cfg) {
   let blob = null;
   try {
     muxer.finalize();
-    blob = new Blob([muxer.target.buffer], { type: 'video/mp4' });
+    blob = new Blob(parts, { type: 'video/mp4' });
   } catch (e) {
     cleanupVideoJob(job);
     videoJob = null;

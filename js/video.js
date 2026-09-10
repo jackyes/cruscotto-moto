@@ -73,6 +73,27 @@ function videoBitrateFor(width) {
   return 5_000_000;
 }
 
+/* Auto-fit qualità per il ramo realtime (MediaRecorder): senza guardia un
+   giro lungo accumulava chunk oltre la RAM del device. Bitrate/fps scendono
+   da soli (videoOfflineFitCfg, stessa durata simulata di videoLoop); se
+   nemmeno il floor passa si blocca col messaggio storico. Ritorna il fit o
+   null (bloccato). */
+function videoRealtimeFit(pre) {
+  const f = typeof videoOfflineFitCfg === 'function'
+    ? videoOfflineFitCfg({ bitrate: videoBitrateFor(pre.res[0]), framerate: CAPTURE_FPS }, pre)
+    : null;
+  if (!f) {
+    const msg = (typeof videoOfflineGuard === 'function' &&
+      videoOfflineGuard(pre, { bitrate: videoBitrateFor(pre.res[0]) })) ||
+      'Video troppo grande per la RAM del dispositivo. Riduci la durata o la risoluzione.';
+    toast(msg, 'err', 8000);
+    if (els.videoStart) els.videoStart.disabled = false;
+    return null;
+  }
+  if (f.changed) toast(f.msg, 'ok', 6000);
+  return f;
+}
+
 /* Pura: zone slow-mo precalcolate (piega forte o picchi vib): il realtime
    integrale resta tSim, l'envelope cambia solo la derivata per-frame. */
 function buildSlowZones(rows, base) {
@@ -376,6 +397,8 @@ function makeVideoCanvas(res) {
 function startVideoRender2D(pre) {
   if (videoSessionGone()) return;    // modale chiusa durante setup async: niente ghost
   if (els.videoStart) els.videoStart.disabled = true;   // anche qui: il 2D parte fuori da go()
+  const fit = videoRealtimeFit(pre);
+  if (!fit) return;
   const canvas = makeVideoCanvas(pre.res);
   const ctx = canvas.getContext('2d');
   const job = {
@@ -386,10 +409,10 @@ function startVideoRender2D(pre) {
     tSim: pre.rows.length ? pre.rows[0].t : 0, lastRaf: 0,
     chunks: [], rec: null, stream: null, raf: 0, recErr: false,
   };
-  beginVideoCapture(job, canvas, pre.mime);
+  beginVideoCapture(job, canvas, pre.mime, fit);
 }
 
-function beginVideoCapture(job, canvas, mime) {
+function beginVideoCapture(job, canvas, mime, fit) {
   if (job.cancelled) return;
   // iOS/Safari ≥16.4: WebCodecs presenti ma MediaRecorder/captureStream
   // possono mancare — il WebM offline passerebbe i check iniziali e il
@@ -404,9 +427,10 @@ function beginVideoCapture(job, canvas, mime) {
     if (els.videoStart) els.videoStart.disabled = false;
     return;
   }
-  job.stream = canvas.captureStream(CAPTURE_FPS);
+  const fps = (fit && fit.cfg && fit.cfg.framerate > 0) ? fit.cfg.framerate : CAPTURE_FPS;
+  job.stream = canvas.captureStream(fps);
   // 1080p ha 2.25x pixel del 720p: a 5 Mbps gli artefatti mangiano i dettagli mappa.
-  const bps = videoBitrateFor(canvas.width);
+  const bps = (fit && fit.cfg && fit.cfg.bitrate > 0) ? fit.cfg.bitrate : videoBitrateFor(canvas.width);
   // mime '' (ramo MP4 selezionato, mai passati da pickVideoMime): l'oggetto
   // opzioni con mimeType:'' lancia NotSupportedError non catchato → modale appesa.
   job.rec = new MediaRecorder(job.stream, mime

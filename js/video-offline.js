@@ -46,13 +46,56 @@ function videoOfflineEstBytes(cfg, durSec) {
   return (bps / 8) * Math.max(0, durSec);
 }
 /* Soglia RAM adattiva: navigator.deviceMemory (GB, Chrome) se presente, altrimenti
-   stima prudente (4 GB). Il muxer ArrayBufferTarget picca ~2-3× la dimensione del
-   file, quindi si limita l'export a ~1/4 della RAM del device (picco ≤ ~3/4). */
+   stima prudente (4 GB). Con il muxer in StreamTarget (chunked, niente
+   ArrayBufferTarget) il picco è ~1-1.5× la dimensione del file: il cap sul file
+   può salire da mem/4 a mem*384MB (4 GB → 1.5 GB) senza rischiare l'OOM. */
 function videoOfflineMaxBytes() {
   let mem = 4;
   try { if (typeof navigator !== 'undefined' && navigator.deviceMemory) mem = navigator.deviceMemory; } catch (e) {}
   if (!isFinite(mem) || mem <= 0) mem = 4;
-  return Math.max(OFF_MIN_RAM_BYTES, Math.floor(mem * 256 * 1024 * 1024));
+  return Math.max(OFF_MIN_RAM_BYTES, Math.floor(mem * 384 * 1024 * 1024));
+}
+
+/* Pura: ladder bitrate (bps) per dimensione frame. Primo gradino = scelta
+   attuale (videoBitrateFor), ultimo = floor prima del blocco. Chiave su
+   max(W,H): il 9:16 (720×1280) ha lo stesso budget del 720p, un 480p
+   (854×480) scende di fascia. */
+function videoFitBitrateLadder(W, H) {
+  const m = Math.max(isFinite(W) ? W : 0, isFinite(H) ? H : 0);
+  if (m >= 1920) return [8000000, 5000000, 3500000, 2500000, 1500000, 1000000, 750000];
+  if (m >= 1280) return [5000000, 3500000, 2500000, 1500000, 1000000, 750000];
+  return [2500000, 1500000, 1000000, 750000];
+}
+
+/* Pura: fit automatico di bitrate/fps perché l'export stia nella RAM del
+   device. A bitrate fisso la dimensione file NON dipende dalla risoluzione,
+   quindi qui si tocca solo bitrate (e fps: sotto certi bitrate il 30fps
+   sporca, si scende a 24/15). Ritorna {cfg, changed, msg} con cfg adattato
+   (o identico se ci sta già), null se nemmeno il floor della ladder passa
+   (il chiamante blocca col toast di videoOfflineGuard). */
+function videoOfflineFitCfg(cfg, pre) {
+  const c = cfg || {};
+  const bps0 = isFinite(c.bitrate) && c.bitrate > 0 ? c.bitrate : 5000000;
+  const fps0 = isFinite(c.framerate) && c.framerate > 0 ? c.framerate : 30;
+  const res = (pre && pre.res) || [1280, 720];
+  const durSec = videoOfflineDurSec(pre && pre.rows, videoOfflineFrameStepUs(30),
+    (pre && pre.slow) || { base: (pre && pre.mult) || 1 });
+  if (!(durSec > 0)) return { cfg: Object.assign({}, c, { bitrate: bps0, framerate: fps0 }), changed: false, msg: '' };
+  const allowedBps = videoOfflineMaxBytes() * 8 / durSec;
+  if (bps0 <= allowedBps) {
+    return { cfg: Object.assign({}, c, { bitrate: bps0, framerate: fps0 }), changed: false, msg: '' };
+  }
+  let bps = 0;
+  for (const b of videoFitBitrateLadder(res[0], res[1])) {
+    if (b <= allowedBps) { bps = Math.min(bps0, b); break; }
+  }
+  if (!bps) return null;
+  let fps = fps0;
+  if (bps < 1500000) fps = 15; else if (bps < 2500000) fps = 24;
+  const mbps = Math.round(bps / 100000) / 10;   // 3.5 Mbps, 0.75 Mbps, 1 Mbps
+  const msg = 'Qualità ridotta automaticamente per memoria: ' + mbps + ' Mbps' +
+    (fps < fps0 ? ' · ' + fps + ' fps' : '') + '.';
+  return { cfg: Object.assign({}, c, { bitrate: bps, framerate: fps }), changed: true, msg };
 }
 
 /* Ritorna un messaggio d'errore (o null) se l'export stimato supera la RAM

@@ -85,6 +85,8 @@ const exportLine = `
   videoMapBgKey,
   mp4ConfigFor, engineToneFor, windGainFor, mp4FrameStepUs,
   webmConfigFor, webmCodecCandidates, videoOfflineFrameStepUs,
+  videoOfflineDurSec, videoOfflineMaxBytes, videoOfflineGuard,
+  videoOfflineFitCfg, videoFitBitrateLadder,
   videoMapOptions, videoMapPixelRatio, videoSkyOptions, videoSkyVisible,
   videoTrackGeoJson, videoTrailRange, videoExtremesForJob, videoCometPaint, videoHillPaint,
   videoBuildingLayerIds, videoSceneAddToMap,

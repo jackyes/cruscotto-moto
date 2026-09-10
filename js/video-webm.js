@@ -11,12 +11,14 @@
 
 /* Pura: config encode da risoluzione (stesso budget bitrate del MP4/WebM
    realtime). codec di default 'vp8' (hardware encoder più diffuso, specie
-   Android: stesso motivo di pickVideoMime in video.js). */
-function webmConfigFor(W, H, codec) {
+   Android: stesso motivo di pickVideoMime in video.js). fps opzionale
+   (default 30): l'auto-fit qualità può scendere a 24/15. */
+function webmConfigFor(W, H, codec, fps) {
   const w = isFinite(W) && W > 0 ? Math.round(W) : 1280;
   const h = isFinite(H) && H > 0 ? Math.round(H) : 720;
   return { codec: codec || 'vp8', width: w, height: h,
-    bitrate: videoBitrateFor(w), framerate: 30, hardwareAcceleration: 'prefer-hardware' };
+    bitrate: videoBitrateFor(w), framerate: isFinite(fps) && fps > 0 ? fps : 30,
+    hardwareAcceleration: 'prefer-hardware' };
 }
 
 /* Pura: candidati codec in ordine di preferenza — WebCodecs (per l'encoder)
@@ -102,13 +104,21 @@ async function startVideoRenderWebmOffline(pre, mode) {
 
 async function startVideoRenderWebmOfflineInner(pre, mode, Muxer, picked) {
   const W = pre.res[0], H = pre.res[1];
-  // Guard sulla RAM (stesso motivo del ramo MP4): bloccare prima di allocare
-  // evita il crash silenzioso del tab mobile.
-  const tooBig = videoOfflineGuard(pre, picked.cfg);
-  if (tooBig) { toast(tooBig, 'err', 8000); if (els.videoStart) els.videoStart.disabled = false; return; }
+  // Auto-fit qualità sulla RAM (stesso pattern del ramo MP4): prima di
+  // bloccare col messaggio storico si scende di bitrate/fps. StreamTarget
+  // chunked → picco ~1× il file, non 2-3× (ArrayBufferTarget).
+  const fit = typeof videoOfflineFitCfg === 'function' ? videoOfflineFitCfg(picked.cfg, pre) : null;
+  if (!fit) {
+    const tooBig = videoOfflineGuard(pre, picked.cfg);
+    if (tooBig) { toast(tooBig, 'err', 8000); if (els.videoStart) els.videoStart.disabled = false; return; }
+  } else {
+    if (fit.changed) toast(fit.msg, 'ok', 6000);
+    picked = { cfg: fit.cfg, mux: picked.mux };
+  }
+  const parts = [];
   const muxerOpts = {
-    target: new Muxer.ArrayBufferTarget(),
-    video: { codec: picked.mux, width: W, height: H, frameRate: 30 },
+    target: new Muxer.StreamTarget({ chunked: true, onData: d => parts.push(d) }),
+    video: { codec: picked.mux, width: W, height: H, frameRate: picked.cfg.framerate || 30 },
   };
   // configure() tira su risoluzioni/profili non supportati: senza guardia
   // usciva come promise rejection muta (stesso motivo del ramo MP4).
@@ -141,7 +151,7 @@ async function startVideoRenderWebmOfflineInner(pre, mode, Muxer, picked) {
   els.videoStatus.textContent = 'Encode WebM…';
   try {
     if (mode === '3d') await videoOfflineSetupMap(job, pre);
-    await videoOfflineLoop(job, job.webm, { fps: 30, keyframeEvery: 150, label: 'WebM' });
+    await videoOfflineLoop(job, job.webm, { fps: picked.cfg.framerate || 30, keyframeEvery: 150, label: 'WebM' });
   } catch (e) {
     try { enc.close(); } catch (e2) {}
     cleanupVideoJob(job);
@@ -168,7 +178,7 @@ async function startVideoRenderWebmOfflineInner(pre, mode, Muxer, picked) {
   let blob = null;
   try {
     muxer.finalize();
-    blob = new Blob([muxer.target.buffer], { type: 'video/webm' });
+    blob = new Blob(parts, { type: 'video/webm' });
   } catch (e) {
     cleanupVideoJob(job);
     videoJob = null;

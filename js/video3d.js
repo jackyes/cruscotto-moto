@@ -466,7 +466,9 @@ function ensureVideo3DLibs(onStatus) {
 function startVideoRender3D(pre) {
   if (videoSessionGone()) return;    // modale chiusa durante setup async: niente ghost
   const start = () => {
-    try { initVideoRender3D(pre); }
+    const fit = typeof videoRealtimeFit === 'function' ? videoRealtimeFit(pre) : null;
+    if (!fit) return;
+    try { initVideoRender3D(pre, fit); }
     catch (e) { requestVideoFallback(pre, null, 'Errore motore 3D: ' + (e && e.message ? e.message : e) + '. Uso il render 2D.'); }
   };
   if (window.maplibregl && window.THREE) { start(); return; }
@@ -521,7 +523,7 @@ function video3DBuildJob(pre, canvas, ctx) {
   };
 }
 
-function initVideoRender3D(pre) {
+function initVideoRender3D(pre, fit) {
   const W = pre.res[0], H = pre.res[1];
   els.videoStatus.textContent = 'Preparo mappa 3D…';
 
@@ -575,7 +577,7 @@ function initVideoRender3D(pre) {
       // Rilievo ombreggiato + tinta edifici (stesso beforeId: la scia resta sopra).
       videoSceneAddToMap(map, beforeId, pre.buildings);
       job.mapReady = true;
-      beginVideoCapture(job, canvas, pre.mime);
+      beginVideoCapture(job, canvas, pre.mime, fit);
     } catch (e) {
       requestVideoFallback(pre, job, 'Terreno 3D non disponibile, uso il render 2D.');
     }
