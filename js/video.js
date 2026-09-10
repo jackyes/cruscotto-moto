@@ -96,6 +96,7 @@ function videoRealtimeFit(pre) {
     return null;
   }
   if (f.changed) toast(f.msg, 'ok', 6000);
+  if (f.res) pre.res = f.res;   // canvas realtime più piccolo = encode più veloce
   return f;
 }
 

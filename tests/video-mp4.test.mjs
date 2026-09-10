@@ -3,7 +3,11 @@ import { test } from 'node:test';
 import assert from 'node:assert';
 import { api } from './harness.mjs';
 
-const { mp4ConfigFor, engineToneFor, windGainFor, mp4FrameStepUs, videoBitrateFor } = api;
+const { mp4ConfigFor, mp4CodecCandidates, engineToneFor, windGainFor, mp4FrameStepUs, videoBitrateFor } = api;
+
+test('mp4CodecCandidates: High → Main → Baseline (compatibilità encoder)', () => {
+  assert.deepEqual(mp4CodecCandidates(), ['avc1.640028', 'avc1.4D001E', 'avc1.42E01E']);
+});
 
 test('mp4ConfigFor: H.264 30fps, stesso bitrate WebM', () => {
   const c = mp4ConfigFor(1280, 720);

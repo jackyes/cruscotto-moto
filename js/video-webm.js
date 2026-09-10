@@ -106,10 +106,9 @@ async function startVideoRenderWebmOffline(pre, mode) {
 }
 
 async function startVideoRenderWebmOfflineInner(pre, mode, Muxer, picked) {
-  const W = pre.res[0], H = pre.res[1];
   // Auto-fit qualità sulla RAM (stesso pattern del ramo MP4): prima di
-  // bloccare col messaggio storico si scende di bitrate/fps. StreamTarget
-  // chunked → picco ~1× il file, non 2-3× (ArrayBufferTarget).
+  // bloccare col messaggio storico si scende di bitrate/fps/risoluzione.
+  // StreamTarget chunked → picco ~1× il file, non 2-3× (ArrayBufferTarget).
   const fit = typeof videoOfflineFitCfg === 'function' ? videoOfflineFitCfg(picked.cfg, pre) : null;
   if (!fit) {
     const tooBig = videoOfflineGuard(pre, picked.cfg);
@@ -117,7 +116,9 @@ async function startVideoRenderWebmOfflineInner(pre, mode, Muxer, picked) {
   } else {
     if (fit.changed) toast(fit.msg, 'ok', 6000);
     picked = { cfg: fit.cfg, mux: picked.mux };
+    if (fit.res) pre.res = fit.res;   // canvas mappa/2D e muxer leggono pre.res
   }
+  const W = pre.res[0], H = pre.res[1];
   // StreamTarget chunked: i chunk diventano subito Blob (memoria nativa, fuori
   // dall'heap V8). Tenere gli Uint8Array in un array JS saturava l'heap su
   // Chrome Android 32-bit (~512 MB) → crash del tab senza alcun errore.

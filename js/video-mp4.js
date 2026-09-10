@@ -222,6 +222,15 @@ function videoMp4FallbackToWebm(pre, mode) {
   if (mode === '3d') startVideoRender3D(pre); else startVideoRender2D(pre);
 }
 
+/* Pura: candidati H.264 in ordine di compatibilità hardware. Molti SoC
+   Android encodano via WebCodecs solo Main (0x4D) o Baseline (0x42):
+   provare solo l'High (avc1.640028) buttava l'export su WebM anche dove
+   l'encoder H.264 c'era. Profilo più basso = stessa qualità percepita a
+   parità di bitrate su questi bitrate (≤8 Mbps). */
+function mp4CodecCandidates() {
+  return ['avc1.640028', 'avc1.4D001E', 'avc1.42E01E'];
+}
+
 /* Entry MP4: offline più veloce del realtime (niente captureStream: si
    disegnano i frame in ciclo e si passano a VideoEncoder con timestamp). */
 async function startVideoRenderMp4(pre, mode) {
@@ -232,10 +241,19 @@ async function startVideoRenderMp4(pre, mode) {
   }
   // Hint hardware ('prefer-hardware'): se il browser lo rifiuta, ripiega su
   // 'no-preference' prima di arrendersi (videoOfflinePickEncoderConfig).
-  const picked = await videoOfflinePickEncoderConfig(mp4ConfigFor(pre.res[0], pre.res[1]));
+  // Ladder High→Main→Baseline: più device trovano un profilo codificabile.
+  let picked = null;
+  for (const codec of mp4CodecCandidates()) {
+    try {
+      const cfg = mp4ConfigFor(pre.res[0], pre.res[1]);
+      cfg.codec = codec;
+      const res = await videoOfflinePickEncoderConfig(cfg);
+      if (res.supported) { picked = res; break; }
+    } catch (e) {}
+  }
   if (videoSessionGone()) return;    // modale chiusa durante il probe encoder
-  const mp4Cfg = picked.cfg;
-  if (!picked.supported) {
+  const mp4Cfg = picked ? picked.cfg : null;
+  if (!picked) {
     toast('H.264 non supportato, uso WebM.', 'err', 6000);
     videoMp4FallbackToWebm(pre, mode);
     return;
@@ -268,9 +286,8 @@ async function startVideoRenderMp4(pre, mode) {
 }
 
 async function startVideoRenderMp4Inner(pre, mode, Muxer, cfg) {
-  const W = pre.res[0], H = pre.res[1];
   // Auto-fit qualità sulla RAM: invece di bloccare subito (toast "Video troppo
-  // grande"), si prova a scendere di bitrate/fps (videoOfflineFitCfg). Solo se
+  // grande"), si scende di bitrate/fps/risoluzione (videoOfflineFitCfg). Solo se
   // nemmeno il floor passa si blocca col messaggio storico. Il picco reale è
   // ~1-1.5× il file (StreamTarget chunked, niente ArrayBufferTarget).
   const fit = typeof videoOfflineFitCfg === 'function' ? videoOfflineFitCfg(cfg, pre) : null;
@@ -280,7 +297,9 @@ async function startVideoRenderMp4Inner(pre, mode, Muxer, cfg) {
   } else {
     if (fit.changed) toast(fit.msg, 'ok', 6000);
     cfg = fit.cfg;
+    if (fit.res) pre.res = fit.res;   // canvas mappa/2D e muxer leggono pre.res
   }
+  const W = pre.res[0], H = pre.res[1];
   const muted = !!(els.videoAudio && els.videoAudio.value === 'off');
   // StreamTarget chunked: i chunk diventano subito Blob (memoria nativa, fuori
   // dall'heap V8). Tenere gli Uint8Array in un array JS saturava l'heap su

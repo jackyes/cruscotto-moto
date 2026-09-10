@@ -67,13 +67,29 @@ function videoFitBitrateLadder(W, H) {
   return [2500000, 1500000, 1000000, 750000];
 }
 
-/* Pura: fit automatico di bitrate/fps perché l'export stia nella RAM del
-   device. A bitrate fisso la dimensione file NON dipende dalla risoluzione,
-   quindi qui si tocca solo bitrate (e fps: sotto certi bitrate il 30fps
-   sporca, si scende a 24/15). maxBytes opzionale: il realtime passa un cap
-   più basso (chunk MediaRecorder nell'heap JS, non StreamTarget).
-   Ritorna {cfg, changed, msg} con cfg adattato (o identico se ci sta già),
-   null se nemmeno il floor della ladder passa (il chiamante blocca). */
+/* Pura: scala la risoluzione quando il bitrate scende (stesso aspect, lati
+   pari). Sotto 3.5 Mbps → 75% dei lati (~0.56 dei pixel); sotto 1.5 → 50%
+   (~0.25 pixel): l'encoder software del telefono (VP8) ci mette 2-4× meno e
+   la qualità percepita resta la stessa a bitrate bassi. Sopra 3.5 → null. */
+function videoFitResFor(res, bps) {
+  const w = res && isFinite(res[0]) ? res[0] : 1280;
+  const h = res && isFinite(res[1]) ? res[1] : 720;
+  const sc = bps < 1500000 ? 0.5 : (bps < 3500000 ? 0.75 : 1);
+  if (sc >= 1) return null;
+  const nw = Math.max(320, Math.round(w * sc / 2) * 2);
+  const nh = Math.max(320, Math.round(h * sc / 2) * 2);
+  if (nw === w && nh === h) return null;
+  return [nw, nh];
+}
+
+/* Pura: fit automatico di bitrate/fps/risoluzione perché l'export stia nella
+   RAM del device e non sia un calvario di encode software. A bitrate fisso la
+   dimensione file NON dipende dalla risoluzione: il bitrate si taglia per la
+   RAM, fps e risoluzione scendono per la velocità (e la qualità percepita).
+   maxBytes opzionale: il realtime passa un cap più basso (chunk MediaRecorder
+   nell'heap JS, non StreamTarget). Ritorna {cfg, res, changed, msg} con cfg
+   adattato (o identico se ci sta già) e res = nuove dimensioni o null;
+   null come return se nemmeno il floor della ladder passa. */
 function videoOfflineFitCfg(cfg, pre, maxBytes) {
   const c = cfg || {};
   const bps0 = isFinite(c.bitrate) && c.bitrate > 0 ? c.bitrate : 5000000;
@@ -81,11 +97,13 @@ function videoOfflineFitCfg(cfg, pre, maxBytes) {
   const res = (pre && pre.res) || [1280, 720];
   const durSec = videoOfflineDurSec(pre && pre.rows, videoOfflineFrameStepUs(30),
     (pre && pre.slow) || { base: (pre && pre.mult) || 1 });
-  if (!(durSec > 0)) return { cfg: Object.assign({}, c, { bitrate: bps0, framerate: fps0 }), changed: false, msg: '' };
+  if (!(durSec > 0)) {
+    return { cfg: Object.assign({}, c, { bitrate: bps0, framerate: fps0 }), changed: false, msg: '', res: null };
+  }
   const cap = isFinite(maxBytes) && maxBytes > 0 ? maxBytes : videoOfflineMaxBytes();
   const allowedBps = cap * 8 / durSec;
   if (bps0 <= allowedBps) {
-    return { cfg: Object.assign({}, c, { bitrate: bps0, framerate: fps0 }), changed: false, msg: '' };
+    return { cfg: Object.assign({}, c, { bitrate: bps0, framerate: fps0 }), changed: false, msg: '', res: null };
   }
   let bps = 0;
   for (const b of videoFitBitrateLadder(res[0], res[1])) {
@@ -93,11 +111,15 @@ function videoOfflineFitCfg(cfg, pre, maxBytes) {
   }
   if (!bps) return null;
   let fps = fps0;
-  if (bps < 1500000) fps = 15; else if (bps < 2500000) fps = 24;
+  if (bps < 1500000) fps = 15; else if (bps < 3500000) fps = 24;
+  const newRes = videoFitResFor(res, bps);
+  const outCfg = Object.assign({}, c, { bitrate: bps, framerate: fps });
+  if (newRes) { outCfg.width = newRes[0]; outCfg.height = newRes[1]; }
   const mbps = Math.round(bps / 100000) / 10;   // 3.5 Mbps, 0.75 Mbps, 1 Mbps
   const msg = 'Qualità ridotta automaticamente per memoria: ' + mbps + ' Mbps' +
-    (fps < fps0 ? ' · ' + fps + ' fps' : '') + '.';
-  return { cfg: Object.assign({}, c, { bitrate: bps, framerate: fps }), changed: true, msg };
+    (fps < fps0 ? ' · ' + fps + ' fps' : '') +
+    (newRes ? ' · ' + newRes[0] + '×' + newRes[1] : '') + '.';
+  return { cfg: outCfg, changed: true, msg, res: newRes };
 }
 
 /* Ritorna un messaggio d'errore (o null) se l'export stimato supera la RAM
