@@ -11,8 +11,6 @@ function resetSensorFilters() {
   state._yawFilt = null;  // imbardata filtrata per la compensazione centripeta
   state._yawFilt2 = null;
   state._yawPow = null;
-  state.gyroBias = null;
-  state._biasSum = 0; state._biasN = 0; state._biasT = 0;
   state.vibG = 0; state.vibHiG = 0;
   state.vibAdaptG = 0;
   state.gRatio = 1;
@@ -30,7 +28,7 @@ function resetSensorFilters() {
   state.attTrust = 0;
   state.attRef = 'none';
   state.pitch = 0;
-  state.leanKin = 0;
+  state.leanKin = null;
   state.gyroYaw = 0;
   state.yawUp = 0;
   state._gsPrev = null;
@@ -54,7 +52,6 @@ function resetSensorFilters() {
   state.lonFus = 0;
   // velocita' fusa
   state._spHist = null;
-  state._spCorrT = 0;
   state._aInt = 0;
   state._spBase = null;
   state.speedFusMs = state.speedMs || 0;
@@ -115,10 +112,6 @@ function processSample(sm) {
     state._hbuf = null;
     state._vibPow = null;
     state._accHist = null;
-    // Anche l'accumulatore del bias da fermo: la sua finestra attraversava il
-    // buco e la media mescolava prima/dopo (era l'unico stato che resetSensorFilters
-    // azzera e questo ramo no).
-    state._biasSum = 0; state._biasN = 0; state._biasT = 0;
     return;
   }
 
@@ -259,28 +252,6 @@ function processSample(sm) {
      telefono, quindi la proiezione e' diretta. */
   state.yawUp = (sm.gyro && state._attU) ? vdot(Wc, state._attU) : state.gyroYaw;
 
-  /* Fermo accertato con evidenza POSITIVA: fix GPS fresco che riporta velocita' bassa,
-     piu' assenza di rotazione, piu' vibrazione bassa. Il test precedente era di fatto
-     `speedMs === 0`, che scattava anche quando il GPS semplicemente non riportava la
-     velocita' — cioe' a 100 km/h dopo una galleria, mandando 2 s di rollio VERO dentro
-     lo stimatore di bias. */
-  const gpsFresh = (nowPerf - state.speedGpsT) < SPEED_STALE_MS;
-  state.stopped = gpsFresh && state.speedGpsMs != null && state.speedGpsMs < STOP_SPEED_MS
-    && Math.abs(state.gyroRoll) < STOP_ROLL_DPS && state.vibG < STOP_VIB_G;
-
-  // Bias di rollio da fermo: resta solo come indicatore diagnostico. La correzione
-  // vera la fa il termine integrale vettoriale di updateAttitude.
-  if (state.stopped && sm.gyro) {
-    state._biasSum = (state._biasSum || 0) + state.gyroRoll;
-    state._biasN = (state._biasN || 0) + 1;
-    state._biasT = (state._biasT || 0) + dt;
-    if (state._biasT >= GYRO_BIAS_WINDOW_S) {
-      const bm = state._biasSum / state._biasN;
-      state.gyroBias = (state.gyroBias == null) ? bm : state.gyroBias + GYRO_BIAS_EMA * (bm - state.gyroBias);
-      state._biasSum = 0; state._biasN = 0; state._biasT = 0;
-    }
-  } else { state._biasSum = 0; state._biasN = 0; state._biasT = 0; }
-
   /* ---- Attitudine ---- */
   if (ig && B) {
     const ok = updateAttitude(aLP || Am, W, B, dt, Wc);
@@ -386,11 +357,22 @@ function processSample(sm) {
 
   /* Piega cinematica: stima INDIPENDENTE dall'accelerometro e dall'integrazione.
      In curva a regime vale atan(v*psi_punto/g) = phi. Serve da verifica incrociata
-     in analisi: se lean_deg e lean_kin_deg divergono, una delle due sta sbagliando. */
-  if (state.speedFusMs > CENTRIP_MIN_MS) {
+     in analisi: se lean_deg e lean_kin_deg divergono, una delle due sta sbagliando.
+
+     Il gate di freschezza non e' un dettaglio: in buco GPS `propagateSpeed` esce
+     PRIMA di scrivere speedFusMs, che quindi resta congelata all'ultimo valore — e
+     questa stima moltiplicava quella velocita' vecchia (100 km/h) per lo yawUp VIVO
+     del giroscopio, restituendo una piega cinematica che sembra valida e invece
+     descrive un'altra moto. attitudeReference (js/sensors-core.js) ha lo stesso gate
+     da sempre: senza, la colonna di controllo incrociato mente proprio nei tratti
+     (gallerie, centri urbani) in cui la si guarda. null e non 0: 0 significa
+     "dritto", che e' un'altra cosa da "non lo so" (num() in CSV lascia la cella
+     vuota, la diagnostica mostra "—"). */
+  const kinFresh = (nowPerf - state.speedGpsT) < SPEED_STALE_MS;
+  if (state.speedFusMs > CENTRIP_MIN_MS && kinFresh) {
     const kin = Math.atan(state.speedFusMs * (-state.yawUp * Math.PI / 180) / G) * 180 / Math.PI;
     state.leanKin = state.invertLean ? -kin : kin;
-  } else state.leanKin = 0;
+  } else state.leanKin = null;
 
   // (1) accumulo per la decimazione anti-alias del log — solo a registrazione attiva
   if (!state.logging) return;

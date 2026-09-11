@@ -127,19 +127,23 @@ function startGenericSensors() {
   };
 
   const RAD2DEG = 180 / Math.PI;
+  /* Tutti e tre gli assi, non solo x: la Generic Sensor API restituisce null su una
+     lettura non disponibile, e `null * RAD2DEG` vale 0 — un asse mancante entrava
+     come uno zero VERO in grado/s, cioe' un campione credibile e sbagliato. */
+  const assiOk = s => s.x != null && s.y != null && s.z != null;
   sensorSrc.gyro = mk(window.Gyroscope, function () {
     const g = this;
-    if (g.x == null) return;
+    if (!assiOk(g)) return;
     sensorSrc.gyroLast = { x: g.x * RAD2DEG, y: g.y * RAD2DEG, z: g.z * RAD2DEG, t: performance.now() };
   });
   sensorSrc.grav = mk(window.GravitySensor, function () {
     const g = this;
-    if (g.x == null) return;
+    if (!assiOk(g)) return;
     sensorSrc.gravLast = { x: g.x, y: g.y, z: g.z, t: performance.now() };
   });
   sensorSrc.lin = mk(window.LinearAccelerationSensor, function () {
     const a = this;
-    if (a.x == null) return;
+    if (!assiOk(a)) return;
     sensorSrc.linLast = { x: a.x, y: a.y, z: a.z, t: performance.now() };
   });
 
@@ -148,7 +152,7 @@ function startGenericSensors() {
      l'alternativa sarebbe attenderle tutte e perdere campioni quando una manca. */
   sensorSrc.acc = mk(window.Accelerometer, function () {
     const a = this;
-    if (a.x == null) return;
+    if (!assiOk(a)) return;
     processSample({
       acc:  { x: a.x, y: a.y, z: a.z },
       gyro: freshSat(sensorSrc.gyroLast),

@@ -157,7 +157,7 @@ function updateDiag() {
     : (state.sensorSrc === 'devicemotion' ? 'devicemotion' : '—');
   els.dgPitch.textContent = (state.calib || state.demo)
     ? state.pitch.toFixed(1) + '° · imbardata ' + state.gyroYaw.toFixed(0) + ' °/s' : '—';
-  els.dgLeanKin.textContent = (state.speedFusMs > CENTRIP_MIN_MS)
+  els.dgLeanKin.textContent = (state.leanKin != null && state.speedFusMs > CENTRIP_MIN_MS)
     ? state.leanKin.toFixed(1) + '°' : '—';
   els.dgSpeed.textContent = (state.speedFusMs * 3.6).toFixed(1) + ' km/h' +
     (state.speedGpsMs != null ? ' (GPS ' + (state.speedGpsMs * 3.6).toFixed(1) + ')' : ' (GPS n/d)');

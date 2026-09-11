@@ -324,3 +324,55 @@ test('#14 .bar .fill: la transizione copre left, non solo width', () => {
   assert.ok(el.style.left, 'left non scritta: ' + JSON.stringify(el.style));
   assert.equal(el.className, 'fill neg');
 });
+/* gyroSign era l'unica impostazione persistita senza validazione: `store.get` fa
+   JSON.parse, quindi un valore manomesso (0, 2, null, stringa) entrava in state e
+   il confronto `gyroSign < 0` (js/sensors-core.js) trattava 0 e i valori non
+   numerici come "segno positivo" — un verdetto mai dato, spacciato per dato. */
+test('loadSettings: gyroSign validato a ±1', () => {
+  const D = api.LEAN_GYRO_SIGN_DEFAULT;
+  const set = v => { s.localStorage.setItem('cruscotto.gyroSign', JSON.stringify(v)); loadSettings(); };
+  set(-1); assert.equal(state.gyroSign, -1);
+  set(1); assert.equal(state.gyroSign, 1);
+  // 0 non e' un segno: e' l'assenza di verdetto, e va riportata al default.
+  set(0); assert.equal(state.gyroSign, D);
+  set(2); assert.equal(state.gyroSign, D);
+  set(-0.5); assert.equal(state.gyroSign, D);
+  set(null); assert.equal(state.gyroSign, D);
+  set('abc'); assert.equal(state.gyroSign, D);
+  set('1'); assert.equal(state.gyroSign, 1, 'stringa numerica accettata da Number()');
+  s.localStorage.setItem('cruscotto.gyroSign', 'garbage'); // JSON.parse lancia -> default
+  loadSettings();
+  assert.equal(state.gyroSign, D);
+  s.localStorage.removeItem('cruscotto.gyroSign');          // chiave assente -> default
+  loadSettings();
+  assert.equal(state.gyroSign, D);
+  resetState();
+});
+
+/* isFinite(null) e' true (Number(null) === 0): un asse mancante — la Generic Sensor
+   API restituisce null quando il sensore non e' disponibile — sarebbe entrato come
+   uno zero VERO, indistinguibile da una misura. */
+test('finiteVec: un asse null non vale zero', () => {
+  assert.equal(api.finiteVec({ x: 0, y: 1, z: 2 }), true);
+  assert.equal(api.finiteVec({ x: null, y: 1, z: 2 }), false);
+  assert.equal(api.finiteVec({ x: 1, y: null, z: 2 }), false);
+  assert.equal(api.finiteVec({ x: 1, y: 2, z: null }), false);
+  assert.equal(api.finiteVec({ x: 1, y: 2 }), false, 'asse assente');
+  assert.equal(api.finiteVec({ x: NaN, y: 1, z: 2 }), false);
+  assert.equal(api.finiteVec({ x: Infinity, y: 1, z: 2 }), false);
+  assert.equal(api.finiteVec(null), false);
+});
+/* Il verdetto sul segno del giroscopio si fonda su d(leanAcc)/dt: tutto cio' che
+   ribalta il segno di leanAcc a parita' di piega (toggle "inverti piega", cambio di
+   montaggio) fa vedere allo stimatore un salto che non e' una rotazione. Un solo
+   campione a passo d'uomo supera GSIGN_MIN_ENERGY, ribalta un verdetto PERSISTITO su
+   localStorage e lo lascia scritto se l'app muore nei ~4 s del lock. */
+test('index.html: i due cambi di segno azzerano il learner del segno giroscopio', () => {
+  const html = readFileSync(new URL('../index.html', import.meta.url), 'utf8');
+  const handlers = html.split('addEventListener');
+  const withCall = handlers.filter(h => h.includes('resetGyroSignLearner()'));
+  assert.ok(html.includes("els.invertLean.addEventListener('change'"), 'handler invertLean assente');
+  assert.ok(html.includes("els.mountSel.addEventListener('change'"), 'handler mountSel assente');
+  // Uno per ciascun handler (piu' la definizione della funzione in js/sensors-core.js).
+  assert.ok(withCall.length >= 2, 'attesi resetGyroSignLearner() in invertLean e mountSel, trovati ' + withCall.length);
+});

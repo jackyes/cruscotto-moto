@@ -88,3 +88,48 @@ test('processSample: convergenza della piega a sinistra', () => {
   }
   assert.ok(Math.abs(state.lean - (-30)) < 1.0, 'lean atteso ~-30, ottenuto ' + state.lean);
 });
+
+/* Senza velocità il riferimento si ricava dalla sola norma: ‖f‖/g = 1 e l'accelerometro
+   punta a B.up. Ma hypot() è convessa, quindi la vibrazione gonfia ‖f‖ SEMPRE in
+   positivo: senza gate il ramo su norma non sbaglia a caso, inventa una piega nella
+   direzione data dal segno — sempre. La soglia è l'inflazione che la vibrazione
+   misurata (vibG) può spiegare da sola: sotto quella, il modulo non porta
+   informazione d'angolo e si congela invece di dichiarare i gradi del rumore. */
+test('attitudeReference: inflazione da vibrazione non fabbrica una piega', () => {
+  resetState();
+  state.speedFusMs = 15;      // > CENTRIP_MIN_MS: ramo "non slow"
+  state.hasGyro = false;      // niente compensazione centripeta
+  state.lonG = 0;             // nessuna manovra longitudinale
+  state.latGps = -0.2;        // segno dal GPS
+  state.vibG = 0.3;           // 0,3 g RMS -> inflazione attesa 0,3² = 0,09
+  const b = B();
+  // ‖f‖/g − 1 = 0,05: meno di quanto la vibrazione spiega da sola.
+  const f = vscale(b.up, G * 1.05);
+
+  // Nessun rotore precedente: si dichiara "non lo so", non 0°.
+  assert.equal(attitudeReference(f, {x:0,y:0,z:0}, b, 0.05), null);
+
+  // Rotore norm valido e fresco: si congela quello invece di inventarne uno.
+  const cached = { u: vscale(b.up, 1), trust: 0.3, mode: 'norm' };
+  state._attLastNorm = cached; state._attLastNormT = Date.now();
+  assert.equal(attitudeReference(f, {x:0,y:0,z:0}, b, 0.05), cached);
+
+  // Rotore scaduto: si torna a "non lo so".
+  state._attLastNormT = Date.now() - (api.ATT_NORM_TTL_MS + 1);
+  assert.equal(attitudeReference(f, {x:0,y:0,z:0}, b, 0.05), null);
+});
+
+test('attitudeReference: piega vera oltre la soglia di inflazione passa', () => {
+  resetState();
+  state.speedFusMs = 15;
+  state.hasGyro = false;
+  state.lonG = 0;
+  state.latGps = -0.2;
+  state.vibG = 0.3;
+  const b = B();
+  // 1/cos30° − 1 = 0,1547 > 0,09: l'eccesso non è spiegabile dalla vibrazione.
+  const f = vscale(b.up, G / Math.cos(Math.PI/6));
+  const R = attitudeReference(f, {x:0,y:0,z:0}, b, 0.05);
+  assert.equal(R.mode, 'norm');
+  assert.ok(Math.abs(leanFromUp(R.u, b) - (-30)) < 1e-6);
+});

@@ -157,12 +157,15 @@ test('rettificazione: con rectNull la correzione (limitata) si applica a vertG',
   assert.ok(Math.abs(state.vertG) < 0.01, 'vertG ' + state.vertG.toFixed(3));
 });
 
-test('CSV: colonna vib_rect_g in coda con valore', () => {
+test('CSV: colonne vib_rect_g e speed_stale in coda', () => {
   const row = { t: 1, lean: 10, vibRect: 0.021 };
   const line = csvRows([row]);
-  assert.ok(line.endsWith('0.021'), line);
-  assert.ok(CSV_HEADER.endsWith('vib_rect_g'));
-  assert.equal(CSV_HEADER.split(',').length, 27);
+  // vibRect e' la penultima: speed_stale chiude la riga (0 = GPS fresco).
+  assert.ok(line.endsWith('0.021,0'), line);
+  assert.ok(CSV_HEADER.endsWith('vib_rect_g,speed_stale'));
+  assert.equal(CSV_HEADER.split(',').length, 28);
+  // speed_stale=1 quando il GPS taceva alla scrittura della riga.
+  assert.ok(csvRows([{ t: 1, speedStale: 1 }]).endsWith(',1'));
 });
 
 test('sim: curva tenuta 30° con vibrazione 0,6 g RMS — errore contenuto', () => {

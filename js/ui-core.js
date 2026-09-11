@@ -205,7 +205,15 @@ function loadSettings() {
   // Segno del giroscopio imparato a runtime (vedi updateGyroSign): si riusa il
   // verdetto della sessione precedente, così un avvio già in marcia non riparte
   // col segno di default sbagliato. Non si persistono lock/score/energy.
-  state.gyroSign = store.get('cruscotto.gyroSign', LEAN_GYRO_SIGN_DEFAULT);
+  // Validato come ogni altro setting persistito: è un MOLTIPLICATORE, quindi un
+  // valore degenere non si nota — 0 azzera tutte le tre componenti del giroscopio
+  // (gyroSat(x)*0 === 0) e l'app resta senza giroscopio in silenzio, mentre un
+  // flip lo riscrive come -0, che JSON.stringify salva come "0" per sempre.
+  // Number(): dal localStorage può arrivare una stringa ("1"), come per compassOffset.
+  {
+    const gs = Number(store.get('cruscotto.gyroSign', LEAN_GYRO_SIGN_DEFAULT));
+    state.gyroSign = (gs === 1 || gs === -1) ? gs : LEAN_GYRO_SIGN_DEFAULT;
+  }
   state.camAhead = s.camAhead !== false;
   state.camLegalOk = !!s.camLegalOk;
   state.guidaAlways = !!s.guidaAlways;

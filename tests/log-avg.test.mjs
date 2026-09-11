@@ -112,3 +112,15 @@ test('snapshot: gap=0 con campionamento fresco, GAP_MS=500', () => {
   assert.equal(GAP_MS, 500);
   assert.ok(second.t >= first.t);
 });
+/* speed_gps_ms NON si azzera quando il GPS tace: la colonna resta ferma all'ultimo
+   Doppler, e `gap` non lo segnala perche' il campionamento non si e' fermato. Senza
+   questo bit una riga con la velocita' vecchia (galleria: 110 km/h per tutto il buco)
+   e' indistinguibile da una vera. */
+test('snapshot: speedStale=1 col GPS stantio, 0 con la velocita fresca', () => {
+  resetState();
+  api.state.session = { startWall: Date.now() - 1000 };
+  api.state.speedGpsT = Date.now();
+  assert.equal(snapshot().speedStale, 0);
+  api.state.speedGpsT = Date.now() - (api.SPEED_STALE_MS + 1);
+  assert.equal(snapshot().speedStale, 1);
+});

@@ -97,7 +97,17 @@ function finishCalibration(tip) {
           'A motore acceso al minimo va bene: la vibrazione non impedisce la calibrazione.', 'err', 7000);
     return;
   }
-  state.calib = buildBasis(mean, state._calMount != null ? state._calMount : state.mount);
+  const cb = buildBasis(mean, state._calMount != null ? state._calMount : state.mount);
+  /* Stesso gate di loadSettings (js/ui-core.js): una base con un vettore nullo o non
+     finito non entra in state.calib. Oggi i gate sopra (dispersione 3°) rendono il
+     caso irraggiungibile — ma erano irraggiungibili anche per la calibrazione
+     SALVATA, ed è per questo che lì il controllo c'è: la difesa va dove il dato
+     entra nello stato, non dove oggi si crede che non possa arrivare. */
+  if (!calibOk(cb)) {
+    toast('Calibrazione non valida: rifai la calibrazione (moto ferma e dritta).', 'err', 6000);
+    return;
+  }
+  state.calib = cb;
   state.calib.v = 2;                 // versione: invalida le calibrazioni pre-riscrittura
   resetSensorFilters();
   startAccBiasCapture();

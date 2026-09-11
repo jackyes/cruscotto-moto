@@ -85,7 +85,6 @@ test('resetSensorFilters: azzera filtri e stime', () => {
   const s = api.state;
   s._accLP = { x: 1, y: 2, z: 3 };
   s._wLP = { x: 1, y: 1, z: 1 };
-  s.gyroBias = { x: 5, y: 5, z: 5 };
   s.attBias = { x: 1, y: 1, z: 1 };
   s._spHist = [{ t: 1, v: 2 }];
   s.speedMs = 12; s.vibG = 3; s.leanConf = 0.1;
@@ -93,7 +92,6 @@ test('resetSensorFilters: azzera filtri e stime', () => {
   resetSensorFilters();
   assert.equal(s._accLP, null);
   assert.equal(s._wLP, null);
-  assert.equal(s.gyroBias, null);
   assert.equal(s.attBias.x, 0);
   assert.equal(s.attBias.y, 0);
   assert.equal(s.attBias.z, 0);
@@ -103,7 +101,9 @@ test('resetSensorFilters: azzera filtri e stime', () => {
   assert.equal(s.attBias.y, 0);
   assert.equal(s.attBias.z, 0);
   assert.equal(s.pitch, 0);
-  assert.equal(s.leanKin, 0);
+  // null, non 0: 0° e' una piega cinematica VALIDA (moto dritta a velocita' nota),
+  // l'assenza di stima non deve travestirsi da misura.
+  assert.equal(s.leanKin, null);
   assert.equal(s.vibG, 0);
   assert.equal(s.leanConf, 1);
   assert.equal(s.speedFusMs, 12);
@@ -115,4 +115,45 @@ test('resetSensorFilters: speedFusMs fallback a 0 senza speedMs', () => {
   s.speedMs = null;
   resetSensorFilters();
   assert.equal(s.speedFusMs, 0);
+});
+
+/* Cambiare `invertLean` (o una calibrazione con montaggio opposto) ribalta il SEGNO
+   di leanAcc a parita' di piega: tutto il punteggio accumulato fino a quel momento
+   vive nel frame col segno vecchio e diventa evidenza per il segno sbagliato. */
+test('resetGyroSignLearner: azzera dLean e punteggio, non il verdetto', () => {
+  resetState();
+  const s = api.state;
+  s.gyroSign = -1; s._gsPrev = 5; s.gyroSignScore = -400;
+  s.gyroSignEnergy = 900; s.gyroSignLocked = true;
+  api.resetGyroSignLearner();
+  assert.equal(s._gsPrev, null);
+  assert.equal(s.gyroSignScore, 0);
+  /* L'energia NON si azzera: e' il termine che fa scadere il lock a orologio
+     (GSIGN_TAU_S). Azzerarla sbloccherebbe un verdetto gia' dato. */
+  assert.equal(s.gyroSignEnergy, 900);
+  assert.equal(s.gyroSignLocked, true);
+});
+
+/* leanKin = atan(v*yawUp/g): con il GPS stantio `speedFusMs` e' un'ultima velocita'
+   notissima ma VECCHIA, e la piega cinematica che ne uscirebbe e' un numero
+   plausibile e falso. null, non 0: 0 e' una piega valida (moto dritta). */
+test('leanKin: null col GPS stantio, numero con la velocita fresca', () => {
+  resetState();
+  const s = api.state;
+  s.calib = api.buildBasis({ x: 1, y: 0, z: 0 });
+  s.mount = 'landscape-left';
+  const sample = t => ({ acc: { x: api.G, y: 0, z: 0 }, gyro: { x: 30, y: 0, z: 0 }, grav: null, lin: null, t });
+  let t = 500000;
+  const step = () => { t += 50; api.lastMotionT = t - 50; api.processSample(sample(t)); };
+
+  // Il clock del sandbox è Date.now() (tests/harness.mjs): performance.now() del
+  // processo di test vive in un altro dominio e farebbe scattare subito il gate.
+  s.speedFusMs = 20; s.speedGpsMs = 20; s.speedGpsT = Date.now();
+  for (let i = 0; i < 5; i++) step();
+  assert.ok(Number.isFinite(s.leanKin), 'atteso un numero, ottenuto ' + s.leanKin);
+  assert.ok(Math.abs(s.leanKin) > 1, 'piega cinematica attesa non nulla, ottenuto ' + s.leanKin);
+
+  s.speedGpsT = Date.now() - (api.SPEED_STALE_MS + 1);
+  step();
+  assert.equal(s.leanKin, null);
 });

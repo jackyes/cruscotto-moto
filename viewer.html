@@ -267,12 +267,12 @@ const canvasTheme = {
   'use strict';
   const $ = id => document.getElementById(id);
 
-  // Stesse 27 colonne dell'app (CSV_HEADER in js/csv.js). I CSV legacy con meno
+  // Stesse 28 colonne dell'app (CSV_HEADER in js/csv.js). I CSV legacy con meno
   // colonne continuano a funzionare: le colonne assenti restano null.
   const COLS = ('t,speed_kmh,speed_ms,lean_deg,lat_accel_g,lon_accel_g,vert_accel_g,' +
     'lat_peak_g,lon_peak_g,vert_peak_g,lat_accel_fus_g,lon_accel_fus_g,' +
     'gyro_roll_dps,gap,vib_g,lat,lon,alt_m,heading_deg,gps_acc_m,' +
-    'pitch_deg,gyro_yaw_dps,speed_fus_ms,lean_kin_deg,vib_hi_g,lean_ref,vib_rect_g').split(',');
+    'pitch_deg,gyro_yaw_dps,speed_fus_ms,lean_kin_deg,vib_hi_g,lean_ref,vib_rect_g,speed_stale').split(',');
 
   // --- parser CSV: salta i commenti '#', header per nome colonna, campi vuoti -> null.
   // RFC4180 minimo: virgolette doppie ("" = escape), BOM, NaN/Infinity -> null.
@@ -925,7 +925,7 @@ const canvasTheme = {
         latG: r.lat_accel_g, lonG: r.lon_accel_g, vertG: r.vert_accel_g,
         latPk: r.lat_peak_g, lonPk: r.lon_peak_g, vertPk: r.vert_peak_g,
         latFus: r.lat_accel_fus_g, lonFus: r.lon_accel_fus_g,
-        gyro: r.gyro_roll_dps, gap: r.gap, vib: r.vib_g,
+        gyro: r.gyro_roll_dps, gap: r.gap, speedStale: r.speed_stale, vib: r.vib_g,
         lat: r.lat, lon: r.lon, alt: r.alt_m,
         heading: r.heading_deg, gpsAcc: r.gps_acc_m,
         pitch: r.pitch_deg, yaw: r.gyro_yaw_dps, speedFus: r.speed_fus_ms,

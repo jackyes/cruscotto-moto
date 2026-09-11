@@ -149,7 +149,6 @@ function correctSpeed(vGps, tFixP, noLag) {
   // pari all'accelerazione × 0.6 s (~3 m/s a 0.5 g).
   const past = aIntAt(tFixP - (noLag ? 0 : GPS_LAG_S * 1000));
   state._spBase = vGps - (past != null ? past : state._aInt);
-  state._spCorrT = tFixP;
   const v = state._spBase + state._aInt;
   // Proiezione del fix al presente: è l'ancora giusta per il clamp di
   // propagateSpeed (il Doppler descrive GPS_LAG_S fa, la posizione no).
@@ -239,13 +238,29 @@ function attitudeReference(f, w, B) {
     if (state.latGps != null && Math.abs(state.latGps) > ATT_GPS_SIGN_MIN_G) sgn = state.latGps < 0 ? -1 : 1;
     else if (state.hasGyro && Math.abs(state.lean) > ATT_LEAN_SIGN_MIN_DEG) sgn = state.lean < 0 ? -1 : 1;
     if (sgn) {
+      /* La norma e' affidabile solo se l'eccesso su g lo spiega la curva, non il
+         rumore. hypot() e' convessa: la vibrazione gonfia ‖f‖ SEMPRE in positivo
+         (mai in negativo), quindi il ramo su norma senza questo gate non sbaglia a
+         caso — inventa una piega nella direzione sbagliata, sempre. La relazione e'
+         quella documentata in js/accel-fusion.js: a 0,3 g RMS la norma legge 1,09 g,
+         cioe' ‖f‖/g − 1 ≈ v² (v = vibrazione in g). Qui si chiede che l'eccesso
+         osservato sia almeno quello che la vibrazione da sola puo' spiegare: sotto
+         quella soglia il modulo non porta informazione d'angolo e si congela come
+         nel caso mag < G, invece di dichiarare i ~23° che 0,3 g di vibrazione
+         fabbricano da soli.
+         vibG (non vibAdaptG) perche' e' il residuo rispetto allo STESSO passa-basso
+         che produce f: e' un limite superiore di quanto rumore resta dentro f, e
+         sbagliare per eccesso qui significa solo congelare un po' prima.
+         Non e' una soglia tarata su strada: va rivista con dati di guida reali
+         (galleria con vibrazione alta). */
+      const inflazione = state.vibG * state.vibG;
       // mag < G (vibrazione, errore LP) rendeva G/mag > 1: clamp lo saturava a 1,
       // acos(1) = 0 e il riferimento collassava sul grezzo trascinando la stima
       // verso l'alto. Sotto g non c'è informazione d'angolo: si congela l'ultimo
       // rotore norm valido invece di inventarne uno a 0°. Con scadenza a 2 s:
       // dopo una lunga fermata sul cavalletto il rotore salvato descrive una
       // posa di ore prima — re-iniettarlo tira la stima verso quella.
-      if (mag < G) {
+      if (mag < G || (mag / G - 1) <= inflazione) {
         const ln = state._attLastNorm, lnT = state._attLastNormT;
         return (ln && lnT && (performance.now() - lnT) < ATT_NORM_TTL_MS) ? ln : null;
       }
@@ -414,4 +429,19 @@ function updateGyroSign(rollRate, leanAcc, dt, credible) {
     return true;
   }
   return false;
+}
+
+/* Invalida la baseline dello stimatore del segno, senza toccare il verdetto.
+   Il verdetto si fonda su d(leanAcc)/dt: tutto cio' che cambia il SEGNO di leanAcc
+   senza che la moto abbia cambiato piega (il toggle "inverti piega", index.html) fa
+   vedere al campione successivo un salto di 2·leanAcc/dt, che lo stimatore legge
+   come una rotazione vera. A passo d'uomo con 20° di piega sono migliaia di °/s:
+   un solo campione supera GSIGN_MIN_ENERGY e ribalta il segno, che viene anche
+   PERSISTITO su localStorage — se l'app muore nei ~4 s del lock (GSIGN_TAU_S), il
+   device riparte col segno sbagliato. L'energia NON si azzera: sotto la soglia di
+   sblocco il lock scadrebbe subito e un verdetto gia' dato tornerebbe in verifica,
+   che e' esattamente cio' che il decay a orologio esiste per impedire. */
+function resetGyroSignLearner() {
+  state._gsPrev = null;      // nessun dLean al primo campione col segno nuovo
+  state.gyroSignScore = 0;   // l'evidenza accumulata vive nel frame col segno vecchio
 }

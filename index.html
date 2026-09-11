@@ -1978,6 +1978,12 @@ function init() {
        validatore delle settings salvate: se le due liste divergono non si rompe. */
     state.mount = mountKey(els.mountSel.value);
     saveSettings();
+    /* Il montaggio definisce il frame in cui si proiettano gli assi: cambiarlo può
+       ribaltare il SEGNO di leanAcc a parita' di piega (stesso caso del toggle
+       "inverti piega" qui sotto), e il punteggio accumulato nel frame vecchio
+       resterebbe come evidenza per quello nuovo. resetSensorFilters azzera la
+       baseline ma NON il punteggio: serve questo. */
+    resetGyroSignLearner();
     // Cambiare montaggio invalida la base calibrata: meglio dirlo che lasciare
     // dati falsi con lo stato che continua a dire "calibrato".
     if (state.calib) {
@@ -1988,7 +1994,15 @@ function init() {
       toast('Orientamento cambiato: rifai la calibrazione.', 'err', 5000);
     }
   });
-  els.invertLean.addEventListener('change', () => { state.invertLean = els.invertLean.checked; saveSettings(); });
+  els.invertLean.addEventListener('change', () => {
+    state.invertLean = els.invertLean.checked;
+    /* Cambia il SEGNO di leanAcc a parita' di piega: la baseline dello stimatore
+       del segno giroscopio (dLean = ΔleanAcc/dt) vedrebbe un salto che non e' una
+       rotazione, e con la moto in piega a passo d'uomo un solo campione basta a
+       fargli ribaltare un verdetto che poi viene scritto su localStorage. */
+    resetGyroSignLearner();
+    saveSettings();
+  });
   els.gyroFusion.addEventListener('change', () => { state.gyroFusion = els.gyroFusion.checked; state._attU = null; saveSettings(); });
   els.gravityModeSel.addEventListener('change', () => {
     state.gravityMode = (els.gravityModeSel.value === 'native' || els.gravityModeSel.value === 'own')

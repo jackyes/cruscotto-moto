@@ -10,8 +10,6 @@ const CHART_WINDOW = 60000;
 const SENSOR_DT_MIN_S = 0.0005;  // dt sotto questo = campione duplicato/difettoso
 const SENSOR_DT_MAX_S = 0.25;    // dt sopra questo = buco: reinizializza i filtri
 const YAW_LP_MIN_S = 0.02;       // tau minimo del filtro lento sull'imbardata
-const GYRO_BIAS_WINDOW_S = 2;    // finestra di media del bias di rollio da fermo
-const GYRO_BIAS_EMA = 0.2;       // costante dell'EMA che aggiorna gyroBias
 const LEAN_CLAMP_DEG = 80;       // saturazione della piega esposta
 const TRACK_POINT_MIN_MS = 1000; // throttle punti traccia (performance.now())
 const CAM_ALERT_MS = 4000;       // durata banner autovelox
@@ -121,10 +119,6 @@ const GPS_LAG_S = 0.6;         // ritardo tipico della velocità Doppler; compen
 const SPEED_HIST_S = 3;        // profondità della storia di v̂ (s)
 const SPEED_STALE_MS = 3000;   // oltre questo la velocità GPS non è più utilizzabile
 const SPEED_MAX_DEV_MS = 2.5;    // scostamento massimo dalla velocità GPS con fix fresco
-/* --- rilevamento del fermo: evidenza POSITIVA, non assenza di velocità --- */
-const STOP_SPEED_MS = 0.5;
-const STOP_ROLL_DPS = 2;
-const STOP_VIB_G = 0.25;
 /* --- stimatore del segno del giroscopio --- */
 const GSIGN_TAU_S = 4;         // memoria della correlazione rollio/derivata-accelerometro
 const GSIGN_MIN_ENERGY = 150;  // energia minima prima di dare un verdetto
@@ -166,7 +160,7 @@ const state = {
   calib: null,
   lean: 0,
   pitch: 0,           // beccheggio (°), positivo = muso in su — nuovo
-  leanKin: 0,         // piega cinematica atan(v·ψ̇/g): stima indipendente, per confronto
+  leanKin: null,      // piega cinematica atan(v·ψ̇/g): stima indipendente, per confronto (null = non calcolabile: GPS stantio o fermo)
   gyroRoll: 0,
   gyroYaw: 0,         // imbardata attorno all'asse su del frame moto (°/s)
   yawUp: 0,           // imbardata attorno alla verticale VERA (°/s) — quella cinematica
@@ -229,7 +223,6 @@ const state = {
   vibG: 0,            // RMS della vibrazione (g), stimata sulle differenze campione-campione
   gRatio: 1,          // ‖a‖ filtrata / g — 1 = coerente con la sola gravità
   leanConf: 1,        // affidabilità della piega 0..1 (guidata dalla vibrazione)
-  gyroBias: null,     // bias di rollio stimato da fermo (°/s) — solo diagnostica
   attBias: { x: 0, y: 0, z: 0 }, // bias giroscopio VETTORIALE appreso dal termine integrale (°/s)
   leanBias: 0,        // proiezione del bias sull'asse di rollio (°/s), per la diagnostica
   gyroSign: LEAN_GYRO_SIGN_DEFAULT, // segno del vettore rotationRate, imparato a runtime
@@ -238,7 +231,6 @@ const state = {
   gyroSignLocked: false, // verdetto già dato: blocca l'accumulo finché l'energia resta sopra soglia
   attRef: 'none',     // riferimento attivo: 'centrip' | 'raw' | 'gyro' | 'none'
   attTrust: 0,        // credibilità istantanea del riferimento accelerometrico 0..1
-  stopped: false,     // fermo accertato con evidenza positiva
   speedFusMs: 0,      // velocità fusa inerziale+GPS (m/s), senza il ritardo del Doppler
   speedGpsMs: null,   // ultima velocità GPS realmente riportata (null = non riportata)
   speedGpsT: 0,       // performance.now() dell'ultima velocità GPS valida
@@ -406,8 +398,16 @@ function buildBasis(up, mount) {
 }
 
 /* Vettore a tre componenti tutte finite. Vive qui (algebra) perché la usano sia
-   la pipe sensori sia la validazione della calibrazione salvata. */
-function finiteVec(v) { return !!(v && isFinite(v.x) && isFinite(v.y) && isFinite(v.z)); }
+   la pipe sensori sia la validazione della calibrazione salvata.
+   `v.x != null` PRIMA di isFinite: isFinite(null) è true (Number(null) === 0), quindi
+   un asse mancante — che la Generic Sensor API restituisce null quando il sensore non
+   è attivo — passava il gate e veniva letto come uno zero VERO: direzione di gravità
+   sbagliata di 45°, e in calibOk una base salvata con un componente null entrava in
+   state.calib senza il toast di rifiuto. */
+function finiteVec(v) {
+  return !!(v && v.x != null && v.y != null && v.z != null
+    && isFinite(v.x) && isFinite(v.y) && isFinite(v.z));
+}
 
 /* Coercizione numerica per valori che arrivano da IndexedDB o da file di terzi
    (stringhe, null, campi assenti). Serve dove un metodo numerico sta dentro una

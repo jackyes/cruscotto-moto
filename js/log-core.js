@@ -12,6 +12,11 @@ function snapshot() {
     t,
     speedKmh: (state.speedGpsMs != null) ? state.speedGpsMs * 3.6 : null,
     speedMs: state.speedGpsMs,
+    /* speedGpsMs NON si azzera quando il GPS tace: la colonna resta ferma
+       all'ultimo Doppler (in galleria: 110 km/h per tutto il buco) e `gap` non lo
+       segnala, perche' il campionamento non si e' fermato. Senza questo bit una
+       riga con la velocita' vecchia e' indistinguibile da una vera. */
+    speedStale: (performance.now() - state.speedGpsT) >= SPEED_STALE_MS ? 1 : 0,
     lean: m ? m.lean : state.lean,
     latG: m ? m.latG : state.latG,
     lonG: m ? m.lonG : state.lonG,

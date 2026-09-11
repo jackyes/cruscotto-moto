@@ -6,21 +6,22 @@ import { api } from './harness.mjs';
 const { __viewer } = loadViewer().sandbox;
 const { COLS, parseCsv, viewerStats, render } = __viewer;
 
-test('COLS: 27 colonne come CSV_HEADER app', () => {
-  assert.equal(COLS.length, 27);
+test('COLS: 28 colonne come CSV_HEADER app', () => {
+  assert.equal(COLS.length, 28);
   assert.equal(COLS[0], 't');
   assert.ok(COLS.includes('gyro_roll_dps'));
   assert.ok(COLS.includes('vib_g'));
   assert.ok(COLS.includes('gap'));
   assert.ok(COLS.includes('pitch_deg'));
   assert.ok(COLS.includes('vib_rect_g'));
+  assert.equal(COLS[COLS.length - 1], 'speed_stale');
   // Collegamento strutturale: la copia nel viewer deve restare identica a
   // CSV_HEADER (js/csv.js), altrimenti un drift sposterebbe i valori in campi
   // sbagliati senza alcun errore.
   assert.deepEqual(COLS, api.CSV_HEADER.split(','));
 });
 
-test('parseCsv: header 27 col ok, legacy 9 col senza crash', () => {
+test('parseCsv: header 28 col ok, legacy 9 col senza crash', () => {
   const full = COLS.join(',') + '\n' + COLS.map((c, i) => c === 't' ? '5' : String(i)).join(',') + '\n';
   const rows = parseCsv(full);
   assert.equal(rows.length, 1);
