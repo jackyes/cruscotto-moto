@@ -65,15 +65,20 @@ const documentMock = {
 };
 const windowMock = { addEventListener: () => {}, removeEventListener: () => {} };
 
-export function loadViewer() {
+export function loadViewer(opts) {
   const html = readFileSync(join(root, 'viewer.html'), 'utf8');
   const script = extractViewerScript(html);
+  /* rAF sincrono di default (i test esistenti chiamano render() e asseriscono
+     subito). Con { deferRaf: true } i callback si accodano e li esegue flushRaf():
+     e' l'unico modo di riprodurre l'ordine reale del browser, dove renderRows
+     atterra DOPO il codice che segue la chiamata a render(). */
+  const rafs = [];
   const sandbox = {
     console, document: documentMock, window: windowMock,
     getComputedStyle: () => ({ getPropertyValue: () => '#888' }),
     FileReader: function () { sandbox.__lastReader = this; },
     alert: (msg) => { sandbox.__alerts = sandbox.__alerts || []; sandbox.__alerts.push(String(msg)); },
-    requestAnimationFrame: fn => fn(),
+    requestAnimationFrame: opts && opts.deferRaf ? (fn => { rafs.push(fn); return rafs.length; }) : (fn => fn()),
     setTimeout: (fn) => 0, clearTimeout: () => {},
     L: {
       map: () => ({ removeLayer: () => {}, fitBounds: () => {}, invalidateSize: () => {} }),
@@ -84,5 +89,5 @@ export function loadViewer() {
   sandbox.globalThis = sandbox;
   vm.createContext(sandbox);
   vm.runInContext(script, sandbox, { filename: 'viewer.html' });
-  return { sandbox, ids };
+  return { sandbox, ids, flushRaf: () => { while (rafs.length) rafs.shift()(); } };
 }

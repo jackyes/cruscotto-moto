@@ -775,7 +775,11 @@ const canvasTheme = {
 
   // Wrapper retrocompatibile: i test e handleFile chiamano render().
   // Aggiorna anche bottone rimozione + legenda nomi file del confronto.
-  function render(rows, overlay) {
+  // `warn`: messaggio da mostrare DOPO il render. renderRows() apre con
+  // showError(null) e il render e' differito su rAF, quindi un warning impostato
+  // dal chiamante subito dopo render() veniva spazzato al frame successivo —
+  // un CSV troncato perdeva righe in silenzio.
+  function render(rows, overlay, warn) {
     currentRows = rows || [];
     // Nuovo file base: lo zoom sul giro del file precedente non ha più senso.
     if (overlay === undefined) zoomLap = null;
@@ -788,8 +792,13 @@ const canvasTheme = {
       lbl.hidden = !hasOv;
       if (hasOv) lbl.textContent = '— base · - - confronto';
     }
-    if (typeof requestAnimationFrame === 'function') requestAnimationFrame(() => renderRows(currentRows));
-    else renderRows(currentRows);
+    const go = () => {
+      renderRows(currentRows);
+      // Se il render ha un errore suo (nessuna riga valida) vince quello.
+      if (warn && currentRows.length) showError(warn);
+    };
+    if (typeof requestAnimationFrame === 'function') requestAnimationFrame(go);
+    else go();
   }
   $('btnOverlayClear').addEventListener('click', () => { render(currentRows, null); });
 
@@ -810,8 +819,10 @@ const canvasTheme = {
         try {
           metaFile = parseCsvMeta(String(reader.result));
           const rows = parseCsv(String(reader.result));
-          render(rows);
-          if (lastDropped > 0) showError(lastDropped + ' righe scartate (dati mancanti o file troncato).');
+          // Il warning va DENTRO render: mostrarlo qui lo faceva cancellare dal
+          // renderRows differito, che riparte con showError(null).
+          render(rows, undefined, lastDropped > 0
+            ? lastDropped + ' righe scartate (dati mancanti o file troncato).' : null);
         }
         catch (e) { showError('Errore di lettura: ' + e.message); }
         res();

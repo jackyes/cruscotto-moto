@@ -45,6 +45,26 @@ test('render: main unhidden + stats con durata 01:00', () => {
   assert.equal(ids.lblVmax.textContent, '90 km/h');
 });
 
+test('handleFile: il warning "righe scartate" non lo spazza il render differito', () => {
+  // render() accoda renderRows su rAF e renderRows apre con showError(null): un
+  // warning mostrato subito dopo render() spariva al frame successivo, e il CSV
+  // troncato perdeva righe in silenzio. Qui rAF è accodato (deferRaf) per
+  // riprodurre l'ordine vero del browser.
+  const { sandbox, ids, flushRaf } = loadViewer({ deferRaf: true });
+  let reader = null;
+  sandbox.FileReader = function () { reader = this; this.readAsText = () => {}; };
+  const p = sandbox.__viewer.handleFile({ name: 'giro.csv', size: 10 });
+  assert.ok(reader, 'FileReader non istanziato');
+  reader.result = 't,speed_kmh,lat,lon\n0,10,42.5,12.5\n1000,20,42.51,12.51\ntroncato,30,42.52,12.52\n';
+  reader.onload();
+  flushRaf();
+  return p.then(() => {
+    assert.equal(ids.err.hidden, false, 'warning righe scartate cancellato dal render');
+    assert.ok(ids.err.textContent.includes('righe scartate'), 'testo: ' + ids.err.textContent);
+    assert.ok(ids.err.textContent.includes('1 '), 'conteggio delle righe perse');
+  });
+});
+
 test('renderMap: senza Leaflet non lancia (fallback offline)', () => {
   const { sandbox, ids } = loadViewer();
   sandbox.L = undefined; // CDN bloccata
