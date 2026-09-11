@@ -331,8 +331,8 @@ function updateAttitude(f, w, B, dt, wRef) {
        resta comunque vicino al valore nominale: il random walk del giroscopio
        sotto vibrazione e' il peggior nemico, e a chiuderlo e' lui. */
     const vs = vibScale();
-    const kp = ATT_KP / Math.sqrt(vs);
-    const ki = ATT_KI / vs;
+    const kp = Math.max(ATT_KP / Math.sqrt(vs), ATT_KP * ATT_GAIN_MIN_FRAC);
+    const ki = Math.max(ATT_KI / vs, ATT_KI * ATT_GAIN_MIN_FRAC);
     state.vibScaleVal = vs;
     state.attKp = kp;
     /* Integrale: impara il bias quando il riferimento e' credibile e continua ad

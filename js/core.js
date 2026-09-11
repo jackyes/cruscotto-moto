@@ -62,6 +62,11 @@ const CAM_AHEAD_DEG = 60;      // semi-apertura del cono "davanti a me"
 const ATT_KP = 3.0;            // guadagno proporzionale del riallineamento (1/s)
 const ATT_KI = 0.10;           // guadagno integrale: stima del bias giroscopio (1/s²)
 const ATT_BIAS_MAX_DPS = 5;    // saturazione del bias stimato, per asse (°/s)
+const ATT_GAIN_MIN_FRAC = 0.6; // pavimento dei guadagni adattivi (frazione del nominale):
+                                // sotto vibrazione forte e prolungata Kp/Ki non devono
+                                // scendere sotto questa frazione, altrimenti la correzione
+                                // si indebolisce troppo e il giroscopio deriva libero fino
+                                // a saturare il clamp di piega (±80°).
 const ATT_TOL_G = 0.06;        // residuo di coerenza |‖a‖/g − atteso| oltre cui non ci si fida
 const ATT_MIN_REF_MAG_G = 0.1; // riferimento sotto questa norma = inutilizzabile
 const ATT_LON_RAW_MAX_G = 0.15;// gate manovra longitudinale per il riferimento da norma
