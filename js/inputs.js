@@ -119,7 +119,19 @@ function onGeolocation(pos) {
   checkCameras(c.accuracy);
   /* Prima del return per accuratezza scarsa piu' sotto: la navigazione deve vedere
      anche i fix imprecisi, per scartarli con criterio proprio invece che non riceverli. */
-  if (state.nav) { navTick(c.latitude, c.longitude, c.accuracy); navRenderBanner(); }
+  if (state.nav) {
+    navTick(c.latitude, c.longitude, c.accuracy);
+    navRenderBanner();
+    /* Anche il pannello (distanza residua, durata, ETA, lista manovre con il passo
+       corrente). renderNavPanel era gia' chiamata a ogni evento di rotta (navStart,
+       navStop, navRestore, navSetDest, navMaybeReroute, fine calcolo di rete) e al
+       cambio tab, ma l'unico scrittore che ne era privo e' il tick GPS: distRemain,
+       timeRemain e nextMan li aggiorna navTick, che nessuno di quegli eventi segue
+       a ogni fix. In navigazione reale il pannello restava quindi congelato sui
+       valori del calcolo — distanza che non cala, nessun passo marcato done.
+       Solo sul tab nav: pannello invisibile, ridisegno inutile. */
+    if (state.currentTab === 'nav') renderNavPanel();
+  }
 
   // Marker/follow si aggiornano a ogni fix, anche se il punto traccia viene scartato:
   // altrimenti in città o da fermo la mappa sembra congelata.

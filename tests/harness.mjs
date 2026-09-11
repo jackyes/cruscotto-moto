@@ -63,6 +63,7 @@ const exportLine = `
   navPassed, navAdvance, navBandDist, navFmtDist, navFmtShort, navFmtTime,
   osrmType, osrmText, osrmIdxOf, navFromOsrm, navParseCoords,
   renderNavPanel, navRenderResults, navSetDest, drawTrackOnCanvas, drawGpxRoute,
+  rotContainerPoint, rotClientPoint, applyMapRotation,
   csvMeta, num, csvRows, buildCsv, buildGpx, stamp, fmtDur, takeLogAvg, snapshot, findRowAt, parseGpx,
   pushBounded, diagVerdict, diagTicks, diagChartScale, camPrecompute, routeCacheKey, geoCacheKey, cacheGetFresh, cachePut,
   navRequestRoute, navGeocode, checkCameras, camsToDraw, maybeLoadCameras, fetchCameras,
@@ -118,7 +119,18 @@ function makeEl(tag) {
     remove() { if (el.parentNode) el.parentNode.removeChild(el); },
     setAttribute() {}, getAttribute() { return null; },
     click() { (listeners['click'] || []).forEach(fn => fn({ target: el })); },
+    _txt: '',
   };
+  /* textContent con la semantica dello spec (il codice la usa per svuotare un
+     contenitore prima di riempirlo: `el.textContent = ''` DEVE togliere i figli, in
+     un browser lo fa). Come proprietà semplice lasciava `children` intatto e i test
+     vedevano liste che crescevano a ogni ridisegno — falsi rossi, e falsi verdi
+     sul churn di nodi. */
+  Object.defineProperty(el, 'textContent', {
+    get() { return el.children.length ? el.children.map(c => String(c.textContent)).join('') : el._txt; },
+    set(v) { el.children.length = 0; el._txt = v == null ? '' : String(v); },
+    configurable: true, enumerable: true,
+  });
   return el;
 }
 

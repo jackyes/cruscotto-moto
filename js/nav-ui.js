@@ -154,20 +154,44 @@ function renderNavPanel() {
   }
   const ol = els.navSteps;
   if (!ol) return;
-  ol.textContent = '';
-  if (!nv) return;
-  for (let k = 0; k < nv.man.length; k++) {
-    const m = nv.man[k];
-    const li = document.createElement('li');
-    if (k < nv.nextMan) li.className = 'done';
-    else if (k === nv.nextMan) li.className = 'cur';
-    const sd = document.createElement('span'); sd.className = 'sd';
-    sd.textContent = k === nv.nextMan ? navFmtShort(nv.distToNext)
+  const man = nv ? nv.man : null;
+  /* Nodi riusati fra un ridisegno e l'altro. Il pannello si aggiorna a ogni fix GPS
+     (~1 Hz, js/inputs.js), ma la lista cambia solo quando cambia la rotta: ricostruire
+     la <ol> da zero costava N li + 2 span + testo per tick — su una rotta lunga (400
+     manovre) ~1200 nodi DOM creati e distrutti al secondo, in marcia, per riscrivere
+     due numeri. La cache si invalida sull'IDENTITA' di nv.man: rotta nuova (navBuild)
+     e rotta ripristinata (navRestore) sono array nuovi, quindi nessun contatore di
+     versione da tenere allineato. */
+  let st = state._navSteps;
+  /* st.n nella chiave: se qualcuno allungasse man in place (push), rows resterebbe
+     corta e il ciclo sotto leggerebbe st.rows[k] undefined — un TypeError dentro il
+     loop di navigazione. Nessun percorso attuale lo fa (navBuild e navRestore
+     producono array nuovi), ma il costo della chiave e' un confronto. */
+  if (!st || st.ol !== ol || st.man !== man || st.n !== (man ? man.length : 0)) {
+    ol.textContent = '';
+    st = state._navSteps = { ol: ol, man: man, n: man ? man.length : 0, rows: [] };
+    if (man) for (let k = 0; k < man.length; k++) {
+      const li = document.createElement('li');
+      const sd = document.createElement('span'); sd.className = 'sd';
+      const tx = document.createElement('span');
+      li.appendChild(sd); li.appendChild(tx);
+      ol.appendChild(li);
+      // cls/sdTxt/txTxt: ultimo valore scritto, per non toccare il DOM quando non
+      // cambia (sono la memoria che rende incrementale il redraw, non un doppione
+      // dello stato: leggere textContent/className li rileggerebbe dal DOM).
+      st.rows.push({ li: li, sd: sd, tx: tx, cls: null, sdTxt: null, txTxt: null });
+    }
+  }
+  if (!man) return;
+  for (let k = 0; k < man.length; k++) {
+    const m = man[k], r = st.rows[k];
+    const cls = k < nv.nextMan ? 'done' : (k === nv.nextMan ? 'cur' : '');
+    if (r.cls !== cls) { r.li.className = cls; r.cls = cls; }
+    const sdTxt = k === nv.nextMan ? navFmtShort(nv.distToNext)
       : navFmtShort(Math.max(0, nv.sMan[k] - nv.sAlong));
-    const tx = document.createElement('span');
-    tx.textContent = navIcon(m) + ' ' + (m.text || m.streets.join(', '));
-    li.appendChild(sd); li.appendChild(tx);
-    ol.appendChild(li);
+    if (r.sdTxt !== sdTxt) { r.sd.textContent = sdTxt; r.sdTxt = sdTxt; }
+    const txTxt = navIcon(m) + ' ' + (m.text || m.streets.join(', '));
+    if (r.txTxt !== txTxt) { r.tx.textContent = txTxt; r.txTxt = txTxt; }
   }
 }
 
