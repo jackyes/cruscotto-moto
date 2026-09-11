@@ -19,7 +19,7 @@ function fillAcc(n, vals = {}) {
     acc.pitch += vals.pitch ?? 2;
     acc.yaw += vals.yaw ?? 30;
     acc.speedFus += vals.speedFus ?? 20;
-    acc.leanKin += vals.leanKin ?? 9;
+    if ((vals.leanKin ?? 9) != null) { acc.leanKin += vals.leanKin ?? 9; acc.leanKinN++; }
     acc.vibHi += vals.vibHi ?? 0.01;
     acc.latPk = vals.latPk ?? acc.latPk;
     acc.lonPk = vals.lonPk ?? acc.lonPk;
@@ -123,4 +123,28 @@ test('snapshot: speedStale=1 col GPS stantio, 0 con la velocita fresca', () => {
   assert.equal(snapshot().speedStale, 0);
   api.state.speedGpsT = Date.now() - (api.SPEED_STALE_MS + 1);
   assert.equal(snapshot().speedStale, 1);
+});
+
+/* leanKin e' l'unico canale che puo' valere null ("non calcolabile": GPS stantio o
+   fermo). Accumularlo con gli altri e dividerlo per logAcc.n diluisce la media
+   verso zero — cioe' verso "dritto" — proprio nei tratti (gallerie, centri urbani)
+   in cui la colonna di controllo incrociato si va a guardare. */
+test('takeLogAvg: leanKin media solo i campioni calcolabili', () => {
+  resetState();
+  const acc = api.logAcc;
+  // 10 campioni, di cui 6 non calcolabili: la media deve valere 30, non 12.
+  for (let i = 0; i < 10; i++) {
+    acc.n++;
+    if (i < 4) { acc.leanKin += 30; acc.leanKinN++; }
+  }
+  const m = takeLogAvg();
+  assert.equal(m.leanKin, 30);
+});
+
+test('takeLogAvg: leanKin null se nessun campione e calcolabile', () => {
+  resetState();
+  const acc = api.logAcc;
+  for (let i = 0; i < 10; i++) acc.n++;   // tutta la finestra in galleria
+  const m = takeLogAvg();
+  assert.equal(m.leanKin, null);          // num() lascia la cella CSV vuota
 });

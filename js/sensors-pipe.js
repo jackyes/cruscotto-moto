@@ -23,6 +23,7 @@ function resetSensorFilters() {
   // attitudine
   state._attU = null;
   state._attLastNorm = null;
+  state._attNoRefS = 0;   // tempo senza riferimento credibile (watchdog di anello aperto)
   state.attBias = { x: 0, y: 0, z: 0 };
   state.leanBias = 0;
   state.attTrust = 0;
@@ -388,7 +389,8 @@ function processSample(sm) {
   logAcc.pitch += state.pitch;
   logAcc.yaw += state.gyroYaw;
   logAcc.speedFus += state.speedFusMs;
-  logAcc.leanKin += state.leanKin;
+  // null = non calcolabile: NON entra nella media (0 significherebbe "dritto").
+  if (state.leanKin != null) { logAcc.leanKin += state.leanKin; logAcc.leanKinN++; }
   logAcc.vibHi += state.vibHiG;
   logAcc.vibRect += state.vibRectG;
   logAcc.latPk = keepPeak(logAcc.latPk, state.latG);

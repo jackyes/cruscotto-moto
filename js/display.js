@@ -66,7 +66,8 @@ function tickDemo(now) {
     logAcc.gyro += state.gyroRoll; logAcc.vib += state.vibG;
     logAcc.latFus += state.latFus; logAcc.lonFus += state.lonFus;
     logAcc.pitch += state.pitch; logAcc.yaw += state.gyroYaw;
-    logAcc.speedFus += state.speedFusMs; logAcc.leanKin += state.leanKin;
+    logAcc.speedFus += state.speedFusMs;
+    if (state.leanKin != null) { logAcc.leanKin += state.leanKin; logAcc.leanKinN++; }
     logAcc.vibHi += state.vibHiG;
     logAcc.latPk = keepPeak(logAcc.latPk, state.latG);
     logAcc.lonPk = keepPeak(logAcc.lonPk, state.lonG);

@@ -133,3 +133,74 @@ test('attitudeReference: piega vera oltre la soglia di inflazione passa', () => 
   assert.equal(R.mode, 'norm');
   assert.ok(Math.abs(leanFromUp(R.u, b) - (-30)) < 1e-6);
 });
+
+/* Watchdog di anello aperto. Senza riferimento credibile e = 0: il filtro integra
+   il giroscopio e basta, e un bias di 1°/s porta la stima al clamp di piega in
+   meno di un minuto. Il caso si raggiunge da solo in galleria: appena la stima
+   supera ATT_LEAN_SIGN_MIN_DEG il ramo su norma si attiva, non trova inflazione da
+   spiegare (moto dritta, ‖f‖ = g) e restituisce null — e da li' non si esce piu'. */
+function tunnelRun(seconds, biasDps, startLeanDeg) {
+  resetState();
+  const b = B();
+  state.hasGyro = true; state.gyroFusion = true; state.calib = b;
+  state.speedFusMs = 25; state.speedGpsMs = 25;
+  state.speedGpsT = 0;                 // GPS stantio: nessuna compensazione centripeta
+  state.lonG = 0; state.vibG = 0.05;
+  const a0 = startLeanDeg * Math.PI / 180;
+  state._attU = { x: Math.cos(a0), y: Math.sin(a0), z: 0 };
+  state._accHist = new Array(9).fill({ x: G, y: 0, z: 0 });
+  const dt = 1 / 60;
+  const f = { x: G, y: 0, z: 0 };      // moto DRITTA: accelerometro = g pulito
+  const w = { x: 0, y: 0, z: biasDps };// bias sull'asse di rollio (B.fwd)
+  let peak = 0, sawWdog = false;
+  for (let t = 0; t < seconds; t += dt) {
+    updateAttitude(f, w, b, dt, w);
+    state.lean = leanFromUp(state._attU, b);
+    if (Math.abs(state.lean) > Math.abs(peak)) peak = state.lean;
+    if (state.attRef === 'wdog') sawWdog = true;
+  }
+  return { lean: state.lean, peak, sawWdog };
+}
+
+test('watchdog: la deriva in galleria non corre fino al clamp', () => {
+  const r = tunnelRun(60, -1, 20);
+  assert.ok(r.sawWdog, 'il watchdog deve intervenire dopo ATT_OPENLOOP_MAX_S');
+  // Senza watchdog qui si misurava 77° a 60 s (e 135° a 120 s, senza mai rientrare).
+  assert.ok(Math.abs(r.peak) < 45, 'picco ' + r.peak.toFixed(1) + '°');
+  assert.ok(Math.abs(r.lean) < 5, 'a 60 s deve essere rientrata, non ' + r.lean.toFixed(1) + '°');
+});
+
+test('watchdog: non tocca il filtro finche il riferimento e credibile', () => {
+  resetState();
+  const b = B();
+  state.hasGyro = true; state.gyroFusion = true; state.calib = b;
+  state.speedFusMs = 0; state.speedGpsMs = 0; state.speedGpsT = Date.now();
+  state._accHist = new Array(9).fill({ x: G, y: 0, z: 0 });
+  const f = { x: G, y: 0, z: 0 };
+  const w = { x: 0, y: 0, z: 0 };
+  for (let t = 0; t < 60; t += 1 / 60) updateAttitude(f, w, b, 1 / 60, w);
+  assert.notEqual(state.attRef, 'wdog');
+  assert.ok(Math.abs(leanFromUp(state._attU, b)) < 0.5);
+});
+
+/* Il ramo su norma costruisce un rotore GEOMETRICO nel frame B, ma prende il segno
+   da state.lean, che e' gia' passato per invertLean. Con il toggle attivo le due
+   convenzioni sono opposte e il riferimento spingeva la stima dalla parte sbagliata
+   con fiducia NORM_MODE_TRUST. */
+for (const inv of [false, true]) {
+  test('ramo norm: segno coerente col frame B, invertLean=' + inv, () => {
+    resetState();
+    const b = B();
+    state.hasGyro = true; state.calib = b;
+    state.speedFusMs = 25; state.speedGpsMs = 25; state.speedGpsT = 0;
+    state.lonG = 0; state.vibG = 0.02;
+    state.invertLean = inv;
+    const geom = 25;                       // piega VERA nel frame B: +25°
+    state.lean = inv ? -geom : geom;       // cio' che l'app espone
+    const f = vscale(b.up, G / Math.cos(geom * Math.PI / 180));
+    const R = attitudeReference(f, { x: 0, y: 0, z: 0 }, b);
+    assert.equal(R.mode, 'norm');
+    assert.ok(Math.abs(leanFromUp(R.u, b) - geom) < 1e-6,
+      'rotore a ' + leanFromUp(R.u, b).toFixed(2) + '°, atteso +' + geom + '°');
+  });
+}

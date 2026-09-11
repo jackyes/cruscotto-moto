@@ -237,6 +237,15 @@ function attitudeReference(f, w, B) {
     let sgn = 0;
     if (state.latGps != null && Math.abs(state.latGps) > ATT_GPS_SIGN_MIN_G) sgn = state.latGps < 0 ? -1 : 1;
     else if (state.hasGyro && Math.abs(state.lean) > ATT_LEAN_SIGN_MIN_DEG) sgn = state.lean < 0 ? -1 : 1;
+    /* sgn vive in convenzione ESPOSTA: state.lean e' gia' passato per invertLean
+       (js/sensors-pipe.js) e latGps eredita il verso da gyroSign, che il learner
+       impara proprio sulla derivata di quella stessa piega invertita. Il rotore qui
+       sotto e' invece GEOMETRICO nel frame B (B.up·cos + B.right·sin), quindi la
+       conversione va fatta una volta, alla frontiera. Senza, con invertLean attivo
+       il riferimento su norma spinge la stima dalla parte OPPOSTA a quella vera,
+       con fiducia NORM_MODE_TRUST: non un riferimento debole, un riferimento al
+       contrario. */
+    if (sgn && state.invertLean) sgn = -sgn;
     if (sgn) {
       /* La norma e' affidabile solo se l'eccesso su g lo spiega la curva, non il
          rumore. hypot() e' convessa: la vibrazione gonfia ‖f‖ SEMPRE in positivo
@@ -303,14 +312,43 @@ function updateAttitude(f, w, B, dt, wRef) {
        costante. Meglio aspettare un secondo che partire storti. */
     if (!R || R.trust < ATT_INIT_MIN_TRUST || !(state._accHist && state._accHist.length >= medianWindow())) {
       state.attTrust = R ? R.trust : 0;
+      state._attNoRefS = 0;   // nulla da riancorare finche' non c'e' un'attitudine
       return false;
     }
     state._attU = R.u;
     state.attBias = { x: 0, y: 0, z: 0 };
+    state._attNoRefS = 0;
   }
   const hasGyro = state.hasGyro && state.gyroFusion;
-  state.attTrust = R ? R.trust : 0;
-  state.attRef = R ? R.mode : (hasGyro ? 'gyro' : 'none');
+
+  /* Watchdog di anello aperto. Senza riferimento non c'e' NIENTE che chiuda
+     l'errore: e = 0, e l'integrazione del giroscopio corre fino al clamp di piega.
+     Il caso non e' teorico ed e' una trappola a senso unico: in galleria (GPS
+     stantio) su rettilineo il ramo su norma si attiva appena la stima supera
+     ATT_LEAN_SIGN_MIN_DEG, trova ‖f‖ = g — nessuna inflazione da spiegare, quindi
+     nessuna informazione d'angolo — e restituisce null; il ramo raw, che sarebbe
+     perfetto li', non viene mai raggiunto, e se lo fosse risponderebbe comunque
+     fiducia zero perche' confronta ‖f‖/g con 1/cos(phi) della piega CREDUTA. Sotto
+     i 2 gradi il filtro si corregge, sopra non si corregge piu': la deriva che
+     supera la soglia non torna piu' indietro.
+     Un accelerometro che legge g pulito per decine di secondi mentre la stima
+     dichiara 30 gradi di piega non e' un dubbio: una piega vera tenuta cosi' a lungo
+     gonfierebbe la norma (1/cos 30 = 1,15 g). Si riapre quindi l'anello sul grezzo,
+     con fiducia che CRESCE col tempo di cecita': una curva lunga resta sotto la
+     soglia e non viene toccata, una galleria di minuti viene riancorata piano. */
+  let Rw = R;
+  if (R && R.trust > ATT_TRUST_EPS) state._attNoRefS = 0;
+  else {
+    state._attNoRefS = (state._attNoRefS || 0) + dt;
+    const over = (state._attNoRefS - ATT_OPENLOOP_MAX_S) / ATT_OPENLOOP_MAX_S;
+    const fMag = vlen(f);
+    if (over > 0 && fMag > ATT_MIN_REF_MAG_G) {
+      Rw = { u: vscale(f, 1 / fMag), trust: ATT_WATCHDOG_TRUST * clamp01(over), mode: 'wdog' };
+    }
+  }
+
+  state.attTrust = Rw ? Rw.trust : 0;
+  state.attRef = Rw ? Rw.mode : (hasGyro ? 'gyro' : 'none');
 
   let u = state._attU;
   /* e = û × û_ref e' l'ASSE della rotazione che porta la stima sul riferimento, con
@@ -321,7 +359,7 @@ function updateAttitude(f, w, B, dt, wRef) {
          du/dt     = −omega_eff × û
      Con omega_eff = −Kp·e si ottiene infatti −(−Kp e) × û = Kp (e × û), che e'
      esattamente la componente di û_ref perpendicolare a û: il riallineamento giusto. */
-  const e = R ? vscale(vcross(u, R.u), R.trust) : { x: 0, y: 0, z: 0 };
+  const e = Rw ? vscale(vcross(u, Rw.u), Rw.trust) : { x: 0, y: 0, z: 0 };
 
   if (hasGyro) {
     /* Guadagni adattivi: sotto vibrazione il riferimento filtrato resta piu'
@@ -347,10 +385,10 @@ function updateAttitude(f, w, B, dt, wRef) {
 
     const wEff = vsub(vscale(vsub(w, state.attBias), Math.PI / 180), vscale(e, kp));
     u = vadd(u, vscale(vcross(wEff, u), -dt));
-  } else if (R) {
+  } else if (Rw) {
     // Senza giroscopio non c'e' nulla da propagare: si insegue solo il riferimento.
     const a = dt / (LEAN_SMOOTH_TAU_S + dt);
-    u = vadd(u, vscale(vsub(R.u, u), a));
+    u = vadd(u, vscale(vsub(Rw.u, u), a));
   }
   state._attU = vnorm(u);
   return true;

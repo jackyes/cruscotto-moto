@@ -98,7 +98,10 @@ function takeLogAvg() {
     vertG: logAcc.vertG / n, gyro: logAcc.gyro / n, vib: logAcc.vib / n,
     latFus: logAcc.latFus / n, lonFus: logAcc.lonFus / n,
     pitch: logAcc.pitch / n, yaw: logAcc.yaw / n, speedFus: logAcc.speedFus / n,
-    leanKin: logAcc.leanKin / n, vibHi: logAcc.vibHi / n, vibRect: logAcc.vibRect / n,
+    // Media sui soli campioni calcolabili; nessuno valido = null, e num() (js/csv.js)
+    // lascia la cella vuota invece di scrivere uno 0 che si legge "dritto".
+    leanKin: logAcc.leanKinN ? logAcc.leanKin / logAcc.leanKinN : null,
+    vibHi: logAcc.vibHi / n, vibRect: logAcc.vibRect / n,
     latPk: logAcc.latPk, lonPk: logAcc.lonPk, vertPk: logAcc.vertPk,
   };
   resetLogAcc();

@@ -151,7 +151,8 @@ function updateDiag() {
     ? g2(state.vibRectG) + ' g' + (state.rectNull ? ' (corretto)' : '') : 'non rilevato';
 
   const REF = { centrip: 'compensato (curva valida)', norm: 'da norma (senza GPS)',
-                raw: 'accelerometro grezzo', gyro: 'solo giroscopio', none: '—' };
+                raw: 'accelerometro grezzo', gyro: 'solo giroscopio',
+                wdog: 'riancoraggio di sicurezza (nessun riferimento)', none: '—' };
   els.dgRef.textContent = REF[state.attRef] || '—';
   els.dgSrc.textContent = state.sensorSrc === 'generic' ? 'Generic Sensor API'
     : (state.sensorSrc === 'devicemotion' ? 'devicemotion' : '—');

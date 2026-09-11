@@ -73,6 +73,15 @@ const ATT_LON_RAW_MAX_G = 0.15;// gate manovra longitudinale per il riferimento 
 const ATT_GPS_SIGN_MIN_G = 0.05; // latGps sotto questo modulo non dice il segno della piega
 const ATT_LEAN_SIGN_MIN_DEG = 2; // piega sotto questo modulo non dice il segno
 const ATT_NORM_TTL_MS = 2000;  // scadenza dell'ultimo riferimento 'norm' salvato
+/* --- watchdog di anello aperto ---
+   Senza riferimento credibile il filtro integra il giroscopio e basta: l'errore non
+   ha piu' nulla che lo chiuda e cresce finche' il clamp di piega non lo ferma. Dopo
+   ATT_OPENLOOP_MAX_S di cecita' si riapre l'anello sull'accelerometro grezzo, con
+   fiducia che cresce linearmente col tempo di cecita' fino ad ATT_WATCHDOG_TRUST:
+   una curva lunga non arriva alla soglia, una galleria di minuti si'. */
+const ATT_TRUST_EPS = 0.02;      // sotto questa fiducia il riferimento non corregge nulla
+const ATT_OPENLOOP_MAX_S = 15;   // cecita' tollerata prima del riancoraggio debole (s)
+const ATT_WATCHDOG_TRUST = 0.05; // fiducia massima del riferimento di watchdog
 const ATT_EXPECT_MIN = 0.2;    // floor del cos(lean) nel valore atteso (mai 0)
 const ATT_INIT_MIN_TRUST = 0.5;// fiducia minima del riferimento per inizializzare
 const CENTRIP_MIN_MS = 3;      // sotto questa velocità la compensazione centripeta è inutile
@@ -264,6 +273,11 @@ const logAcc = {
   n: 0, lean: 0, latG: 0, lonG: 0, vertG: 0, gyro: 0, vib: 0, latFus: 0, lonFus: 0,
   // canali nuovi: beccheggio, imbardata, velocita' fusa, piega cinematica, vibrazione fuori banda
   pitch: 0, yaw: 0, speedFus: 0, leanKin: 0, vibHi: 0, vibRect: 0,
+  /* leanKin ha un contatore PROPRIO: e' l'unico canale che puo' valere null
+     ("non calcolabile", GPS stantio o fermo). Accumularlo con gli altri e
+     dividerlo per logAcc.n diluirebbe verso zero — cioe' verso "dritto" — ogni
+     finestra che contiene campioni non calcolabili. */
+  leanKinN: 0,
   // La media protegge dall'aliasing ma cancella i picchi, che sul verticale sono
   // proprio l'informazione utile: si tiene anche il massimo in modulo, con segno.
   latPk: 0, lonPk: 0, vertPk: 0,
@@ -280,6 +294,7 @@ function resetLogAcc() {
   logAcc.lean = logAcc.latG = logAcc.lonG = logAcc.vertG = 0;
   logAcc.gyro = logAcc.vib = logAcc.latFus = logAcc.lonFus = 0;
   logAcc.pitch = logAcc.yaw = logAcc.speedFus = logAcc.leanKin = logAcc.vibHi = logAcc.vibRect = 0;
+  logAcc.leanKinN = 0;
   logAcc.latPk = logAcc.lonPk = logAcc.vertPk = 0;
 }
 
