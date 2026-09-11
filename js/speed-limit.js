@@ -87,6 +87,13 @@ async function fetchSpeedLimit(lat, lon) {
       state.speedLimitRetryAfter = 0;
     }
   } catch (e) {
+    /* Il limite del fetch precedente restava in state per SPEED_LIMIT_FAIL_MS: nel
+       frattempo la moto è andata avanti, e il badge continuava a mostrare il
+       vecchio valore — con la classe 'over' accesa a 75 km/h su un "50" che non
+       c'entra più. Un errore (tutti gli host Overpass falliti) significa "limite
+       ignoto": il badge sparisce, come nel ramo del risultato vuoto, invece di
+       mentire. Il backoff resta: non si martella l'endpoint. */
+    state.speedLimit = null;
     state.speedLimitRetryAfter = Date.now() + SPEED_LIMIT_FAIL_MS;
   } finally {
     state.speedLimitFetching = false;

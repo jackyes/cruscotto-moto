@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { api, resetState } from './harness.mjs';
 
-const { state, collectCalib, finishCalibration } = api;
+const { state, collectCalib, finishCalibration, collectAccBias } = api;
 
 /* Prepara lo stato come se startCalibration() fosse già partito (senza il
    setTimeout da 2 s), con una moto ferma e dritta. */
@@ -53,4 +53,67 @@ test('calibrazione: dati insufficienti senza campioni', () => {
   seedCalibClean();
   finishCalibration(null);
   assert.equal(state.calib, null);
+});
+
+/* ---- orientamento ignoto durante la finestra di calibrazione ----
+   state._calMount (e state.mount) sono chiavi di MOUNT lette da collectCalib e
+   dal bias accelerometro. Con una chiave ignota `MOUNT[k]` è undefined e
+   `axisVec(latAxis.lat)` lanciava: l'eccezione risaliva dal loop sensori a OGNI
+   campione della finestra, quindi la calibrazione non si concludeva mai e lo
+   stato restava "in calibrazione" per sempre. 'constructor'/'toString'/'__proto__'
+   sono il buco peggiore: NON sono in MOUNT ma MOUNT[k] li trova truthy
+   (Object.prototype), quindi un fallback scritto come `MOUNT[k] || …` li lascia
+   passare e latAxis.lat resta undefined come senza guardia. */
+const MOUNT_GARBAGE = ['garbage', '', undefined, null, 'constructor', 'toString', '__proto__'];
+
+test('collectCalib/finishCalibration: mount ignoto non lancia e calibra col default', () => {
+  for (const mount of MOUNT_GARBAGE) {
+    resetState();
+    seedCalibClean();
+    state.mount = mount;
+    state._calMount = mount;
+    // _wLP non-nullo: senza la proiezione del dondolio sull'asse laterale il
+    // ternario corto-circuita e `axisVec(latAxis.lat)` non viene mai valutato —
+    // cioè il crash non si vedrebbe. Con _wLP la riga è davvero eseguita.
+    state._wLP = { x: 0, y: 0, z: 0.5 };
+    assert.doesNotThrow(() => {
+      for (let i = 0; i < 50; i++) collectCalib();
+      finishCalibration(null);
+    }, 'mount ' + String(mount) + ': eccezione nella finestra di calibrazione');
+    assert.ok(state.calib && state.calib.up && state.calib.fwd && state.calib.right,
+      'mount ' + String(mount) + ': calibrazione non conclusa');
+    // Ripiego documentato (MOUNT['landscape-left']): late = 'y', come in sensors-pipe.
+    assert.equal(state.calib.v, 2);
+  }
+  resetState();
+});
+
+test('collectAccBias: mount ignoto non lancia (finestra di bias viva)', () => {
+  for (const mount of MOUNT_GARBAGE) {
+    resetState();
+    seedCalibClean();
+    state.mount = mount;
+    state._calMount = mount;
+    state._abPending = true;      // come dopo startAccBiasCapture()
+    state.accBias = null;
+    state._abSum = { lat: 0, lon: 0, vert: 0 };
+    state._abN = 0;
+    state._abT = 0;
+    state.latG = 0; state.lonG = 0; state.vertG = 0;
+    state._wLP = { x: 0, y: 0, z: 0.5 };   // come sopra: serve il ramo con axisVec(latAxis.lat)
+    assert.doesNotThrow(() => {
+      for (let i = 0; i < 80; i++) collectAccBias(1 / 60);
+    }, 'mount ' + String(mount) + ': eccezione nel bias accelerometro');
+    assert.ok(state.accBias, 'mount ' + String(mount) + ': bias non catturato');
+  }
+  resetState();
+});
+
+test('mountKey/mountDef: chiave ignota ripiega sul default, non su Object.prototype', () => {
+  for (const k of MOUNT_GARBAGE) {
+    assert.equal(api.mountKey(k), 'landscape-left', 'mountKey(' + String(k) + ')');
+    assert.equal(api.mountDef(k), api.MOUNT['landscape-left'], 'mountDef(' + String(k) + ')');
+  }
+  assert.equal(api.mountKey('portrait'), 'portrait');
+  assert.equal(api.mountDef('portrait'), api.MOUNT.portrait);
 });

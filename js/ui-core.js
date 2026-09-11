@@ -174,20 +174,17 @@ function setNeedle(lean) {
 function loadSettings() {
   const s = store.get('cruscotto.settings', {});
   /* Validato contro MOUNT, come camRadius qui sotto: il valore finisce in
-     MOUNT[state.mount] dentro il loop sensori (js/sensors-pipe.js), dove una chiave
-     ignota dava TypeError a ogni campione — strumentazione morta fino a ripristinare
-     le impostazioni. hasOwnProperty e non `in`: `in` accetterebbe anche le chiavi di
-     Object.prototype ('constructor', 'toString', …) come orientamenti validi. */
-  state.mount = Object.prototype.hasOwnProperty.call(MOUNT, s.mount) ? s.mount : 'landscape-left';
+     MOUNT[state.mount] dentro il loop sensori (js/sensors-pipe.js) e in
+     js/calib.js, dove una chiave ignota dava TypeError a ogni campione —
+     strumentazione morta fino a ripristinare le impostazioni. */
+  state.mount = mountKey(s.mount);
   state.invertLean = !!s.invertLean;
   state.wakeLockOn = s.wakeLockOn !== false;
   state.camAlerts = s.camAlerts !== false;
-  // Validazione come per camRadius: `|| 400` mascherava un eventuale valore
-  // legittimo 0 e accettava stringhe da un localStorage modificato a mano.
-  {
-    const cd = Number(s.camDist);
-    state.camDist = isFinite(cd) && cd >= 50 && cd <= 2000 ? cd : 400;
-  }
+  // Validato contro la lista delle <option>, come camRadius: `|| 400` mascherava un
+  // eventuale valore legittimo 0 e accettava stringhe da un localStorage modificato
+  // a mano; il range 50-2000 accettava valori che la <select> non sa mostrare.
+  state.camDist = camDistFrom(s.camDist);
   /* Validato contro la lista, non `|| default`: il valore finisce interpolato nella
      query Overpass, e un localStorage modificato a mano non deve poterci scrivere. */
   state.camRadius = CAM_RADIUS_CHOICES.indexOf(s.camRadius) >= 0 ? s.camRadius : CAM_RADIUS_DEFAULT;
@@ -236,10 +233,15 @@ function loadSettings() {
      valide: leanFromUp usava la proiezione xy invece della base, quindi una base
      costruita allora e' consistente solo col vecchio estrattore. */
   const c = store.get('cruscotto.calib', null);
-  if (c && c.v === 2) { state.calib = calibBasis(c); updateCalibStatus(); }
+  /* calibOk e non il solo c.v === 2: uno storage manomesso o troncato (vettori
+     NaN, campi assenti) entrava in state.calib e la piega usciva NaN in gauge e
+     log; con i campi assenti buildBasis lanciava e l'avvio moriva. */
+  if (c && c.v === 2 && calibOk(c)) { state.calib = calibBasis(c); updateCalibStatus(); }
   else if (c) {
     store.del('cruscotto.calib');
-    setTimeout(() => toast('Filtro piega aggiornato: rifai la calibrazione (moto ferma e dritta).', 'err', 8000), 800);
+    state.calib = null;   // una base in memoria non deve sopravvivere a una voce salvata invalida
+    setTimeout(() => toast((c.v === 2 ? 'Calibrazione salvata non valida' : 'Filtro piega aggiornato') +
+      ': rifai la calibrazione (moto ferma e dritta).', 'err', 8000), 800);
   }
 }
 

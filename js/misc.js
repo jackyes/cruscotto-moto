@@ -132,13 +132,9 @@ async function renderHistory() {
   list.innerHTML = '';
   for (const s of sessions) {
     // Valori da IndexedDB: mai in innerHTML (unico vettore di injection del
-    // gruppo). textContent + coercizione numerica: né HTML eseguibile, né
-    // TypeError se un campo è assente/stringa (import da terzi).
-    const num = v => {
-      if (typeof v === 'number' && isFinite(v)) return v;
-      const n = Number(v);
-      return isFinite(n) ? n : 0;
-    };
+    // gruppo). textContent + coercizione numerica (numOr0, js/core.js): né HTML
+    // eseguibile, né TypeError se un campo è assente/stringa (import da terzi).
+    const num = numOr0;
     const card = document.createElement('div');
     card.className = 'sess-card';
     const d = new Date(s.meta.startISO);

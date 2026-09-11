@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 import { api, resetState, vmSandbox } from './harness.mjs';
 
 const { state, els, idb, angleDiff, routeCacheKey, jsonUnderTimeout, parseCamerasFile,
-  buildGpx, onGeolocation, propagateSpeed, correctSpeed, SPEED_MAX_DEV_MS } = api;
+  buildGpx, onGeolocation, propagateSpeed, correctSpeed, SPEED_MAX_DEV_MS, tickDemo } = api;
 const s = vmSandbox;
 
 // ---- B-nav ----
@@ -151,4 +151,34 @@ test('correctSpeed: scrive _spAnchor (proiezione al presente)', () => {
   correctSpeed(20, 1600);
   assert.ok(state._spAnchor != null);
   assert.ok(Math.abs(state._spAnchor - 23) < 1e-9);   // stesso valore di speedFusMs
+});
+
+// ---- B-demo: distanza demo solo a log attivo ----
+/* Ultimo test del file di proposito: tickDemo chiama appendTrackPoint, il cui
+   throttle da 1 Hz (lastTrackT, `let` interno a js/cam-map.js) è stato condiviso
+   e non azzerabile da resetState — eseguito prima, lasciava a secco il test
+   onGeolocation qui sopra ("traccia non scritta a log attivo"). */
+test('tickDemo: la distanza demo non cresce a registrazione ferma', () => {
+  resetState();
+  state.demo = true;
+  state.speedMs = 20;                 // ~72 km/h simulati
+  state.session.distKm = 0;
+  let t = 1000;
+  tickDemo(t);                        // primo giro: demoStart/demoLast si agganciano, dt = 0
+  for (let i = 0; i < 5; i++) { t += 100; tickDemo(t); }
+  assert.equal(state.session.distKm, 0, 'distKm cresciuta a log fermo');
+
+  // A log attivo la distanza si accumula davvero (5 × 0,1 s × 20 m/s = 10 m).
+  state.logging = true;
+  for (let i = 0; i < 5; i++) { t += 100; tickDemo(t); }
+  assert.ok(state.session.distKm > 0.005 && state.session.distKm < 0.02,
+    'distKm a log attivo: ' + state.session.distKm);
+
+  // Stop: il contatore si ferma dove era, come i massimi in updateDisplay.
+  state.logging = false;
+  const kmAfterStop = state.session.distKm;
+  for (let i = 0; i < 5; i++) { t += 100; tickDemo(t); }
+  assert.equal(state.session.distKm, kmAfterStop, 'distKm cresciuta dopo lo Stop');
+  state.demo = false;
+  resetState();
 });

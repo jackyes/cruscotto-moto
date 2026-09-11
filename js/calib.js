@@ -51,8 +51,11 @@ function collectCalib() {
      al gate e restava solo la dispersione a beccarlo. */
   /* Asse laterale NOMINALE dal montaggio, non state.calib.right: durante la
      finestra state.calib è ancora la VECCHIA calibrazione (o null alla prima),
-     quindi proiettare su di essa mischia pose diverse. */
-  const latAxis = MOUNT[state._calMount != null ? state._calMount : state.mount];
+     quindi proiettare su di essa mischia pose diverse. mountDef e non MOUNT[...]:
+     una chiave ignota (o di Object.prototype) dava latAxis undefined → TypeError
+     a OGNI campione della finestra, e un errore lanciato qui lasciava la
+     calibrazione appesa senza mai concludersi. */
+  const latAxis = mountDef(state._calMount != null ? state._calMount : state.mount);
   const wRock = (state._wLP) ? vdot(state._wLP, axisVec(latAxis.lat)) : 0;
   const rotating = state.hasGyro &&
     vlen({ x: state.gyroRoll, y: state.gyroYaw, z: wRock }) > CALIB_MAX_ROT_DPS;
@@ -127,7 +130,7 @@ function collectAccBias(dt) {
      timeout a muro chiude comunque senza bias. Stesse soglie della calibrazione:
      tollerano il minimo del motore, non una partenza. Asse laterale nominale,
      come in collectCalib. */
-  const latAxis = MOUNT[state._calMount != null ? state._calMount : state.mount];
+  const latAxis = mountDef(state._calMount != null ? state._calMount : state.mount);
   const wRock = (state._wLP) ? vdot(state._wLP, axisVec(latAxis.lat)) : 0;
   const rotating = state.hasGyro &&
     vlen({ x: state.gyroRoll, y: state.gyroYaw, z: wRock }) > CALIB_MAX_ROT_DPS;

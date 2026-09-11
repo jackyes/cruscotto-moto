@@ -20,19 +20,21 @@ function diagTicks(min, max, n) {
   return out.length ? out : [min];
 }
 
-/* Pura: min/max/zero-line per i 3 grafici live, testabile senza canvas. */
+/* Pura: min/max per i 3 grafici live, testabile senza canvas. L'asse zero non è
+   un campo a parte: lo marca il loop dei tick di drawChart quando 0 cade nella
+   scala. Il vecchio `zero` non era letto da nessuno. */
 function diagChartScale(field, buf) {
   if (field === 'speedKph') {
     let maxSp = 80;
     for (const d of buf) if (d.speedKph > maxSp) maxSp = d.speedKph;
     maxSp = Math.ceil(maxSp / 20) * 20 + 20;
-    return { min: 0, max: maxSp, zero: false };
+    return { min: 0, max: maxSp };
   }
-  if (field === 'lean') return { min: -60, max: 60, zero: true };
-  return { min: -1.2, max: 1.2, zero: true };
+  if (field === 'lean') return { min: -60, max: 60 };
+  return { min: -1.2, max: 1.2 };
 }
 
-function drawChart(canvas, data, field, color, min, max, zeroLine) {
+function drawChart(canvas, data, field, color, min, max) {
   const ctx = canvas.getContext('2d');
   const dpr = window.devicePixelRatio || 1;
   const w = canvas.clientWidth || canvas.parentElement.clientWidth || 300;
@@ -46,22 +48,35 @@ function drawChart(canvas, data, field, color, min, max, zeroLine) {
   if (!data.length) return { min: null, max: null };
   const t0 = data[0].t, t1 = data[data.length - 1].t;
   const span = Math.max(1, t1 - t0);
-  const X = t => ((t - t0) / span) * w;
+  /* Gutter a sinistra per le label dei tick (disegnate a x=2): la traccia parte
+     da lì, non da x=0. Prima X() partiva da 0 e ogni linea della griglia tagliava
+     il tracciato. */
+  const gx = 30;
+  const X = t => gx + ((t - t0) / span) * (w - gx);
   const pad = 8;
   const Y = v => h - pad - ((v - min) / (max - min)) * (h - 2 * pad);
 
   // Griglia orizzontale con label + asse zero marcato (prima solo zero line:
   // senza scala i G erano illeggibili al sole).
   ctx.lineWidth = 1;
-  for (const tv of diagTicks(min, max, 4)) {
+  const ticks = diagTicks(min, max, 4);
+  for (const tv of ticks) {
     const y = Y(tv);
     ctx.strokeStyle = tv === 0 ? canvasTheme.get('c-axis') : canvasTheme.get('c-grid');
-    ctx.beginPath(); ctx.moveTo(30, y); ctx.lineTo(w, y); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(gx, y); ctx.lineTo(w, y); ctx.stroke();
     ctx.fillStyle = canvasTheme.get('c-axis'); ctx.font = '10px system-ui'; ctx.textAlign = 'left';
     try { ctx.fillText(String(tv), 2, y - 2); } catch (e) {}
   }
+  /* Il vecchio parametro zeroLine non era mai letto: l'asse zero lo marca già il
+     loop dei tick con `tv === 0`. 0 è sempre tra i tick quando sta nel range
+     (diagTicks parte da ceil(min/step)*step ≤ 0 e arriva fino a max), quindi non
+     serve nessun ramo dedicato. */
 
   ctx.strokeStyle = color; ctx.lineWidth = 2; ctx.lineJoin = 'round';
+  /* Clip al riquadro del tracciato: un valore fuori scala (piega oltre ±60°)
+     usciva dal canvas e finiva sopra le label dei tick. */
+  ctx.save();
+  ctx.beginPath(); ctx.rect(gx, 0, w - gx, h); ctx.clip();
   ctx.beginPath();
   let dMin = Infinity, dMax = -Infinity;
   data.forEach((d, i) => {
@@ -70,17 +85,22 @@ function drawChart(canvas, data, field, color, min, max, zeroLine) {
     const x = X(d.t), y = Y(v); i ? ctx.lineTo(x, y) : ctx.moveTo(x, y);
   });
   ctx.stroke();
+  ctx.restore();
   return { min: isFinite(dMin) ? dMin : null, max: isFinite(dMax) ? dMax : null };
 }
 
 function drawCharts() {
   const buf = state.chartBuf;
   const sc = diagChartScale('speedKph', buf);
-  drawChart(els.chSpeed, buf, 'speedKph', canvasTheme.get('c-accent'), sc.min, sc.max, sc.zero);
-  drawChart(els.chLean, buf, 'lean', canvasTheme.get('c-good'), -60, 60, true);
-  const lat = drawChart(els.chLat, buf, 'latG', canvasTheme.get('c-warn'), -1.2, 1.2, true);
-  // Min/max live sul grafico G: il numero resta anche senza tooltip.
-  els.chSpeedMax.textContent = sc.max + ' km/h';
+  const spd = drawChart(els.chSpeed, buf, 'speedKph', canvasTheme.get('c-accent'), sc.min, sc.max);
+  drawChart(els.chLean, buf, 'lean', canvasTheme.get('c-good'), -60, 60);
+  const lat = drawChart(els.chLat, buf, 'latG', canvasTheme.get('c-warn'), -1.2, 1.2);
+  /* Punta MISURATA nella finestra, non il fondo scala dell'asse: sc.max è
+     ceil(punta/20)*20+20 con base 80, quindi a 62 km/h veri l'etichetta diceva
+     "100 km/h" e a inizio sessione, a zero campioni, pure. Il badge G accanto
+     mostra i min/max misurati: stessa semantica qui, '—' a buffer vuoto.
+     La scala dell'asse resta leggibile dai tick disegnati sulla griglia. */
+  els.chSpeedMax.textContent = spd.max == null ? '—' : Math.round(spd.max) + ' km/h';
   try {
     let lbl = document.getElementById('chLatMinMax');
     if (lbl) lbl.textContent = (lat.min == null ? '—' : lat.min.toFixed(2) + '/' + lat.max.toFixed(2) + ' G live');
@@ -176,8 +196,14 @@ function startBench() {
 function finishBench() {
   clearInterval(benchTimer); benchTimer = null;
   els.btnBench.disabled = false;
-  if (!bench) return;                       // startBench era uscito subito (non calibrato)
-  const L = bench.lean, V = bench.vib;
+  /* Il referto consuma i campioni e li libera: senza questo l'oggetto (BENCH_SEC
+     a 50 ms per 8 array) restava vivo per tutta la pagina, e una seconda chiamata
+     riscriverebbe il referto VECCHIO come se fosse nuovo — la guardia qui sotto
+     non era raggiungibile proprio perché nessuno azzerava mai bench. */
+  const b = bench;
+  bench = null;
+  if (!b) return;                       // startBench era uscito subito (non calibrato)
+  const L = b.lean, V = b.vib;
   if (L.length < 10) { els.benchOut.textContent = 'Dati insufficienti: riprova.'; return; }
 
   const absL = L.map(Math.abs);
@@ -186,11 +212,11 @@ function finishBench() {
   const drift = L[L.length - 1] - L[0];
   const vMean = avg(V);
   let vMax = 0; for (const v of V) if (v > vMax) vMax = v;
-  const hz = bench.hz.length ? avg(bench.hz) : 0;
+  const hz = b.hz.length ? avg(b.hz) : 0;
 
   // Residui delle tre accelerazioni: a moto ferma il valore vero è 0 su tutte
   const resid = ch => {
-    const a = bench[ch].map(Math.abs);
+    const a = b[ch].map(Math.abs);
     if (!a.length) return { m: 0, x: 0 };
     let x = 0; for (const v of a) if (v > x) x = v;
     return { m: avg(a), x };
@@ -222,12 +248,12 @@ function finishBench() {
     ['Residuo longitudinale', rLon.m.toFixed(3) + ' g medio, ' + rLon.x.toFixed(3) + ' max'],
     ['Residuo verticale', rVert.m.toFixed(3) + ' g medio, ' + rVert.x.toFixed(3) + ' max'],
     ['Frequenza sensore', hz ? hz.toFixed(0) + ' Hz' : 'n/d'],
-    ['Vibrazione fuori banda', avg(bench.vibHi).toFixed(3) + ' g medio'],
-    ['Beccheggio letto', avg(bench.pitch).toFixed(2) + '° (atteso 0 su piano)'],
-    ['Sorgente sensori', bench.src === 'generic' ? 'Generic Sensor API (timestamp hardware)'
-      : (bench.src === 'devicemotion' ? 'devicemotion (timestamp di arrivo)' : bench.src)],
-    ['Gravità', bench.grav ? 'fusione di piattaforma' : 'da attitudine (g·û)'],
-    ['Segno giroscopio', (bench.sign > 0 ? '+1' : '−1') + (bench.signOk ? ' (verificato)' : ' (non ancora verificato)')],
+    ['Vibrazione fuori banda', avg(b.vibHi).toFixed(3) + ' g medio'],
+    ['Beccheggio letto', avg(b.pitch).toFixed(2) + '° (atteso 0 su piano)'],
+    ['Sorgente sensori', b.src === 'generic' ? 'Generic Sensor API (timestamp hardware)'
+      : (b.src === 'devicemotion' ? 'devicemotion (timestamp di arrivo)' : b.src)],
+    ['Gravità', b.grav ? 'fusione di piattaforma' : 'da attitudine (g·û)'],
+    ['Segno giroscopio', (b.sign > 0 ? '+1' : '−1') + (b.signOk ? ' (verificato)' : ' (non ancora verificato)')],
   ];
   for (const [k, val] of rows) {
     const d = document.createElement('div');
@@ -238,7 +264,7 @@ function finishBench() {
   /* Con campionamento a f Hz, una vibrazione a f Hz esatti si ripiega su 0 Hz:
      diventa un offset costante, indistinguibile da una piega vera. Sotto i regimi
      a cui succede, calcolati sulla frequenza realmente misurata. */
-  if (!bench.signOk) {
+  if (!b.signOk) {
     const d = document.createElement('div');
     d.style.marginTop = '8px';
     d.textContent = 'Il segno del giroscopio non è ancora stato verificato: si determina da solo ' +

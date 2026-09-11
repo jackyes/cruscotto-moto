@@ -574,3 +574,46 @@ test('#22 navReset ferma anche il simulatore, non solo la navigazione', () => {
   tickIntervals();                        // un giro di tutti gli interval vivi
   assert.equal(state.pos.lat, null, 'il simulatore ha scritto in state dopo il reset');
 });
+
+// ---------------------------------------------------------------- #16
+
+/* Il banner è una live region (`role="status" aria-live="polite"`): ricostruirlo
+   da zero a ogni fix GPS faceva rileggere tutta la riga allo screen reader ogni
+   secondo, e la velocità che cambia a ogni tick affogava la manovra. */
+test('#16 banner: scheletro riusato a ogni fix, velocità fuori dalla live region', () => {
+  resetState();
+  state.speedKph = 72;
+  state.nav = {
+    status: 'ACTIVE', dest: { lat: 45, lon: 9, label: 'X' },
+    totalM: 5000, totalS: 600, distRemain: 3000, timeRemain: 400,
+    nextMan: 0, sAlong: 1000, distToNext: 200,
+    sMan: new Float64Array([1000, 3000]),
+    man: [{ type: 10, text: 'Gira a destra', streets: [] }, { type: 4, text: 'Arrivo', streets: [] }],
+  };
+  navRenderBanner();
+  const el = els.navBanner;
+  const speed = el.children[0], msg = el.children[1];
+  assert.equal(speed.className, 'nb-speed');
+  assert.equal(speed.getAttribute('aria-hidden'), 'true', 'velocità annunciata a ogni tick');
+  assert.equal(speed.textContent, '72 km/h');
+  const dist = msg.children[0], street = msg.children[1];
+  assert.equal(dist.className, 'nb-dist');
+  assert.equal(street.className, 'nb-street');
+
+  // Fix successivo: cambiano solo velocità e distanza, i nodi restano quelli.
+  state.speedKph = 75;
+  state.nav.sAlong = 1050;
+  navRenderBanner();
+  assert.equal(el.children[0], speed, 'banner ricostruito a ogni fix (churn nella live region)');
+  assert.equal(el.children[1], msg, 'contenitore del messaggio ricreato');
+  assert.equal(msg.children[0], dist, 'span distanza ricreata');
+  assert.equal(msg.children[1], street, 'span strada ricreata');
+  assert.equal(speed.textContent, '75 km/h');
+
+  // Ramo d'arrivo (non più una manovra): la velocità non deve restare appesa,
+  // come faceva il vecchio `el.textContent = ''` che spazzava tutto.
+  state.nav.status = 'ARRIVED';
+  navRenderBanner();
+  assert.equal(speed.textContent, '', 'velocità rimasta nel banner di arrivo');
+  assert.ok(el.textContent.includes('Arrivato'), 'testo: ' + el.textContent);
+});

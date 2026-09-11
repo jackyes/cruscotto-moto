@@ -35,6 +35,17 @@ const CAM_ACC_MAX = 60;        // gate accuratezza per gli avvisi autovelox (m):
    divergere, e un raggio marker maggiore del raggio scaricato disegna il vuoto. */
 const CAM_RADIUS_CHOICES = [10000, 15000, 20000, 30000, 50000];
 const CAM_RADIUS_DEFAULT = 15000;
+/* Distanza di avviso autovelox. La lista e' la stessa delle <option> di index.html:
+   con la validazione a range (50-2000) un valore salvato valido a runtime ma fuori
+   dalle opzioni (es. 250 da una build precedente, o un localStorage modificato a
+   mano) lasciava la <select> VUOTA e non c'era modo di rimetterla a posto, perche'
+   il change scatta solo su una scelta esplicita dell'utente. */
+const CAM_DIST_CHOICES = [300, 400, 600];
+const CAM_DIST_DEFAULT = 400;
+function camDistFrom(v) {
+  const n = parseInt(v, 10);
+  return CAM_DIST_CHOICES.indexOf(n) >= 0 ? n : CAM_DIST_DEFAULT;
+}
 const CAM_MARKER_FACTOR = 1.5; // oltre il bordo scaricato c'e' ancora dato, se importato
 const CAM_MOVE_FACTOR = 0.5;   // refetch a meta' raggio: mezzo raggio di copertura resta davanti
 const CAM_MARKER_MAX = 400;    // tetto marker disegnati (un DB nazionale a 50 km blocca il telefono)
@@ -182,7 +193,7 @@ const state = {
   camGridVer: 0,             // versione griglia: invalida la cache camsToDraw
   camAlerts: true,
   camAhead: true,
-  camDist: 400,
+  camDist: CAM_DIST_DEFAULT,
   camRadius: CAM_RADIUS_DEFAULT,
   camDrawn: 0,               // marker effettivamente disegnati / candidati: il tetto
   camTotal: 0,               // non deve essere silenzioso (vedi updateCamStatus)
@@ -295,6 +306,18 @@ const MOUNT = {
   'landscape-right': { vert: '-x', lat: '-y', lon: '-z', up: { x: -1, y: 0, z: 0 } },
   'portrait':        { vert: 'y',  lat: '-x', lon: '-z', up: { x: 0, y: 1, z: 0 } },
 };
+/* Chiave di montaggio validata — unico punto di verità per settings salvate,
+   <select> a runtime, calibrazione e loop sensori. hasOwnProperty e non
+   `MOUNT[x] ||`: 'constructor', 'toString' e '__proto__' non sono in MOUNT ma
+   stanno nella catena di prototipi, quindi MOUNT[x] li trova truthy e la guardia
+   ingenua lascia passare proprio le chiavi che deve fermare (m.lat === undefined
+   → TypeError, cioè calibrazione o loop sensori morti). */
+function mountKey(k) {
+  return Object.prototype.hasOwnProperty.call(MOUNT, k) ? k : 'landscape-left';
+}
+function mountDef(k) {
+  return MOUNT[mountKey(k)];
+}
 function axis(v, key) {
   const neg = key[0] === '-';
   const c = key[neg ? 1 : 0];
@@ -362,7 +385,7 @@ function axisVec(key) {
 
 function buildBasis(up, mount) {
   const U = vnorm(up);
-  const m = MOUNT[mount || state.mount] || MOUNT['landscape-left'];
+  const m = mountDef(mount || state.mount);
   const nf = axisVec(m.lon); // forward nominale del montaggio (oggi '-z' per tutti)
   let F = {
     x: nf.x - vdot(nf, U) * U.x,
@@ -382,10 +405,37 @@ function buildBasis(up, mount) {
   return { up: U, fwd: F, right: R };
 }
 
+/* Vettore a tre componenti tutte finite. Vive qui (algebra) perché la usano sia
+   la pipe sensori sia la validazione della calibrazione salvata. */
+function finiteVec(v) { return !!(v && isFinite(v.x) && isFinite(v.y) && isFinite(v.z)); }
+
+/* Coercizione numerica per valori che arrivano da IndexedDB o da file di terzi
+   (stringhe, null, campi assenti). Serve dove un metodo numerico sta dentro una
+   concatenazione: `(meta.distKm || 0).toFixed(2)` con distKm stringa lancia, e la
+   stringa non viene mai assegnata — il pannello resta su "Caricamento…". */
+function numOr0(v) {
+  if (typeof v === 'number') return isFinite(v) ? v : 0;
+  const n = Number(v);
+  return isFinite(n) ? n : 0;
+}
+
 /* Compat: la calibrazione salvata in v1 era il solo vettore up. */
 function calibBasis(c) {
   if (!c) return null;
-  if (c.up && c.fwd && c.right) return c;
-  return buildBasis(c);
+  /* Una base è utilizzabile solo se è una terna di vettori FINITI: caricata col
+     solo controllo `c.v === 2`, una voce manomessa o troncata entrava in
+     state.calib e la piega usciva NaN in gauge e nel log (e con i campi assenti
+     buildBasis lanciava su vnorm(undefined), uccidendo loadSettings all'avvio). */
+  if (calibOk(c)) return c;
+  if (c.up || c.fwd || c.right) return null;   // forma v2 ma vettori non finiti
+  const up = c.up || c;                        // v1: solo il vettore up (x/y/z alla radice)
+  return finiteVec(up) ? buildBasis(up) : null;
+}
+function calibOk(c) {
+  if (!c) return false;
+  /* Norma nulla = base degenere (vnorm la azzera e la piega esce NaN): finita non
+     basta, deve anche essere non nulla. */
+  const ok = v => finiteVec(v) && Math.hypot(v.x, v.y, v.z) > 1e-6;
+  return ok(c.up) && ok(c.fwd) && ok(c.right);
 }
 

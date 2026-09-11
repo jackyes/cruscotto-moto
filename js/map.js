@@ -129,19 +129,29 @@ async function recoverChunks() {
 }
 
 function showSessionDetail(s) {
+  s = s || {};
   const el = els.sessionDetail;
   el.style.display = 'block';
-  const d = new Date(s.meta.startISO);
+  /* Valori da IndexedDB o da un import di terzi: numerici vanno coercizzati prima
+     di ogni metodo (numOr0), e i campi possono mancare del tutto. Con
+     `(s.meta.distKm||0).toFixed(2)` su una distKm stringa il TypeError lanciava
+     DENTRO la concatenazione: la innerHTML non veniva mai assegnata e il pannello
+     restava su "Caricamento…". */
+  const meta = s.meta || {};
+  const d = new Date(meta.startISO);
   const pad = n => String(n).padStart(2, '0');
+  const when = isFinite(d.getTime())
+    ? d.getDate() + '/' + (d.getMonth() + 1) + '/' + d.getFullYear() +
+      ' ' + pad(d.getHours()) + ':' + pad(d.getMinutes())
+    : 'Data sconosciuta';
   el.innerHTML =
-    '<h2 style="margin-bottom:8px;">' + d.getDate() + '/' + (d.getMonth()+1) + '/' + d.getFullYear() +
-    ' ' + pad(d.getHours()) + ':' + pad(d.getMinutes()) + '</h2>' +
+    '<h2 style="margin-bottom:8px;">' + when + '</h2>' +
     '<div class="dstats">' +
-      '<div class="dstat"><div class="v">' + Math.round(s.meta.maxSpeed) + '</div><div class="k">km/h max</div></div>' +
-      '<div class="dstat"><div class="v">' + Math.abs(s.meta.maxLeanR).toFixed(0) + '°</div><div class="k">piega D</div></div>' +
-      '<div class="dstat"><div class="v">' + Math.abs(s.meta.maxLeanL).toFixed(0) + '°</div><div class="k">piega S</div></div>' +
-      '<div class="dstat"><div class="v">' + (s.meta.distKm||0).toFixed(2) + '</div><div class="k">km</div></div>' +
-      '<div class="dstat"><div class="v">' + fmtDur(s.meta.duration) + '</div><div class="k">durata</div></div>' +
+      '<div class="dstat"><div class="v">' + Math.round(numOr0(meta.maxSpeed)) + '</div><div class="k">km/h max</div></div>' +
+      '<div class="dstat"><div class="v">' + Math.abs(numOr0(meta.maxLeanR)).toFixed(0) + '°</div><div class="k">piega D</div></div>' +
+      '<div class="dstat"><div class="v">' + Math.abs(numOr0(meta.maxLeanL)).toFixed(0) + '°</div><div class="k">piega S</div></div>' +
+      '<div class="dstat"><div class="v">' + numOr0(meta.distKm).toFixed(2) + '</div><div class="k">km</div></div>' +
+      '<div class="dstat"><div class="v">' + fmtDur(numOr0(meta.duration)) + '</div><div class="k">durata</div></div>' +
       '<div class="dstat"><div class="v">' + (s.rows ? s.rows.length : 0) + '</div><div class="k">campioni</div></div>' +
     '</div>' +
     '<canvas id="replayCanvas" style="height:200px;"></canvas>' +
@@ -300,10 +310,16 @@ function updateMap() {
 
 function drawTrackOnCanvas(canvas, track, opts) {
   if (!canvas) return;
+  /* Canvas senza box: tab mappa chiusa (default all'avvio) o pannello
+     display:none → clientWidth/clientHeight a 0. Prima si disegnava comunque a
+     300x200 — larghezza dal parent ma altezza fissa, due fonti diverse — a ogni
+     fix GPS, per un canvas che nessuno vedeva. Il ridisegno buono arriva da
+     switchTab('map') (js/display.js:11-13), quindi qui si esce. */
+  const w = canvas.clientWidth || (canvas.parentElement && canvas.parentElement.clientWidth) || 0;
+  const h = canvas.clientHeight || (canvas.parentElement && canvas.parentElement.clientHeight) || 0;
+  if (!w || !h) return;
   const ctx = canvas.getContext('2d');
   const dpr = window.devicePixelRatio || 1;
-  const w = canvas.clientWidth || canvas.parentElement.clientWidth || 300;
-  const h = canvas.clientHeight || 200;
   canvas.width = w * dpr; canvas.height = h * dpr;
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   ctx.fillStyle = canvasTheme.get('c-bg');

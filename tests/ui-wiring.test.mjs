@@ -3,7 +3,8 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { api, resetState, vmSandbox } from './harness.mjs';
 
-const { state, els, loadSettings, onGeolocation, processSample, renderNavPanel, MOUNT, NAV_ICON } = api;
+const { state, els, loadSettings, onGeolocation, processSample, renderNavPanel, MOUNT, NAV_ICON,
+  calibBasis, calibOk } = api;
 const s = vmSandbox;
 
 // ---- els: chiavi referenziate dal codice ma assenti dalla mappa ----
@@ -49,6 +50,89 @@ test('loadSettings: mount validato contro MOUNT', () => {
 
   s.localStorage.removeItem('cruscotto.settings');
   resetState();
+});
+
+// ---- settings: validazione della calibrazione salvata ----
+/* loadSettings adottava la voce con il solo controllo `c.v === 2`: una base
+   manomessa o troncata nello storage finiva in state.calib e la piega usciva NaN
+   in gauge e log; coi campi del tutto assenti buildBasis lanciava su
+   vnorm(undefined) e l'avvio moriva (nessun try/catch attorno a loadSettings). */
+test('loadSettings: calibrazione v2 non valida scartata, avvio vivo', () => {
+  const GOOD = { up: { x: 1, y: 0, z: 0 }, fwd: { x: 0, y: 0, z: -1 }, right: { x: 0, y: 1, z: 0 }, v: 2 };
+  const set = v => {
+    s.localStorage.setItem('cruscotto.calib', JSON.stringify(v));
+    loadSettings();
+  };
+
+  // Base valida: adottata (guardia contro un fix troppo aggressivo).
+  // JSON.stringify e non deepEqual: l'oggetto arriva dal realm del vm, e
+  // deepStrictEqual confronta anche i prototipi (Object di un altro realm ≠ Object).
+  set(GOOD);
+  assert.equal(JSON.stringify(state.calib), JSON.stringify(GOOD), 'base valida scartata');
+
+  // Troncata: nessun vettore — è il caso che faceva lanciare buildBasis.
+  assert.doesNotThrow(() => set({ v: 2 }), 'v2 troncata: TypeError in loadSettings');
+  assert.equal(state.calib, null, 'v2 troncata adottata');
+  assert.equal(s.localStorage.getItem('cruscotto.calib'), null, 'voce invalida non cancellata');
+
+  // Vettori presenti ma senza componenti (o non numerici): NaN in gauge e log.
+  for (const bad of [
+    { up: {}, fwd: {}, right: {}, v: 2 },
+    { up: { x: 0, y: 0, z: 0 }, fwd: { x: 0, y: 0, z: -1 }, right: { x: 0, y: 1, z: 0 }, v: 2 }, // norma nulla
+    { up: 'garbage', fwd: { x: 0, y: 0, z: -1 }, right: { x: 0, y: 1, z: 0 }, v: 2 },
+    { up: { x: 1, y: 0, z: 0 }, fwd: { x: 0, y: 0, z: -1 }, right: null, v: 2 },
+  ]) {
+    s.localStorage.setItem('cruscotto.calib', JSON.stringify(bad));
+    assert.doesNotThrow(() => loadSettings(), 'avvio morto su ' + JSON.stringify(bad));
+    assert.equal(state.calib, null, 'base invalida adottata: ' + JSON.stringify(bad));
+  }
+
+  s.localStorage.removeItem('cruscotto.calib');
+  resetState();
+});
+
+test('calibBasis: compat v1 (solo vettore up) e rifiuto degli input degeneri', () => {  const v1 = calibBasis({ x: 0, y: 1, z: 0 });          // forma v1: il solo up
+  assert.ok(v1 && v1.up && v1.fwd && v1.right, 'v1 non convertita in base');
+  assert.equal(v1.up.y, 1);
+  assert.equal(calibBasis(null), null);
+  assert.equal(calibBasis({ v: 2 }), null);              // v2 senza vettori
+  assert.equal(calibBasis({ up: { x: 1, y: 0, z: 0 }, fwd: {}, right: {} }), null);
+  assert.equal(calibOk({ up: { x: 1, y: 0, z: 0 }, fwd: { x: 0, y: 0, z: -1 }, right: { x: 0, y: 1, z: 0 } }), true);
+  assert.equal(calibOk({ up: { x: 0, y: 0, z: 0 }, fwd: {}, right: null }), false);
+});
+
+// ---- settings: camDist allineata alle <option> della select ----
+/* La validazione accettava 50-2000 mentre la <select> ha 300/400/600: un valore
+   salvato come 250 restava valido a runtime ma la select lo mostrava VUOTA, e non
+   c'era modo di rimetterlo a posto (il change scatta solo su una scelta utente). */
+test('loadSettings: camDist validata contro la lista delle option', () => {
+  const set = v => {
+    s.localStorage.setItem('cruscotto.settings', JSON.stringify({ camDist: v }));
+    loadSettings();
+  };
+  for (const v of [300, 400, 600, '300']) {
+    set(v);
+    assert.equal(state.camDist, Number(v), 'valore della lista rifiutato: ' + v);
+  }
+  for (const v of [250, 2000, 50, 0, '', null, undefined, 'garbage', NaN]) {
+    set(v);
+    assert.equal(state.camDist, 400, 'fuori lista non ripiegato sul default: ' + String(v));
+  }
+  s.localStorage.removeItem('cruscotto.settings');
+  resetState();
+});
+
+test('camDist: le <option> di index.html sono la lista validata', () => {
+  // L'invariante che il bug violava: la lista validata e le option della select
+  // devono essere lo stesso insieme. Il mock del DOM non riproduce la select
+  // ("value fuori dalle option → stringa vuota"), quindi si controlla l'HTML.
+  const html = readFileSync(new URL('../index.html', import.meta.url), 'utf8');
+  const block = html.match(/<select id="camDist">([\s\S]*?)<\/select>/);
+  assert.ok(block, 'select #camDist non trovata in index.html');
+  const values = [...block[1].matchAll(/<option value="(\d+)"/g)].map(m => Number(m[1]));
+  // JSON e non deepEqual: la costante arriva dal realm del vm (prototipi diversi).
+  assert.equal(JSON.stringify(values), JSON.stringify(api.CAM_DIST_CHOICES),
+    'option della select ≠ CAM_DIST_CHOICES');
 });
 
 // ---- sensors-pipe: fallback su orientamento ignoto ----
@@ -175,4 +259,68 @@ test('onGeolocation: renderNavPanel richiamata dal tick, solo sul tab nav', () =
     for (const k of stubbed) s[k] = real[k];
     resetState();
   }
+});
+
+// ---- #13: updateDisplay riscriveva cinque nodi a ogni frame ----
+/* js/display.js:221-232 assegnava `els.statDist.textContent = ...` (e altri
+   quattro) a ogni giro di updateDisplay, cioe' a DISPLAY_HZ, anche quando la
+   stringa era identica: il resto della funzione passa da setTxt, che salta
+   l'assegnazione a valore invariato. */
+test('#13 updateDisplay: i valori lenti scritti solo se cambiano', () => {
+  resetState();
+  const spied = ['statDist', 'maxLeanR', 'maxLeanL', 'statTime', 'topTime'];
+  const saved = {}, count = {};
+  for (const k of spied) {
+    const el = els[k];
+    const d = Object.getOwnPropertyDescriptor(el, 'textContent');
+    saved[k] = d;
+    let n = 0;
+    count[k] = () => n;
+    Object.defineProperty(el, 'textContent', {
+      get() { return d.get.call(el); },
+      set(v) { n++; d.set.call(el, v); },
+      configurable: true, enumerable: true,
+    });
+  }
+  try {
+    const write = () => { const o = {}; for (const k of spied) o[k] = count[k](); return o; };
+
+    api.updateDisplay();
+    assert.equal(els.statTime.textContent, '00:00');
+    assert.equal(els.statDist.textContent, '0.00');
+    assert.equal(els.maxLeanR.textContent, '0°');
+    const first = write();
+    assert.ok(spied.every(k => first[k] === 1), 'primo giro non ha scritto: ' + JSON.stringify(first));
+
+    api.updateDisplay(); // stesso stato: nessuna riscrittura
+    const second = write();
+    for (const k of spied) assert.equal(second[k], first[k], k + ' riscritto a valore invariato');
+
+    // Un valore che cambia deve arrivare comunque.
+    state.session.distKm = 1.234;
+    api.updateDisplay();
+    assert.equal(els.statDist.textContent, '1.23');
+    assert.equal(count.statDist(), first.statDist + 1, 'distanza cambiata non riscritta');
+  } finally {
+    for (const k of spied) Object.defineProperty(els[k], 'textContent', { ...saved[k] });
+    resetState();
+  }
+});
+
+// ---- #14: .bar .fill transizionava solo width, setBar scrive anche left ----
+test('#14 .bar .fill: la transizione copre left, non solo width', () => {
+  const html = readFileSync(new URL('../index.html', import.meta.url), 'utf8');
+  const rule = html.match(/\.bar \.fill \{([\s\S]*?)\}/);
+  assert.ok(rule, 'regola .bar .fill assente da index.html');
+  const tr = rule[1].match(/transition:\s*([^;]+);/);
+  assert.ok(tr, 'transition assente da .bar .fill');
+  assert.match(tr[1], /width/, 'width non transizionato: ' + tr[1]);
+  assert.match(tr[1], /left/, 'left scritto da setBar ma non transizionato: ' + tr[1]);
+
+  // setBar scrive davvero entrambe le proprieta': il test sopra copre solo il CSS.
+  const el = s.document.createElement('div');
+  api.setBar(el, -0.6, 0.6, 1.2);
+  assert.ok(el.style.width, 'width non scritta: ' + JSON.stringify(el.style));
+  assert.ok(el.style.left, 'left non scritta: ' + JSON.stringify(el.style));
+  assert.equal(el.className, 'fill neg');
 });

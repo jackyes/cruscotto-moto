@@ -61,7 +61,8 @@ function resetSensorFilters() {
 }
 
 /* Un vettore con una componente non-finito (NaN/Infinity) è un campione difettoso. */
-function finiteVec(v) { return !!(v && isFinite(v.x) && isFinite(v.y) && isFinite(v.z)); }
+/* finiteVec sta in js/core.js (algebra vettoriale): la usa anche la validazione
+   della calibrazione salvata. */
 
 /* Saturazione simmetrica del giroscopio. Hoisted fuori da processSample: una
    chiusura allocata a ogni campione (fino a 60 Hz) è puro lavoro del GC. */
@@ -135,15 +136,11 @@ function processSample(sm) {
   if (sm.grav && !finiteVec(sm.grav)) sm.grav = null;
 
   const ig = sm.acc;
-  /* Fallback come in buildBasis (js/core.js): loadSettings valida già state.mount
-     contro MOUNT, ma qui la chiave ignota significherebbe TypeError a ogni campione
+  /* Fallback come in buildBasis (js/core.js), via l'unico validatore mountDef
+     (js/core.js): qui la chiave ignota significherebbe TypeError a ogni campione
      (m.lat su undefined) — cioè strumentazione morta in marcia. Un orientamento di
-     ripiego sbagliato è meglio di un loop di eccezioni.
-     hasOwnProperty e non `MOUNT[x] ||`: 'constructor', 'toString' e '__proto__' sono
-     `in` MOUNT e danno valori truthy (Object.prototype), quindi la guardia ingenua
-     lasciava passare proprio le chiavi che deve fermare — provato con processSample
-     su state.mount = 'constructor': TypeError su m.lat come senza fallback. */
-  const m = Object.prototype.hasOwnProperty.call(MOUNT, state.mount) ? MOUNT[state.mount] : MOUNT['landscape-left'];
+     ripiego sbagliato è meglio di un loop di eccezioni. */
+  const m = mountDef(state.mount);
   const B = state.calib;
 
   /* Velocita' angolare, vettoriale. Saturazione simmetrica (non azzeramento: mettere

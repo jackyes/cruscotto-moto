@@ -294,7 +294,10 @@
   }
   .bar .fill {
     position: absolute; top: 0; bottom: 0; left: 50%; width: 0;
-    border-radius: 6px; transition: width .05s ease-out;
+    /* setBar scrive width E left: transizionare solo width faceva saltare la
+       barra dall'altro lato del centro a scatto quando il segno cambiava,
+       mentre la larghezza animava — le due parti in controfase. */
+    border-radius: 6px; transition: width .05s ease-out, left .05s ease-out;
   }
   .accel-lat .fill { background: var(--acc-lat); box-shadow: 0 0 10px rgba(0,229,255,.4); }
   .accel-lon .fill { background: var(--acc-lon); box-shadow: 0 0 10px rgba(255,179,0,.4); }
@@ -899,7 +902,7 @@
       <div class="card">
         <h2>Andamento (ultimi 60s)</h2>
         <div class="chart-item">
-          <div class="clbl"><span>Velocità</span><span id="chSpeedMax">0 km/h</span></div>
+          <div class="clbl"><span>Velocità</span><span id="chSpeedMax">—</span></div>
           <canvas id="chSpeed"></canvas>
         </div>
         <div class="chart-item">
@@ -981,6 +984,7 @@
         <div class="set-row">
           <span>Distanza avviso autovelox</span>
           <select id="camDist">
+            <!-- valori allineati a CAM_DIST_CHOICES (js/core.js): settings e change usano quella lista -->
             <option value="300">300 m</option>
             <option value="400" selected>400 m</option>
             <option value="600">600 m</option>
@@ -1967,7 +1971,12 @@ function init() {
   });
 
   els.mountSel.addEventListener('change', () => {
-    state.mount = els.mountSel.value;
+    /* mountKey e non il value crudo: state.mount è la chiave di MOUNT letta da
+       calibrazione e loop sensori, e una <select> il cui value non combacia con
+       nessuna option restituisce '' (chiave ignota → TypeError a ogni campione).
+       Oggi le option sono esattamente le chiavi di MOUNT, ma è lo stesso
+       validatore delle settings salvate: se le due liste divergono non si rompe. */
+    state.mount = mountKey(els.mountSel.value);
     saveSettings();
     // Cambiare montaggio invalida la base calibrata: meglio dirlo che lasciare
     // dati falsi con lo stato che continua a dire "calibrato".
@@ -2010,7 +2019,13 @@ function init() {
     saveSettings();
     updateGuidaMode();
   });
-  els.camDistSel.addEventListener('change', () => { state.camDist = parseInt(els.camDistSel.value, 10); saveSettings(); });
+  els.camDistSel.addEventListener('change', () => {
+    /* camDistFrom e non parseInt crudo: le <option> possono divergere dalla lista
+       validata (o restare vuote per un value non presente), e state.camDist finisce
+       nella query autovelox. Stesso validatore delle settings salvate. */
+    state.camDist = camDistFrom(els.camDistSel.value);
+    saveSettings();
+  });
   els.camRadiusSel.addEventListener('change', () => {
     const prev = state.camRadius;
     state.camRadius = parseInt(els.camRadiusSel.value, 10);

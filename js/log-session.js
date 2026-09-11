@@ -24,6 +24,10 @@ function startLog() {
   state._trackTrimmed = 0;
   state._leafN = 0;
   state._leafTrim = false;
+  /* Latch del primo fitBounds (js/map.js:257,262): senza reset la mappa restava
+     inquadrata sulla zona della sessione precedente. In una zona nuova, con il
+     follow spento, solo "Centra" la recuperava. */
+  state.mapFit = false;
   state.sessionId = 's_' + Date.now();
   state.flushSeq = 0;
   state.flushedRows = 0;

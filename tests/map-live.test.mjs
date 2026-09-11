@@ -388,3 +388,101 @@ test('rotClientPoint: ruota un evento attorno all\'origine, inversa di rotate(+d
     }
   }
 });
+
+// ---- #20/#26: pannello sessione con meta non numerica o assente ----
+/* showSessionDetail costruiva la stringa con `(s.meta.distKm||0).toFixed(2)`: con
+   una distKm STRINGA (import da terzi, sessioni di versioni precedenti) il
+   TypeError lanciava dentro la concatenazione, la innerHTML non veniva mai
+   assegnata e il pannello restava su "Caricamento…" — per sempre. */
+test('showSessionDetail: meta con stringhe/assente non lascia il pannello vuoto', () => {
+  resetState();
+  // Il disegno del replay è su rAF, che il sandbox non ha: qui interessa solo
+  // l'HTML del pannello, quindi il callback si scarta.
+  s.requestAnimationFrame = () => 1;
+  const s1 = {
+    meta: {
+      startISO: '2026-04-12T07:30:00.000Z',
+      maxSpeed: '142', maxLeanR: '-35', maxLeanL: '40', distKm: '12.345', duration: '600',
+    },
+    track: [{ lat: 45, lon: 9 }],
+    rows: [{ t: 0 }, { t: 1000 }],
+  };
+  assert.doesNotThrow(() => api.showSessionDetail(s1), 'TypeError con meta stringa');
+  const html = els.sessionDetail.innerHTML;
+  assert.ok(html.length > 0, 'innerHTML mai assegnata');
+  assert.ok(html.includes('12.35'), 'distKm non formattata: ' + html);
+  assert.ok(html.includes('>142<'), 'maxSpeed persa: ' + html);
+  assert.ok(html.includes('>35°'), 'piega D persa: ' + html);
+  assert.ok(html.includes('>2<'), 'conteggio campioni: ' + html);
+  assert.ok(!/NaN/.test(html), 'NaN nel pannello: ' + html);
+
+  // Meta assente o sessioni senza campi: mai "NaN/NaN/NaN" né eccezioni.
+  // null/undefined in testa: `s.meta` su una sessione nulla (record di IDB
+  // svuotato) lanciava prima di arrivare alla guardia su meta.
+  for (const bad of [null, undefined, {}, { meta: {} }, { meta: null }, { meta: { startISO: 'non-una-data' } }]) {
+    assert.doesNotThrow(() => api.showSessionDetail(bad), 'TypeError su ' + JSON.stringify(bad));
+    assert.ok(!/NaN/.test(els.sessionDetail.innerHTML),
+      'NaN nel pannello con ' + JSON.stringify(bad) + ': ' + els.sessionDetail.innerHTML);
+  }
+  assert.ok(els.sessionDetail.innerHTML.includes('Data sconosciuta'),
+    'data invalida senza fallback: ' + els.sessionDetail.innerHTML);
+  delete s.requestAnimationFrame;
+  resetState();
+});
+
+// ---- #27: state.mapFit era un latch mai resettato ----
+/* set in js/map.js:257,262 e mai riportato a false in tutto il repo: fitBounds
+   girava UNA volta per caricamento pagina. Dopo startLog la traccia riparte
+   (_leafN/_leafTrim azzerati) ma mapFit restava true → in una sessione nuova,
+   in un'altra zona e col follow spento, la mappa restava sull'area vecchia. */
+test('#27 mapFit: azzerato da startLog, cosi\' la sessione nuova si inquadra', () => {
+  resetState();
+  const calls = [];
+  const savedRenderCameras = s.renderCameras;
+  s.renderCameras = () => {};
+  state.map = {
+    fitBounds: () => calls.push('fit'), setView: () => calls.push('view'),
+    panTo: () => {}, getZoom: () => 16, invalidateSize: () => {},
+  };
+  state.mapPoly = {
+    getLatLngs: () => [{ lat: 45, lon: 9 }], getBounds: () => ({}),
+    setLatLngs: () => {}, addLatLng: () => {},
+  };
+  state.mapPos = { setLatLng: () => {} };
+  state.track = [{ lat: 45, lon: 9 }, { lat: 45.001, lon: 9.001 }];
+  state.gps = { lat: 45.001, lon: 9.001, heading: 0 };
+  state._leafN = 0;
+
+  try {
+    // Sessione precedente già inquadrata: non si ri-inquadra (comportamento voluto).
+    state.mapFit = true;
+    api.updateLeaflet();
+    assert.equal(calls.length, 0, 'fitBounds ripetuto a inquadratura gia\' fatta');
+
+    api.startLog();   // azzera _leafN/_leafTrim e ora anche mapFit
+    assert.equal(state.mapFit, false, 'mapFit non azzerato da startLog');
+    state.track = [{ lat: 45, lon: 9 }, { lat: 45.001, lon: 9.001 }];
+    state._leafN = 0;
+    api.updateLeaflet();
+    assert.ok(calls.includes('fit'), 'mappa non ri-inquadrata nella sessione nuova: ' + JSON.stringify(calls));
+  } finally {
+    s.renderCameras = savedRenderCameras;
+    resetState();
+  }
+});
+
+// ---- #28: canvas senza box disegnato comunque a 300x200 ----
+test('#28 drawTrackOnCanvas: canvas senza box (tab chiusa) non disegna a vuoto', () => {
+  withComputedStyle(() => {
+    const cv = fakeCanvas(0, 0);
+    drawTrackOnCanvas(cv, [{ lat: 45, lon: 9 }], { cur: { lat: 45, lon: 9 } });
+    assert.equal(cv.width, 0, 'backing store ridimensionato a vuoto');
+    assert.equal(cv.ops('fillRect').length, 0, 'disegno su canvas 0x0');
+
+    // Col box misurato disegna, come prima.
+    const ok = fakeCanvas(300, 200);
+    drawTrackOnCanvas(ok, [{ lat: 45, lon: 9 }], { cur: { lat: 45, lon: 9 } });
+    assert.equal(ok.width, 300);
+    assert.equal(ok.ops('fillRect').length, 1);
+  });
+});

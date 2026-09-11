@@ -119,21 +119,47 @@ function navArriveReset(nv) {
 }
 
 /* Nessun innerHTML: i nomi delle strade vengono da OSM, sono dati di terze parti. */
+/* Il banner e' una live region (`role="status" aria-live="polite"`, index.html):
+   ricostruirlo da zero a ogni fix GPS faceva rileggere l'intera riga allo screen
+   reader ogni secondo, e la velocita' — che cambia a ogni tick — affogava la
+   manovra, che e' l'unica cosa da annunciare. Lo scheletro e' quindi stabile
+   (creato una volta e riusato) e le due span si riscrivono solo quando il testo
+   cambia davvero. La velocita' e' aria-hidden: dentro una live region polite un
+   valore che cambia ogni secondo e' solo rumore. */
+let _nbSpeed = null, _nbMsg = null;
+function navBannerSkeleton(el) {
+  if (_nbSpeed && _nbSpeed.parentNode === el) return;
+  el.textContent = '';
+  _nbSpeed = document.createElement('span');
+  _nbSpeed.className = 'nb-speed';
+  _nbSpeed.setAttribute('aria-hidden', 'true');
+  _nbMsg = document.createElement('span');
+  _nbMsg.className = 'nb-msg';
+  el.appendChild(_nbSpeed);
+  el.appendChild(_nbMsg);
+}
+function nbTxt(el, s) {
+  s = String(s);
+  if (el.textContent !== s) el.textContent = s;
+}
 function navRenderBanner() {
   const nv = state.nav, el = els.navBanner;
   if (!el) return;
   if (!nv || nv.status === 'IDLE' || (nv.status === 'ARRIVED' && nv.bannerDone)) {
     el.style.display = 'none'; return;
   }
-  el.textContent = '';
+  navBannerSkeleton(el);
+  const sp = _nbSpeed, msg = _nbMsg;
   el.classList.toggle('off', nv.status === 'OFF_NONET' || nv.status === 'OFF_MANUAL' || nv.status === 'REROUTING');
-  if (nv.status === 'REROUTING') { el.appendChild(document.createTextNode('⟳ Ricalcolo…')); el.style.display = 'block'; return; }
-  if (nv.status === 'ARRIVED') { el.appendChild(document.createTextNode('⚑ Arrivato')); el.style.display = 'block'; return; }
+  // Velocita' azzerata nei rami non-manovra: con lo scheletro stabile non sparisce
+  // da sola come faceva il vecchio `textContent = ''`.
+  if (nv.status === 'REROUTING') { nbTxt(sp, ''); nbTxt(msg, '⟳ Ricalcolo…'); el.style.display = 'block'; return; }
+  if (nv.status === 'ARRIVED') { nbTxt(sp, ''); nbTxt(msg, '⚑ Arrivato'); el.style.display = 'block'; return; }
   if (nv.status === 'OFF_NONET' || nv.status === 'OFF_MANUAL') {
     const b = nv.snapLat != null ? bearing({ lat: nv.lastLat, lon: nv.lastLon }, { lat: nv.snapLat, lon: nv.snapLon }) : null;
-    el.appendChild(document.createTextNode(
-      (nv.status === 'OFF_NONET' ? '⚠ Senza rete · ' : '⚠ Fuori percorso · ') +
-      'rientro a ' + navFmtShort(nv.offDist || 0) + (b != null ? ' verso ' + Math.round(b) + '°' : '')));
+    nbTxt(sp, '');
+    nbTxt(msg, (nv.status === 'OFF_NONET' ? '⚠ Senza rete · ' : '⚠ Fuori percorso · ') +
+      'rientro a ' + navFmtShort(nv.offDist || 0) + (b != null ? ' verso ' + Math.round(b) + '°' : ''));
     el.style.display = 'block'; return;
   }
   const k = nv.nextMan;
@@ -141,29 +167,26 @@ function navRenderBanner() {
   const m = nv.man[k];
   /* Mini-HUD: velocita' live prima della manovra. Il banner e' l'unico elemento
      sempre visibile in marcia su qualsiasi tab (anche Navigatore), cosi' la
-     velocita' c'e' senza tornare in Dashboard. tabIndex + aria-label per SR. */
-  const v = document.createElement('span'); v.className = 'nb-speed';
+     velocita' c'e' senza tornare in Dashboard. */
   const kmh = Math.round(typeof state !== 'undefined' && state.speedKph ? state.speedKph : 0);
-  v.textContent = kmh + ' km/h';
-  v.setAttribute('aria-label', 'Velocità ' + kmh + ' chilometri orari');
-  el.appendChild(v);
-  el.appendChild(document.createTextNode(' ' + navIcon(m) + ' '));
-  const d = document.createElement('span'); d.className = 'nb-dist';
-  d.textContent = navFmtShort(navDistToNext(nv)); el.appendChild(d);
-  const st = document.createElement('span'); st.className = 'nb-street';
+  nbTxt(sp, kmh + ' km/h');
+  let d = msg.children[0], st = msg.children[1], t2 = msg.children[2];
+  if (!d) { d = document.createElement('span'); d.className = 'nb-dist'; msg.appendChild(d); }
+  if (!st) { st = document.createElement('span'); st.className = 'nb-street'; msg.appendChild(st); }
+  nbTxt(d, navIcon(m) + ' ' + navFmtShort(navDistToNext(nv)));
   /* multiCue: Valhalla mette la coppia intera ("gira a destra, poi imbocca...") in
      vPre, ed e' quella che la voce legge; m.text e' solo la prima meta'. Il banner
      diceva una cosa e la voce un'altra, nello stesso istante. */
-  st.textContent = (m.multiCue && m.vPre) ? m.vPre : (m.text || (m.streets.join(', ')));
-  el.appendChild(st);
+  nbTxt(st, (m.multiCue && m.vPre) ? m.vPre : (m.text || (m.streets.join(', '))));
   /* Stesse condizioni della voce (navAnnounce): niente "poi ..." se la manovra
      incatenata e' silent (uscita di rotonda OSRM) o se multiCue l'ha gia' detta. */
   const nx = k + 1 < nv.man.length ? nv.man[k + 1] : null;
-  if (nx && !nx.silent && !m.multiCue && (nv.sMan[k + 1] - nv.sMan[k]) < navChainMinM(nv.vRef)) {
-    const t2 = document.createElement('span'); t2.className = 'nb-then';
-    t2.textContent = 'poi ' + navIcon(nx) + ' ' + navShortCue(nx.vPre || nx.text);
-    el.appendChild(t2);
-  }
+  const thenTxt = (nx && !nx.silent && !m.multiCue && (nv.sMan[k + 1] - nv.sMan[k]) < navChainMinM(nv.vRef))
+    ? 'poi ' + navIcon(nx) + ' ' + navShortCue(nx.vPre || nx.text) : '';
+  if (thenTxt) {
+    if (!t2) { t2 = document.createElement('span'); t2.className = 'nb-then'; msg.appendChild(t2); }
+    nbTxt(t2, thenTxt);
+  } else if (t2) t2.remove();   // la span "poi ..." non deve restare da un fix precedente
   el.style.display = 'block';
 }
 

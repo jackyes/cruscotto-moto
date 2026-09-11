@@ -89,7 +89,10 @@ function tickDemo(now) {
   state.gpsStatus = 'ok';
   state.session.lastPos = state.session.lastPos || { lat, lon };
   // dt reale: il passo fisso 0.05 s presupponeva frame da 50 ms, rAF ne dà ~16,7
-  state.session.distKm += (state.speedMs * dt) / 1000;
+  /* Solo a registrazione attiva, come i massimi in updateDisplay e come il ramo
+     GPS (js/inputs.js): prima la distanza demo continuava a crescere dopo lo Stop,
+     e il display divergeva dalla sessione salvata (meta.distKm). */
+  if (state.logging) state.session.distKm += (state.speedMs * dt) / 1000;
   appendTrackPoint(lat, lon, 120);
   checkCameras();
   updateMap();
@@ -215,9 +218,14 @@ function updateDisplay() {
     state.session.maxLeanL = Math.min(state.session.maxLeanL, state.lean);
   }
   setTxt(els.statMaxSpeed, Math.round(state.session.maxSpeed));
-  els.statDist.textContent = state.session.distKm.toFixed(2);
-  els.maxLeanR.textContent = Math.abs(state.session.maxLeanR).toFixed(0) + '°';
-  els.maxLeanL.textContent = Math.abs(state.session.maxLeanL).toFixed(0) + '°';
+  /* setTxt e non .textContent = ...: updateDisplay gira a DISPLAY_HZ e questi
+     cinque valori cambiano raramente (la distanza a passi di 0.01 km, il tempo
+     una volta al secondo). Assegnare textContent a ogni frame invalida il nodo
+     e il layout anche quando la stringa è identica — e il resto della funzione
+     passa già da setTxt. */
+  setTxt(els.statDist, state.session.distKm.toFixed(2));
+  setTxt(els.maxLeanR, Math.abs(state.session.maxLeanR).toFixed(0) + '°');
+  setTxt(els.maxLeanL, Math.abs(state.session.maxLeanL).toFixed(0) + '°');
   let dur = 0;
   if (state.session.startWall) {
     const end = state.logging ? Date.now() : (state.session.endWall || state.session.startWall);
@@ -225,8 +233,8 @@ function updateDisplay() {
   }
   const mm = String(Math.floor(dur / 60)).padStart(2, '0');
   const ss = String(Math.floor(dur % 60)).padStart(2, '0');
-  els.statTime.textContent = mm + ':' + ss;
-  els.topTime.textContent = mm + ':' + ss;
+  setTxt(els.statTime, mm + ':' + ss);
+  setTxt(els.topTime, mm + ':' + ss);
 
   updateGpsStatus();
   updateCamStatus();

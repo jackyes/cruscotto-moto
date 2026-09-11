@@ -3,7 +3,7 @@ import assert from 'node:assert';
 import { api, resetState, vmSandbox } from './harness.mjs';
 import { createFakeIndexedDB } from './fake-indexeddb.mjs';
 
-const { state, idb, els, saveSession, recoverChunks, haversine } = api;
+const { state, idb, els, saveSession, recoverChunks, renderHistory, haversine } = api;
 
 async function initDb() {
   vmSandbox.indexedDB = createFakeIndexedDB();
@@ -120,4 +120,42 @@ test('recoverChunks: ricompone i chunk e recupera su click', async () => {
   assert.equal(sess.meta.recovered, true);
   assert.ok(sess.meta.distKm > 0.2 && sess.meta.distKm < 0.25, 'distKm: ' + sess.meta.distKm);
   assert.equal((await idb.getChunks()).length, 0); // chunk ripuliti dopo il recupero
+});
+
+test('renderHistory: meta con stringhe/assente non lancia e riempie la card', async () => {
+  resetState();
+  await initDb();
+  /* Dati come arrivano da IndexedDB o da un import di terzi: distKm stringa.
+     Con la coercizione a identità, `num(s.meta.distKm).toFixed(2)` e' un
+     TypeError DENTRO il ciclo: la card non veniva accodata e lo storico
+     restava vuoto (o a meta'). */
+  await idb.put({
+    id: 'sB',
+    meta: { startISO: 'non-una-data', duration: '90', maxSpeed: '120', maxLeanR: '45', maxLeanL: null, distKm: '12.5' },
+    track: [], rows: [],
+  });
+  await idb.put({
+    id: 'sA',
+    meta: { startISO: '2024-01-01T10:00:00Z', duration: 60, maxSpeed: 100, maxLeanR: 40, maxLeanL: -35, distKm: 12.5 },
+    track: [], rows: [],
+  });
+  // Senza meta: scartata dal filtro, non deve contare come card.
+  await idb.put({ id: 'sC', track: [], rows: [] });
+
+  els.sessionList.children.length = 0;
+  await renderHistory();
+
+  const cards = els.sessionList.children;
+  assert.equal(cards.length, 2, 'card attese: ' + cards.length);
+
+  const byDate = cards.map(c => c.children[0].textContent);
+  assert.ok(byDate.includes('Data sconosciuta'), 'date: ' + byDate.join(' | '));
+
+  const bad = cards.find(c => c.children[0].textContent === 'Data sconosciuta');
+  const vals = bad.children[1].children.map(s => s.children[0].textContent);
+  assert.equal(vals.length, 4);
+  assert.ok(vals[0].includes('01:30'), 'durata: ' + vals[0]);      // 90 s da stringa
+  assert.ok(vals[1].includes('120'), 'V max: ' + vals[1]);
+  assert.ok(vals[2].includes('45'), 'piega: ' + vals[2]);
+  assert.ok(vals[3].includes('12.50'), 'distanza: ' + vals[3]);    // '12.5' -> 12.50
 });
