@@ -279,7 +279,10 @@ function drawCanvasMap() {
   const centered = (state.follow || state.centerPending || state.trackUp) ? p : null;
   const h = state.trackUp ? trackUpHeading() : null;
   drawTrackOnCanvas(state.mapCanvas, state.track, {
-    current: true,
+    /* Fix GPS vivo, non l'ultimo punto di traccia: la traccia avanza solo a log
+       attivo e solo ogni TRACK_MIN_M, quindi da fermi (o a log spento) l'ultimo
+       punto scritto e' dove la moto ERA. Vedi drawTrackOnCanvas per l'uso. */
+    cur: p,
     heading: state.gps.heading,
     // Con un DB importato disegnare tutto era impraticabile: solo le camere vicine.
     cameras: camsToDraw(),
@@ -308,7 +311,15 @@ function drawTrackOnCanvas(canvas, track, opts) {
   const cams = (opts && opts.cameras) || [];
   const route = (opts && opts.route) || [];
   const hasTrack = !!(track && track.length);
-  if (!hasTrack && !cams.length && !route.length) {
+  /* Posizione corrente: il fix GPS VIVO (opts.cur), non track[track.length - 1].
+     La traccia cresce solo a log attivo e solo ogni TRACK_MIN_M: da fermo, a log
+     spento o nei primi metri l'ultimo punto scritto e' dove la moto era, e il
+     marker restava li'. `opts.cur` e' l'unico modo per passare la posizione: i
+     replay (js/map.js:156, index.html:1961) passano solo { startEnd: true } e non
+     disegnano nessun marker. Non e' un doppione di `hasTrack`: si puo' avere un fix
+     e nessuna traccia. */
+  const cur = (opts && opts.cur) || null;
+  if (!hasTrack && !cams.length && !route.length && !cur) {
     ctx.fillStyle = canvasTheme.get('c-axis'); ctx.font = '13px system-ui'; ctx.textAlign = 'center';
     ctx.fillText('Nessun fix GPS', w / 2, h / 2);
     return;
@@ -318,6 +329,8 @@ function drawTrackOnCanvas(canvas, track, opts) {
     if (p.lat < minLat) minLat = p.lat; if (p.lat > maxLat) maxLat = p.lat;
     if (p.lon < minLon) minLon = p.lon; if (p.lon > maxLon) maxLon = p.lon;
   }
+  // Fix senza traccia (log non attivo, oppure prima del primo punto): non serve un
+  // ramo dedicato, il fix entra nei bounds qui sotto insieme a camere e rotta.
   for (const c of cams) {
     if (c.lat < minLat) minLat = c.lat; if (c.lat > maxLat) maxLat = c.lat;
     if (c.lon < minLon) minLon = c.lon; if (c.lon > maxLon) maxLon = c.lon;
@@ -327,6 +340,17 @@ function drawTrackOnCanvas(canvas, track, opts) {
     if (c.lat < minLat) minLat = c.lat; if (c.lat > maxLat) maxLat = c.lat;
     if (c.lon < minLon) minLon = c.lon; if (c.lon > maxLon) maxLon = c.lon;
   }
+  /* Il marker sta sul fix VIVO (cur), che puo' essere fuori dalla traccia scritta: la
+     traccia avanza solo a log attivo e solo ogni TRACK_MIN_M, quindi da fermi o nei
+     primi metri l'ultimo punto e' indietro. Con la traccia a un punto solo lo span
+     degenera, il floor a 0.0001 lo gonfia a ~15 m di finestra e il fix finisce fuori
+     dal canvas: schermo vuoto proprio all'avvio, quando serve di piu'. Qui cur entra
+     nei bounds perche' e' cio' che si disegna: sotto si aggiunge a min/max, non lo
+     sostituisce. */
+  if (cur) {
+    if (cur.lat < minLat) minLat = cur.lat; if (cur.lat > maxLat) maxLat = cur.lat;
+    if (cur.lon < minLon) minLon = cur.lon; if (cur.lon > maxLon) maxLon = cur.lon;
+  }
   const spanLat = (maxLat - minLat) || 0.0001, spanLon = (maxLon - minLon) || 0.0001;
   const pad = 28;
   const lat0 = (maxLat + minLat) / 2;
@@ -334,7 +358,11 @@ function drawTrackOnCanvas(canvas, track, opts) {
   const rot0 = (opts && opts.rotateDeg) || 0;
   const scale = Math.min((w - 2 * pad) / (spanLon * kx), (h - 2 * pad) / spanLat);
   const ctr = (opts && opts.center) ? opts.center : null;
-  const anchor = (ctr || rot0) ? { lon: ctr ? ctr.lon : (minLon + maxLon) / 2, lat: ctr ? ctr.lat : (minLat + maxLat) / 2 } : null;
+  /* Estensione nulla (un solo punto: il fix vivo senza traccia, o una sola camera)
+     non da' un centro di riquadro da cui ricavare l'inquadratura: senza anchor
+     finiva nell'angolo in alto a sinistra. L'anchor lo centra. */
+  const degenerate = (maxLat === minLat && maxLon === minLon);
+  const anchor = (ctr || rot0 || degenerate) ? { lon: ctr ? ctr.lon : (minLon + maxLon) / 2, lat: ctr ? ctr.lat : (minLat + maxLat) / 2 } : null;
   const offX = anchor ? (w / 2 - (anchor.lon - minLon) * kx * scale) : ((w - spanLon * kx * scale) / 2);
   const offY = anchor ? (h / 2 - (maxLat - anchor.lat) * scale) : ((h - spanLat * scale) / 2);
   const X = lon => offX + (lon - minLon) * kx * scale;
@@ -377,10 +405,12 @@ function drawTrackOnCanvas(canvas, track, opts) {
   }
   if (rot) ctx.restore(); // il marker resta dritto anche con la mappa ruotata
 
-  // posizione corrente + heading
-  if (opts && opts.current && hasTrack) {
-    const e = track[track.length - 1];
-    const cx = rot ? w / 2 : X(e.lon), cy = rot ? h / 2 : Y(e.lat);
+  // posizione corrente + heading — dal fix vivo, non dall'ultimo punto di traccia
+  if (cur) {
+    /* X/Y e non w/2 in track-up: con rotateDeg l'anchor e' il centro e coincide col
+       fix vivo (drawCanvasMap passa lo stesso punto come center), quindi X(cur.lon)
+       vale w/2 esatto — ma senza dipendere dal chiamante. */
+    const cx = X(cur.lon), cy = Y(cur.lat);
     ctx.fillStyle = canvasTheme.get('c-txt');
     ctx.beginPath(); ctx.arc(cx, cy, 6, 0, TAU); ctx.fill();
     // In track-up il verso di marcia è per definizione verso l'alto.

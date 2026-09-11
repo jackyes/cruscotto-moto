@@ -151,6 +151,153 @@ function setFollow(on) {
   if (on) centerMap(); // recentra subito all'attivazione
 }
 
+/* Punto in coordinate container Leaflet da un evento puntatore, su un container
+   ruotato via CSS di `deg` gradi.
+
+   Leaflet ricava le coordinate da getMousePosition(): clientX/Y meno l'origine del
+   getBoundingClientRect(), diviso la scala. E' geometria da elemento NON ruotato, e
+   non sa annullare una rotazione CSS: su un container ruotato legge l'inviluppo del
+   rettangolo ruotato (piu' grande, stesso centro) e sbaglia ogni coordinata — tap
+   per la destinazione, box zoom, zoom a rotella e pinch, tooltip sticky, che
+   passano tutti di li'. L'errore cresce con l'angolo: a 90° il punto finiva
+   riflesso, e a 180° opposto.
+
+   (Il pan col dito NON passa di qui: L.Draggable legge clientX/Y grezzi. Vedi
+   hookDraggableRotation, che lo copre a parte.)
+
+   Il centro dell'elemento e' l'unico punto che la rotazione lascia fermo
+   (transform-origin 50% 50%), quindi basta riportare il vettore dal centro
+   dell'inviluppo al sistema dell'elemento ruotandolo di −deg. Con deg=0 la formula
+   degenera in (clientX − rect.left, clientY − rect.top): identica a Leaflet. */
+function rotContainerPoint(clientX, clientY, rect, w, h, deg) {
+  const a = deg * Math.PI / 180, ca = Math.cos(a), sa = Math.sin(a);
+  const sx = clientX - (rect.left + rect.width / 2);
+  const sy = clientY - (rect.top + rect.height / 2);
+  return { x: ca * sx + sa * sy + w / 2, y: -sa * sx + ca * sy + h / 2 };
+}
+
+/* Un evento puntatore diventa coordinate container in DUE posti diversi di Leaflet, e
+   per correggere la rotazione CSS vanno coperti entrambi.
+
+   1) map.mouseEventToContainerPoint(). Ci passa _fireDOMEvent (tap -> e.latlng,
+      dblclick, contextmenu), mouseEventToLatLng, il box zoom, lo zoom a rotella e
+      pinch, e il tooltip sticky. Sovrascrivere il metodo sul map li copre tutti.
+
+   2) L.Draggable._onMove(), il PAN col dito. NON passa da (1): Draggable lavora su
+      clientX/clientY grezzi (`e._subtract(this._startPoint)`), divide per
+      _parentScale (= getBoundingClientRect/getSize dell'antenato) e scrive
+      _newPos = _startPos.add(e), che _updatePosition applica come translate3d sulla
+      leaflet-map-pane — figlia di #map, cioe' dell'elemento ruotato. Quel translate
+      e' quindi nel frame LOCALE dell'elemento: lo schermo lo vede ruotato di deg e
+      il pan parte in direzione falsa (a 90° perpendicolare al dito). Peggio,
+      _parentScale e' misurato sull'AABB di un elemento ruotato, quindi non e' piu'
+      uniforme (a 90° vale ~(0.6, 1.65) sul riquadro 142% di .map-box.rot).
+
+   Rotazione di -deg = inversa esatta di rotate(+deg) (stessa formula di
+   rotContainerPoint, stessa convenzione y verso il basso). Con deg=0 entrambi gli
+   hook non toccano nulla. Ruotare un wrapper non servirebbe — qualunque antenato
+   ruotato rompe la stessa matematica — e correggere a valle e.latlng lascerebbe
+   scoperti i call site senza evento.
+
+   Sul drag si aggancia il TICK, non si riscrive _onMove: l'evento di move viene
+   modificato prima che Leaflet lo legga (clientX/Y riportati nel frame locale
+   attorno all'origine del drag), cosi' _startPoint, _parentScale e _newPos restano
+   quelli di Leaflet e si muove solo il dato in ingresso. Un wrapper su _onMove
+   avrebbe dovuto riprodurre _parentScale a mano — l'AABB misurato da Leaflet e'
+   inutilizzabile quando l'elemento e' ruotato. */
+/* Un oggetto usabile come `target` da addClass/removeClass di Leaflet: ci finisce in
+   mano del gestore di classi, che legge `classList` (se undefined) o `className`. */
+function validDragTarget(t) {
+  if (!t) return false;
+  if (t.classList) return true;
+  const c = t.className;
+  return typeof c === 'string' || (c != null && typeof c === 'object' && 'baseVal' in c);
+}
+
+/* Copia dell'evento con clientX/clientY ruotati di deg attorno a (ox, oy), nel frame
+   schermo: stessa formula di rotContainerPoint. La copia conserva gli altri campi che
+   Leaflet legge da questo evento (`t.touches` per il multi-touch, e `t.target` /
+   `t.srcElement`, usati in _onMove per `_lastTarget` e poi da addClass/removeClass:
+   un oggetto nudo li` fa lanciare TypeError al primo move). */
+function rotClientPoint(ox, oy, e, deg) {
+  const a = deg * Math.PI / 180, ca = Math.cos(a), sa = Math.sin(a);
+  const sx = e.clientX - ox, sy = e.clientY - oy;
+  return { touches: e.touches, target: e.target, srcElement: e.srcElement,
+    clientX: ox + ca * sx + sa * sy, clientY: oy + -sa * sx + ca * sy };
+}
+
+function hookDraggableRotation(map) {
+  const drag = map && map.dragging;
+  const dg = drag && drag._draggable;
+  if (!dg || dg._rotDrag) return;
+  dg._rotDrag = true;
+  /* __onDown di Leaflet scrive _parentScale = AABB/offsetSize misurato su #map
+     RUOTATO (a 90° ~(0.6, 1.65) sul riquadro 142%): non e' piu' uniforme e va
+     annullato, perche' _onMove la riapplica a un delta che qui ruotiamo noi. Si
+     annulla DOPO la sua chiamata, non prima: _onDown la sovrascrive. */
+  const oDown = dg._onDown;
+  dg._onDown = function (e) {
+    const r = oDown.call(this, e);
+    /* _moving diventa true solo nel primo _onMove di un gesto: '_onDown' entra
+       nell'else di `this._moving || (...)` (e lo azzera in finishDrag), quindi dopo
+       la sua chiamata un drag e' appena partito SOLO se _moving e' ancora false.
+       Guardare _startPoint non basta: non viene azzerato alla fine del gesto, e un
+       mousedown che non fa partire nulla riuserebbe l'ancora del gesto precedente. */
+    if (!this._moving) this._parentScale = { x: 1, y: 1 };
+    return r;
+  };
+  /* _startPoint (fissato da _onDown con le clientX/Y grezze del mousedown) e' anche
+     l'origine attorno a cui si ruota: si sostituisce con la sua versione ruotata, e
+     da li' in poi ogni move le viene consegnato ruotato attorno alla STESSA origine,
+     cosi' _onMove misura il delta locale corretto. Una sola rotazione per evento,
+     nessuna accumulazione di errore. */
+  const oMove = dg._onMove;
+  dg._onMove = function (e) {
+    /* Guardia sull'evento: a _onMove si passa una COPIA con clientX/Y ruotati, e
+       Leaflet la usa anche come evento vero — `_lastTarget = t.target || t.srcElement`
+       e poi `M(_lastTarget, 'leaflet-drag-target')`, cioe' addClass, che fa
+       `t.classList` e in mancanza `t.className`. Su un oggetto nudo lancia TypeError
+       al PRIMO move, in un browser vero (nei test no: il Draggable finto non tocca
+       target). Si passa la copia solo se ha un target con classe vera; altrimenti si
+       delega: il pan in quel caso resta non compensato, ma non si pianta il drag. */
+    if (!e || e.clientX == null || e.clientY == null || !validDragTarget(e.target || e.srcElement)) {
+      return oMove.call(this, e);
+    }
+    const sp = this._startPoint;
+    if (!sp) return oMove.call(this, e);   // nessun drag in corso
+    const deg = state.mapRotDeg || 0;
+    if (!deg) return oMove.call(this, e);
+    this._startPoint = L.point(sp.x, sp.y);
+    return oMove.call(this, rotClientPoint(sp.x, sp.y, e, deg));
+  };
+  // dragging.enable() azzera _draggable: l'hook va rimesso sul nuovo oggetto.
+  if (drag && typeof drag.enable === 'function' && !drag._rotDragEnable) {
+    drag._rotDragEnable = true;
+    const oe = drag.enable;
+    drag.enable = function () {
+      const r = oe.apply(this, arguments);
+      hookDraggableRotation(map);
+      return r;
+    };
+  }
+}
+
+function hookRotatedPointer(map) {
+  if (map && !map._rotPointer) {
+    map._rotPointer = true;
+    const orig = map.mouseEventToContainerPoint;
+    map.mouseEventToContainerPoint = function (e) {
+      const deg = state.mapRotDeg || 0;
+      if (!deg || !e || e.clientX == null || e.clientY == null) return orig.call(this, e);
+      const el = this._container || els.map;
+      const p = rotContainerPoint(e.clientX, e.clientY, el.getBoundingClientRect(),
+        el.offsetWidth, el.offsetHeight, deg);
+      return L.point(p.x - (el.clientLeft || 0), p.y - (el.clientTop || 0));
+    };
+  }
+  hookDraggableRotation(map);
+}
+
 /* Track-up senza plugin: leaflet-rotate non è caricato, quindi map.setBearing()
    e map.resetNorth() non esistono e lanciavano TypeError a ogni aggiornamento.
    Si ruota il container via CSS (riquadro sovradimensionato per coprire gli angoli). */
@@ -158,11 +305,15 @@ function applyMapRotation() {
   if (!els.mapBox) return;
   const on = state.trackUp && state.mapType === 'leaflet';
   els.mapBox.classList.toggle('rot', on);
-  const mapEl = els.map;
-  if (!on) { mapEl.style.transform = ''; return; }
-  const h = trackUpHeading();
-  if (h == null) return;
-  mapEl.style.transform = 'rotate(' + (-h).toFixed(1) + 'deg)';
+  const h = on ? trackUpHeading() : null;
+  const deg = h == null ? 0 : Number((-h).toFixed(1));
+  /* Transform e angolo memorizzato si aggiornano solo qui, e sempre insieme: la
+     compensazione del puntatore legge state.mapRotDeg, quindi un transform rimasto
+     acceso (prima h == null usciva senza toccarlo) o un angolo stantio
+     sposterebbero ogni tap di una rotazione fantasma. */
+  state.mapRotDeg = deg;
+  els.map.style.transform = deg ? 'rotate(' + deg + 'deg)' : '';
+  if (state.map) hookRotatedPointer(state.map);
 }
 function setTrackUp(on) {
   state.trackUp = on;

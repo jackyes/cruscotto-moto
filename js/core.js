@@ -207,6 +207,7 @@ const state = {
   gpxRoute: null,            // traccia GPX importata come rotta (overlay)
   follow: true,
   trackUp: false,
+  mapRotDeg: 0,      // rotazione CSS applicata a #map (track-up Leaflet): la compensa rotContainerPoint
   compass: null,
   compassOffset: 0,
   gyroFusion: true,
