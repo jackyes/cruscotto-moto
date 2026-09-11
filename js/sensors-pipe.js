@@ -135,7 +135,15 @@ function processSample(sm) {
   if (sm.grav && !finiteVec(sm.grav)) sm.grav = null;
 
   const ig = sm.acc;
-  const m = MOUNT[state.mount];
+  /* Fallback come in buildBasis (js/core.js): loadSettings valida già state.mount
+     contro MOUNT, ma qui la chiave ignota significherebbe TypeError a ogni campione
+     (m.lat su undefined) — cioè strumentazione morta in marcia. Un orientamento di
+     ripiego sbagliato è meglio di un loop di eccezioni.
+     hasOwnProperty e non `MOUNT[x] ||`: 'constructor', 'toString' e '__proto__' sono
+     `in` MOUNT e danno valori truthy (Object.prototype), quindi la guardia ingenua
+     lasciava passare proprio le chiavi che deve fermare — provato con processSample
+     su state.mount = 'constructor': TypeError su m.lat come senza fallback. */
+  const m = Object.prototype.hasOwnProperty.call(MOUNT, state.mount) ? MOUNT[state.mount] : MOUNT['landscape-left'];
   const B = state.calib;
 
   /* Velocita' angolare, vettoriale. Saturazione simmetrica (non azzeramento: mettere

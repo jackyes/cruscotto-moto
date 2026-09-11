@@ -173,7 +173,12 @@ function setNeedle(lean) {
 
 function loadSettings() {
   const s = store.get('cruscotto.settings', {});
-  state.mount = s.mount || 'landscape-left';
+  /* Validato contro MOUNT, come camRadius qui sotto: il valore finisce in
+     MOUNT[state.mount] dentro il loop sensori (js/sensors-pipe.js), dove una chiave
+     ignota dava TypeError a ogni campione — strumentazione morta fino a ripristinare
+     le impostazioni. hasOwnProperty e non `in`: `in` accetterebbe anche le chiavi di
+     Object.prototype ('constructor', 'toString', …) come orientamenti validi. */
+  state.mount = Object.prototype.hasOwnProperty.call(MOUNT, s.mount) ? s.mount : 'landscape-left';
   state.invertLean = !!s.invertLean;
   state.wakeLockOn = s.wakeLockOn !== false;
   state.camAlerts = s.camAlerts !== false;
