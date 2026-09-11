@@ -19,6 +19,9 @@ function navInitLive(nv) {
   nv.offCount = 0; nv.offTravel = 0; nv.missCount = 0; nv.missTravel = 0;
   nv.wrongCount = 0; nv.wrongTravel = 0; nv.farCount = 0; nv.lostCount = 0; nv.arriveCount = 0;
   nv.vEMA = null; nv.lastFixAt = 0; nv.lastGoodAt = Date.now(); nv.lastLat = null; nv.lastLon = null;
+  // Rotta nuova = destinazione nuova: la geometria appena costruita porta al `dest`
+  // che il chiamante sta per assegnare, quindi il blocco dell'arrivo cade qui.
+  nv.destStale = false;
 }
 
 /* Il retry senza heading di Valhalla scatta al massimo una volta a sessione:
@@ -136,7 +139,7 @@ async function navRequestRoute(from, to, hdg, why) {
       if (reqStale()) return;
       state.nav = nv0;
       navSetStatus((why ? 'Percorso ricalcolato' : 'Percorso pronto') + ' · motore: ' + nv0.engine + ' (cache)');
-      navPersistRoute(); navDrawRoute(); navFitRoute(); navRenderBanner(); renderNavPanel();
+      navPersistRoute(); navDrawRoute(); navFitRoute(why == null); navRenderBanner(); renderNavPanel();
       return;
     } catch (e) { /* cache corrotta: si prosegue con rete */ }
   }
@@ -205,7 +208,7 @@ async function navRequestRoute(from, to, hdg, why) {
       if (reqStale()) return;
       state.nav = nvS;
       navSetStatus('Offline: uso ultimo percorso salvato.');
-      navPersistRoute(); navDrawRoute(); navFitRoute(); navRenderBanner(); renderNavPanel();
+      navPersistRoute(); navDrawRoute(); navFitRoute(why == null); navRenderBanner(); renderNavPanel();
       return;
     } catch (e) { /* stale illeggibile: si prosegue col messaggio OFF_NONET */ }
   }
@@ -262,7 +265,10 @@ async function navRequestRoute(from, to, hdg, why) {
     (engine === 'OSRM' ? ' (profilo auto' + (anyPref ? ', preferenze moto non applicate' : '') + ')' : ''));
   navPersistRoute();
   navDrawRoute();
-  navFitRoute();
+  // why == null: destinazione nuova (l'utente sta guardando la mappa). In ricalcolo
+  // e in ripresa si sta guidando: l'inquadratura sulla rotta intera spegnerebbe
+  // l'inseguimento proprio mentre serve. Vedi navFitRoute.
+  navFitRoute(why == null);
   navRenderBanner();
   renderNavPanel();
 }

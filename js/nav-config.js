@@ -151,6 +151,8 @@ async function navRestore() {
 function navStart() {
   const nv = state.nav;
   navSpeak.init(); navSpeak.prime();       // il gesto utente e' questo tap
+  // (l'heartbeat della voce lo riarma navSpeak.say(), che e' l'unico punto da cui
+  //  passa ogni annuncio: navStart da solo non copriva ricalcolo e destinazione nuova)
   if (!nv) {
     const d = state.navDest;
     const p = state.pos.lat != null ? state.pos : (state.gps.lat != null ? state.gps : null);
@@ -174,6 +176,9 @@ function navStart() {
   while (k < nv.man.length && nv.sMan[k] < nv.sAlong + 5) k++;
   nv.nextMan = Math.min(k, nv.man.length - 1);
   nv.spoken = 0; nv.preSpoken = {};
+  /* Ripresa della STESSA rotta: l'arrivo annunciato prima (banner gia' consumato,
+     timer magari ancora vivo) non vale piu' per questo giro. */
+  navArriveReset(nv);
   nv.status = 'ACTIVE'; nv.lastGoodAt = Date.now();
   // Resume manuale: si azzera il circuit breaker dei ricalcoli. Altrimenti, dopo
   // 6 ricalcoli in 10 minuti (o in OFF_MANUAL), il primo fuori-percorso utile
@@ -188,50 +193,74 @@ function navStart() {
 }
 function navStop() {
   navSimStop();
+  navSearchCancel();          // una risposta Photon in volo non deve ripopolare la lista a navigatore chiuso
+  navArriveReset(state.nav);  // il timer del banner "Arrivato" non deve sopravvivere alla rotta
   state.nav = null; state.navDest = null; state.navVias = []; state.gpxRoute = null;
   navSpeak.stop();
   navSpeak.stopHeartbeat();   // l'heartbeat della voce non serve più
   idb.kvPut('activeRoute', null).catch(() => {});
   idb.kvPut('navProgress', null).catch(() => {});
-  els.navQuery.value = ''; els.navResults.textContent = '';
+  if (els.navQuery) els.navQuery.value = '';
+  navClearResults();
   navSetStatus('Navigazione terminata.');
   navRenderBanner(); renderNavPanel(); navDrawRoute(); drawGpxRoute();
 }
-let navSimTimer = null, navSimS = 0, navSimOff = 0;
+let navSimTimer = null, navSimS = 0, navSimOff = 0, navSimNv = null;
 
-function navSimStop() { clearInterval(navSimTimer); navSimTimer = null; navSimOff = 0; }
+function navSimStop() { clearInterval(navSimTimer); navSimTimer = null; navSimOff = 0; navSimNv = null; }
+
+/* Offset massimo della deviazione simulata: senza tetto cresceva di 25 m per tick
+   per sempre (~4,5 km in tre minuti), la moto simulata usciva da ogni soglia e il
+   punto disegnato non era piu' "una deviazione" ma un punto a caso fuori mappa. */
+const NAV_SIM_OFF_MAX_M = 500;
+
+/* Deviazione simulata: la fa scattare il pulsante (index.html). Qui e non la' perche'
+   l'offset vive in questo file, ed e' l'unico modo di armarlo senza passare dal DOM. */
+function navSimDevia() { navSimOff = 25; }
+
+/* Un tick della simulazione, estratto dal setInterval perche' il timer non e'
+   pilotabile (ne' in test ne' a mano) e perche' la rotta puo' CAMBIARE sotto. */
+function navSimStep() {
+  const nv = state.nav;
+  if (!nv || !nv.n) { navSimStop(); return; }
+  /* Ricalcolo riuscito: state.nav e' un oggetto NUOVO. Continuare a interpolare la
+     polilinea catturata alla partenza teneva il marker sulla rotta vecchia per
+     sempre, con il navigatore perennemente "fuori percorso" e mai rientrato. Cambio
+     di identita' = rotta nuova: si riparte da dove il navigatore ci ha riagganciati. */
+  if (navSimNv !== nv) { navSimNv = nv; navSimS = nv.sAlong || 0; navSimOff = 0; }
+  const v = els.navSimSpeed ? (parseFloat(els.navSimSpeed.value) || 25) : 25;
+  navSimS += v;
+  if (navSimS >= nv.totalM) { navSimS = nv.totalM; }
+  const i = Math.max(0, Math.min(nv.n - 2, navLowerBound(nv.cum, nv.n, navSimS) - 1));
+  const span = Math.max(1e-6, nv.cum[i + 1] - nv.cum[i]);
+  const t = Math.max(0, Math.min(1, (navSimS - nv.cum[i]) / span));
+  let la = nv.lat[i] + t * (nv.lat[i + 1] - nv.lat[i]);
+  let lo = nv.lon[i] + t * (nv.lon[i + 1] - nv.lon[i]);
+  if (navSimOff > 0) {
+    // scarto perpendicolare crescente, per far scattare il ricalcolo
+    const b = (nv.brg[i] + 90) * Math.PI / 180;
+    la += Math.cos(b) * navSimOff / 111132;
+    lo += Math.sin(b) * navSimOff / (111320 * Math.cos(la * Math.PI / 180));
+    navSimOff = Math.min(NAV_SIM_OFF_MAX_M, navSimOff + 25);
+  }
+  state.pos.lat = la; state.pos.lon = lo;
+  state.gps.lat = la; state.gps.lon = lo;
+  state.gps.heading = nv.brg[i]; state.gps.acc = 6;
+  state.speedMs = v; state.speedKph = v * 3.6; state.gpsStatus = 'ok';
+  updateGpsStatus();
+  navTick(la, lo, 6);
+  updateMap();
+  navRenderBanner();
+  if (state.currentTab === 'nav') renderNavPanel();
+  if (navSimS >= nv.totalM) navSimStop();
+}
 
 function navSimStart() {
   const nv = state.nav;
   if (!nv || !nv.n) { toast('Calcola prima un percorso.', 'err'); return; }
   navSimStop();
+  navSimNv = nv;
   navSimS = nv.sAlong || 0;
-  navSimTimer = setInterval(() => {
-    const v = parseFloat(els.navSimSpeed.value) || 25;
-    navSimS += v;
-    if (navSimS >= nv.totalM) { navSimS = nv.totalM; }
-    const i = Math.max(0, Math.min(nv.n - 2, navLowerBound(nv.cum, nv.n, navSimS) - 1));
-    const span = Math.max(1e-6, nv.cum[i + 1] - nv.cum[i]);
-    const t = Math.max(0, Math.min(1, (navSimS - nv.cum[i]) / span));
-    let la = nv.lat[i] + t * (nv.lat[i + 1] - nv.lat[i]);
-    let lo = nv.lon[i] + t * (nv.lon[i + 1] - nv.lon[i]);
-    if (navSimOff > 0) {
-      // scarto perpendicolare crescente, per far scattare il ricalcolo
-      const b = (nv.brg[i] + 90) * Math.PI / 180;
-      la += Math.cos(b) * navSimOff / 111132;
-      lo += Math.sin(b) * navSimOff / (111320 * Math.cos(la * Math.PI / 180));
-      navSimOff += 25;
-    }
-    state.pos.lat = la; state.pos.lon = lo;
-    state.gps.lat = la; state.gps.lon = lo;
-    state.gps.heading = nv.brg[i]; state.gps.acc = 6;
-    state.speedMs = v; state.speedKph = v * 3.6; state.gpsStatus = 'ok';
-    updateGpsStatus();
-    navTick(la, lo, 6);
-    updateMap();
-    navRenderBanner();
-    if (state.currentTab === 'nav') renderNavPanel();
-    if (navSimS >= nv.totalM) navSimStop();
-  }, 1000);
+  navSimTimer = setInterval(navSimStep, 1000);
   toast('Simulazione avviata.', 'ok');
 }

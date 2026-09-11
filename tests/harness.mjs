@@ -50,6 +50,7 @@ const exportLine = `
   CALIB_MS, CALIB_MAX_ROT_DPS, CALIB_MAX_NORM_DEV, CALIB_MAX_SPREAD_DEG, CALIB_MAX_BAD_RATIO, CALIB_MAX_MEAN_ROT,
   MOUNT, CSV_HEADER, NAV_BANDS, NAV_ICON, OSRM_MOD_IT, OSRM_ORD_IT,
   MAN_ROUNDABOUT_IN, MAN_ROUNDABOUT_OUT, NAV_MAX_SEG_SCAN, NAV_HEAD_GATE_DEG,
+  NAV_ARRIVE_FIXES,
   NAV_PASS_OVERSHOOT_M, NAV_PASS_EARLY_M, NAV_PASS_HEAD_DEG, NAV_CHAIN_MIN_M,
   axis, axisVec, vdot, vcross, vnorm, vadd, vsub, vscale, vlen, upVector,
   leanFromUp, pitchFromUp, buildBasis, calibBasis,
@@ -63,6 +64,10 @@ const exportLine = `
   navPassed, navAdvance, navBandDist, navFmtDist, navFmtShort, navFmtTime,
   osrmType, osrmText, osrmIdxOf, navFromOsrm, navParseCoords,
   renderNavPanel, navRenderResults, navSetDest, drawTrackOnCanvas, drawGpxRoute,
+  navRenderBanner, navShortCue,
+  navDistToNext, navChainMinM, navClearResults, navResultsKey, navSearchCancel,
+  navSimStep, navSimStart, navSimStop, navFitRoute, navStart, navStop, navReset,
+  NAV_SIM_OFF_MAX_M, navSimDevia, navSearchSeqGet,
   rotContainerPoint, rotClientPoint, applyMapRotation,
   csvMeta, num, csvRows, buildCsv, buildGpx, stamp, fmtDur, takeLogAvg, snapshot, findRowAt, parseGpx,
   pushBounded, diagVerdict, diagTicks, diagChartScale, camPrecompute, routeCacheKey, geoCacheKey, cacheGetFresh, cachePut,
@@ -117,7 +122,14 @@ function makeEl(tag) {
     removeChild(c) { const i = el.children.indexOf(c); if (i >= 0) el.children.splice(i, 1); return c; },
     append(c) { el.appendChild(c); },
     remove() { if (el.parentNode) el.parentNode.removeChild(el); },
-    setAttribute() {}, getAttribute() { return null; },
+    /* Attributi veri, non no-op: la UI nav usa aria-expanded/role per il combobox
+       della ricerca e senza poterli rileggere non c'e' modo di testarli. */
+    attrs: {},
+    setAttribute(k, v) { el.attrs[k] = String(v); },
+    getAttribute(k) { return k in el.attrs ? el.attrs[k] : null; },
+    removeAttribute(k) { delete el.attrs[k]; },
+    focus() { documentMock.activeElement = el; },
+    blur() { if (documentMock.activeElement === el) documentMock.activeElement = null; },
     click() { (listeners['click'] || []).forEach(fn => fn({ target: el })); },
     _txt: '',
   };
@@ -147,6 +159,7 @@ const documentMock = {
   body: makeEl(),
   documentElement: makeEl(),
   visibilityState: 'visible',
+  activeElement: null,
 };
 const windowMock = {
   addEventListener: noop,
@@ -166,6 +179,16 @@ const localStorageMock = (() => {
   };
 })();
 
+/* Timer registrati ma NON fatti girare da soli: nessun test deve dipendere dal
+   tempo reale. tickIntervals() fa un giro di tutti gli interval vivi, cosi' i
+   percorsi che vivono dentro setInterval (il simulatore di navigazione) sono
+   raggiungibili. Gli id partono da 1, come in un browser: `if (!timer)` e' un
+   controllo che nel mock con id 0 rispondeva sempre "falso" per un timer vero. */
+const timers = new Map();
+let timerSeq = 0;
+const setIntervalMock = (fn, ms) => { const id = ++timerSeq; timers.set(id, { fn: fn, ms: ms }); return id; };
+const clearIntervalMock = id => { timers.delete(id); };
+
 const sandbox = {
   console,
   // Node non li mette nella vm sandbox in automatico (non sono globali
@@ -175,8 +198,8 @@ const sandbox = {
   performance: { now: () => Date.now() },
   setTimeout,
   clearTimeout,
-  setInterval: () => 0,
-  clearInterval: noop,
+  setInterval: setIntervalMock,
+  clearInterval: clearIntervalMock,
   document: documentMock,
   window: windowMock,
   navigator: {},
@@ -193,6 +216,14 @@ export const api = sandbox.__api;
 const pristineState = structuredClone(api.state);
 
 export const vmSandbox = sandbox;
+
+/* Un giro di tutti gli interval registrati e ancora vivi. Lo snapshot evita che un
+   callback che registra o cancella timer durante il giro alteri l'iterazione. */
+export function tickIntervals() {
+  for (const t of Array.from(timers.values())) t.fn();
+}
+
+export function liveIntervals() { return timers.size; }
 
 export function resetState() {
   for (const k of Object.keys(api.state)) if (!(k in pristineState)) delete api.state[k];

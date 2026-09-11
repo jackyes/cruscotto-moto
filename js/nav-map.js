@@ -7,6 +7,9 @@ const VOICE_WATCHDOG_PER_CHAR_MS = 90;    // +90 ms per carattere
 const VOICE_HB_MS = 8000;                 // heartbeat resume() per motori che si piantano
 
 function navReset() {
+  navSimStop();     // il timer della simulazione sopravvive al reset e scrive in state
+  navArriveReset(state.nav);   // idem per il timer del banner "Arrivato"
+  navSpeak.stopHeartbeat();
   state.nav = null;
   navSpeak.stop();
   navRenderBanner();
@@ -87,6 +90,13 @@ const navSpeak = {
       if (prio >= 3 && prio > this.prio) speechSynthesis.cancel();
       else return false;                 // scartato di proposito, non accodato
     }
+    /* Il resume() periodico si riarma qui, nell'unico punto da cui passa ogni
+       annuncio: navStop lo spegne (a navigazione chiusa non serve) e prima lo
+       riaccendeva solo navStart — dopo un "Termina", il ricalcolo automatico e la
+       destinazione nuova riportavano la navigazione in ACTIVE senza voce, e la
+       sintesi di Android, che si pianta da sola dopo ~15 s, troncava a meta' ogni
+       annuncio lungo. Idempotente (startHeartbeat esce se gira gia'). */
+    this.startHeartbeat();
     const u = new SpeechSynthesisUtterance(text);
     u.lang = (this.voice && this.voice.lang) || 'it-IT';
     if (this.voice) u.voice = this.voice;
@@ -158,8 +168,15 @@ function navDrawRoute() {
   if (state.mapType === 'canvas') drawCanvasMap();
 }
 
-function navFitRoute() {
+/* Inquadra tutta la rotta sul tab mappa. Solo su percorso FRESCO (why == null in
+   nav-net.js): una destinazione nuova e' una cosa che l'utente sta guardando, e
+   staccare l'inseguimento per vederla e' quello che si aspetta. In ricalcolo e in
+   ripresa no — si sta guidando, e navFitRoute spegneva il follow proprio mentre
+   serviva, lasciando la mappa allargata su tutta la rotta a meta' viaggio (per
+   riprendere la moto bisognava ritoccare "Segui" in marcia). */
+function navFitRoute(fitAll) {
   const nv = state.nav;
+  if (!fitAll) return;
   if (!nv || !nv.n || state.mapType !== 'leaflet' || !state.map) return;
   const pts = [[nv.lat[0], nv.lon[0]], [nv.lat[nv.n - 1], nv.lon[nv.n - 1]]];
   for (let i = 0; i < nv.n; i += Math.max(1, Math.floor(nv.n / 200))) pts.push([nv.lat[i], nv.lon[i]]);

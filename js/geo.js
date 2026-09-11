@@ -167,7 +167,13 @@ function navProject(nv, pLat, pLon, hdg, v, acc, full) {
   if (full) { lo = 0; hi = nv.n - 2; }
   else {
     const back = Math.max(60, 2 * v), fwd = Math.max(200, 6 * v + 3 * (acc || 0));
-    lo = navLowerBound(nv.cum, nv.n, nv.sAlong - back);
+    /* navLowerBound dà il primo vertice con cum >= s, quindi su un s oltre il
+       penultimo vertice torna n-1: un indice che non ha segmento. Con la finestra
+       [n-1, n-2] il ciclo non girava e navProject tornava null — navTick usciva
+       subito e sugli ultimi metri di rotta (quando il tratto finale è più corto di
+       `back`, 60+ m) avanzamento, arrivo e ricalcolo restavano congelati. Il clamp
+       interviene solo in quel caso: con lo <= n-2 la finestra era già non vuota. */
+    lo = Math.min(navLowerBound(nv.cum, nv.n, nv.sAlong - back), nv.n - 2);
     hi = navLowerBound(nv.cum, nv.n, nv.sAlong + fwd);
     hi = Math.min(nv.n - 2, Math.max(lo, Math.min(hi, lo + NAV_MAX_SEG_SCAN)));
   }

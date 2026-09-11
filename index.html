@@ -1100,8 +1100,8 @@
     <section id="tab-nav" role="tabpanel" aria-label="Navigatore" class="panel">
       <div class="card">
         <h2>Destinazione</h2>
-        <input type="text" id="navQuery" class="nav-input" placeholder="Cerca indirizzo, o incolla coordinate / link mappe" autocomplete="off" enterkeyhint="search">
-        <div id="navResults" class="nav-results"></div>
+        <input type="text" id="navQuery" class="nav-input" placeholder="Cerca indirizzo, o incolla coordinate / link mappe" autocomplete="off" enterkeyhint="search" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="navResults" aria-label="Cerca destinazione">
+        <div id="navResults" class="nav-results" role="listbox" aria-label="Risultati della ricerca"></div>
         <div class="controls" style="margin-top:10px;">
           <button id="btnNavFromMap">📍 Mappa</button>
           <button id="btnNavFromHist">🗂 Giri</button>
@@ -2035,13 +2035,26 @@ function init() {
   els.compassOffsetSel.addEventListener('change', () => { state.compassOffset = parseInt(els.compassOffsetSel.value, 10); saveSettings(); });
 
   /* ---- navigatore ---- */
-  let navSearchT = null, navSearchSeq = 0;
+  /* navSearchSeq/navSearchT vivono in js/nav-ui.js: anche la selezione di un
+     risultato (navRenderResults) deve poter annullare una risposta in volo. */
+  // Sul documento: il fuoco entra nei risultati (#navResults e' fratello di #navQuery),
+  // quindi un listener sul campo non riceve piu' i keydown da li'. navResultsKey filtra
+  // sugli eventi nati nel campo o nella lista.
+  document.addEventListener('keydown', navResultsKey);
   els.navQuery.addEventListener('input', () => {
     clearTimeout(navSearchT);
     const q = els.navQuery.value.trim();
-    if (q.length < 3) { navSearchSeq++; els.navResults.textContent = ''; return; }
+    if (q.length < 3) { navSearchCancel(); navClearResults(); return; }
     const c = navParseCoords(q);
-    if (c) { navRenderResults([{ lat: c.lat, lon: c.lon, label: 'Coordinate', sub: c.lat.toFixed(5) + ', ' + c.lon.toFixed(5) }]); return; }
+    if (c) {
+      /* Il ramo coordinate non passa dal debounce: senza annullare la sequenza, una
+         risposta Photon partita prima (es. "roma") atterrava ~450 ms dopo con
+         my === navSearchSeq e sovrascriveva la riga di coordinate appena mostrata —
+         si finiva per toccare la destinazione sbagliata. */
+      navSearchCancel();
+      navRenderResults([{ lat: c.lat, lon: c.lon, label: 'Coordinate', sub: c.lat.toFixed(5) + ', ' + c.lon.toFixed(5) }]);
+      return;
+    }
     // debounce: la policy di Photon e' "sii equo", non una richiesta per tasto premuto
     const my = ++navSearchSeq;
     navSearchT = setTimeout(async () => {
@@ -2077,6 +2090,10 @@ function init() {
       out.push({ lat: tr[tr.length - 1].lat, lon: tr[tr.length - 1].lon, label: 'Arrivo ' + lbl, sub: 'giro del ' + lbl });
     }
     if (!out.length) { toast('I giri salvati non hanno traccia.', 'err'); return; }
+    /* La lista si costruisce su piu' await (metadati, tracce): una ricerca Photon
+       partita prima atterra qui in mezzo e la sua risposta, ancora "fresca" per
+       numero d'ordine, veniva sostituita dai giri salvati — o li sostituiva. */
+    navSearchCancel();
     navRenderResults(out);
   });
   els.btnNavGpx.addEventListener('click', () => els.navGpxFile.click());
@@ -2102,7 +2119,9 @@ function init() {
     if ((state.navVias || []).length >= 1) { toast('Una sola tappa intermedia supportata.', 'err'); return; }
     state.navVias = [d];
     state.navDest = null;
-    els.navQuery.value = '';
+    if (els.navQuery) els.navQuery.value = '';
+    navSearchCancel();       // come sopra: campo e lista svuotati a mano, ma debounce armato
+    navClearResults();
     renderNavPanel();
     toast('Tappa impostata. Ora scegli la destinazione finale.', 'ok');
   });
@@ -2110,7 +2129,7 @@ function init() {
   els.btnNavSimOff.addEventListener('click', () => { navSimStop(); toast('Simulazione ferma.'); });
   els.btnNavSimDev.addEventListener('click', () => {
     if (!navSimTimer) { toast('Avvia prima la simulazione.', 'err'); return; }
-    navSimOff = 25; toast('Deviazione in corso…');
+    navSimDevia(); toast('Deviazione in corso…');
   });
   els.navVoice.addEventListener('change', () => setNavVoice(els.navVoice.checked, { user: true }));
   els.navNoHw.addEventListener('change', () => { state.navNoHw = els.navNoHw.checked; saveSettings(); });

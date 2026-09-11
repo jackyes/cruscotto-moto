@@ -24,6 +24,9 @@ function navTick(pLat, pLon, acc) {
   const resumed = gap > 30000;                 // ritorno da background / galleria
   nv.vEMA = nv.vEMA == null ? v : (nv.vEMA + 0.25 * (v - nv.vEMA));
   const vRef = Math.max(5, nv.vEMA);
+  // Memorizzata per il banner (navChainMinM): la soglia della catena deve essere la
+  // stessa che usa navAnnounce, e il banner e' ridisegnato da fuori navTick.
+  nv.vRef = vRef;
 
   // 1. aggancio
   const needFull = nv.lostCount >= NAV_RELOCK_LOST || resumed ||
@@ -122,7 +125,14 @@ function navTick(pLat, pLon, acc) {
   // 5. arrivo
   const arriveM = Math.max(ARRIVE_BASE_M, ARRIVE_PER_ACC * (acc || 0));
   const near = nv.dest ? distM({ lat: pLat, lon: pLon }, nv.dest) : Infinity;
-  if (nv.status === 'ACTIVE' && (nv.distRemain < 15 || near < arriveM)) {
+  /* destStale: navSetDest ha cambiato destinazione mentre la geometria e' ancora
+     quella della rotta precedente. Senza il gate, agli ultimi metri di quella
+     polilinea l'arrivo scattava verso una destinazione dove la rotta non porta.
+     Il gate copre SOLO il termine geometrico: `near` e' il fix contro nv.dest, ed e'
+     valido comunque — se sei a 20 m dal nuovo dest ci sei arrivato davvero, anche se
+     il ricalcolo e' fallito e la polilinea e' rimasta quella vecchia (bloccando
+     tutto, un errore di rete sopprimeva per sempre l'annuncio di arrivo). */
+  if (nv.status === 'ACTIVE' && ((!nv.destStale && nv.distRemain < 15) || near < arriveM)) {
     nv.arriveCount++;
     if (nv.arriveCount >= NAV_ARRIVE_FIXES) {
       nv.status = 'ARRIVED';
@@ -133,6 +143,12 @@ function navTick(pLat, pLon, acc) {
       // solo: nv.bannerDone non veniva mai impostato, quindi restava per sempre.
       idb.kvPut('activeRoute', null).catch(() => {});
       idb.kvPut('navProgress', null).catch(() => {});
+      /* Anche fuori dal banner: quello sparisce dopo 8 s (sotto) e la voce si sente
+         una volta sola. Senza queste due righe, passati gli 8 s non restava NESSUNA
+         traccia dell'arrivo: #navStatusTxt diceva ancora "Percorso pronto · motore:
+         ..." e il pannello mostrava la distanza del calcolo. */
+      navSetStatus('Arrivato a destinazione.');
+      renderNavPanel();
       navRenderBanner();
       if (nv._arriveTimer) clearTimeout(nv._arriveTimer);
       nv._arriveTimer = setTimeout(() => { nv.bannerDone = true; navRenderBanner(); }, 8000);
@@ -163,6 +179,9 @@ function navMaybeReroute(pLat, pLon, hdg, why) {
   if (nv.rerouteLog.length >= NAV_REROUTE_MAX) {
     nv.status = 'OFF_MANUAL';
     navSpeak.say('Fuori percorso. Tocca ricalcola quando vuoi.', 3);
+    // Lo stato testuale restava quello del calcolo riuscito ("Percorso pronto ·
+    // motore: ..."): il banner avvisa, ma #navStatusTxt e' la riga che resta.
+    navSetStatus('Fuori percorso: tocca Ricalcola per riprovare.');
     navRenderBanner(); renderNavPanel();
     return;
   }
@@ -172,6 +191,7 @@ function navMaybeReroute(pLat, pLon, hdg, why) {
   nv.rerouteWait = NAV_REROUTE_BACKOFF[Math.min(nv.rerouteStreak, NAV_REROUTE_BACKOFF.length - 1)];
   nv.status = 'REROUTING';
   nv.offCount = 0; nv.offTravel = 0; nv.missCount = 0; nv.wrongCount = 0; nv.farCount = 0;
+  navSetStatus('Ricalcolo il percorso…');   // come sopra: #navStatusTxt resta a schermo
   navSpeak.stop();
   navSpeak.say('Ricalcolo il percorso.', 3);
   navRenderBanner();
