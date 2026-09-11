@@ -128,13 +128,24 @@ test('navFmtDist / navFmtShort', () => {
   assert.equal(navFmtShort(20000), '20 km');
 });
 
-test('navFmtTime: arrotondamento e riporto dei minuti (BUG noto)', () => {
+test('navFmtTime: secondi/minuti troncati, nessun riporto a "1 h 00"', () => {
+  // Arrotondamento e riporto sono due comportamenti DISTINTI e il codice ha scelto
+  // il troncamento (js/geo.js: floor di s/60, non round): con round 3599" diventava
+  // "1 h 00" e l'ETA mostrato era in anticipo di un minuto sul tempo di arrivo reale.
+  // Qui si blinda il troncamento, riporto compreso: l'ora si porta avanti solo
+  // quando i minuti arrivano a 60 per davvero (3600" tondi), mai per arrotondamento.
   assert.equal(navFmtTime(0), '0 min');
   assert.equal(navFmtTime(60), '1 min');
   assert.equal(navFmtTime(3540), '59 min');
+  assert.equal(navFmtTime(3599), '59 min'); // 59'59'' troncato: non "1 h 00"
+  assert.equal(navFmtTime(3600), '1 h 00'); // il riporto scatta solo qui
   assert.equal(navFmtTime(3660), '1 h 01');
-  assert.equal(navFmtTime(3599), '1 h 00'); // 59'59'' non deve diventare "60 min"
-  assert.equal(navFmtTime(7199), '2 h 00'); // 1h 59'59'' non deve diventare "1 h 60"
+  assert.equal(navFmtTime(7199), '1 h 59'); // 1h59'59'': non "2 h 00"
+  assert.equal(navFmtTime(7200), '2 h 00');
+  // Guardie: i chiamanti passano distRemain/timeRemain non ancora calcolati.
+  assert.equal(navFmtTime(NaN), '—');
+  assert.equal(navFmtTime(-1), '—');
+  assert.equal(navFmtTime(Infinity), '—');
 });
 
 test('osrmType: mappatura manovre OSRM', () => {
