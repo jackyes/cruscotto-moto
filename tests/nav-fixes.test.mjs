@@ -541,6 +541,47 @@ test('#21 ridisegno della lista: il fuoco resta su un risultato', () => {
     'fuoco lasciato su un\'opzione che non esiste più');
 });
 
+test('ricerca nav: il fuoco dopo la scelta, da tastiera sì e da puntatore no', () => {
+  resetState();
+  const items = [
+    { lat: 45.46, lon: 9.19, label: 'Duomo', sub: 'Milano' },
+    { lat: 41.9, lon: 12.5, label: 'Roma', sub: 'Lazio' },
+  ];
+  const down = () => ({ key: 'ArrowDown', target: els.navQuery, preventDefault() {} });
+  const box = els.navResults;
+
+  /* Spazio su un risultato focalizzato. Il click nativo del browser farebbe
+     uscire il bottone dal DOM con il fuoco addosso (navClearResults svuota la
+     lista) e da <body> frecce, Esc e Invio non raggiungono più nulla. */
+  navRenderResults(items);
+  navResultsKey(down());
+  assert.equal(vmSandbox.document.activeElement, box.children[0]);
+  navResultsKey({ key: ' ', target: box.children[0], preventDefault() {} });
+  assert.equal(state.navDest.label, 'Duomo', 'Spazio non sceglie il risultato focalizzato');
+  assert.equal(vmSandbox.document.activeElement, els.navQuery,
+    'fuoco perso dopo Spazio: la lista non è più raggiungibile da tastiera');
+  assert.equal(box.children.length, 0, 'Spazio non svuota la lista');
+
+  /* Click sintetico (detail 0): è l'attivazione che uno screen reader può emettere
+     senza un keydown osservabile. Deve comportarsi come la tastiera. */
+  navRenderResults(items);
+  navResultsKey(down());
+  box.children[0].click();
+  assert.equal(state.navDest.label, 'Duomo');
+  assert.equal(vmSandbox.document.activeElement, els.navQuery,
+    'click sintetico senza keydown: fuoco non riportato nel campo');
+
+  /* Click vero (mouse o tap): detail >= 1. Non deve riportare il fuoco nel campo,
+     perché sul telefono riaprirebbe la tastiera virtuale subito dopo la scelta. */
+  navRenderResults(items);
+  navResultsKey(down());
+  box.children[0].click({ detail: 1 });
+  assert.equal(state.navDest.label, 'Duomo');
+  assert.notEqual(vmSandbox.document.activeElement, els.navQuery,
+    'click col mouse/tap riporta il fuoco nel campo: la tastiera virtuale riappare dopo la scelta');
+  assert.equal(box.children.length, 0);
+});
+
 test('#21 il listener della tastiera è sul documento, non sul campo', () => {
   // init() non gira nell'harness, quindi il wiring non è osservabile a runtime: si
   // controlla la sorgente. Sul campo il listener non riceve nulla una volta che il

@@ -312,7 +312,11 @@ function navResultsKey(e) {
     e.preventDefault();
     if (cur > 0) items[cur - 1].focus(); else if (els.navQuery) els.navQuery.focus();
   }
-  else if (e.key === 'Enter' && cur >= 0) {
+  /* Spazio trattato come Invio: su un <button> focalizzato e' attivazione anche
+     per il browser, ma passare dal click nativo lascerebbe il fuoco sul bottone
+     che navClearResults sta per rimuovere. Gestirlo qui rende la via da tastiera
+     indipendente da dettagli del click che il browser puo' decidere da solo. */
+  else if ((e.key === 'Enter' || e.key === ' ') && cur >= 0) {
     e.preventDefault(); items[cur].click(); if (els.navQuery) els.navQuery.focus();
   }
 }
@@ -339,10 +343,19 @@ function navRenderResults(list) {
     const t = document.createElement('b'); t.textContent = r.label;
     const s = document.createElement('span'); s.textContent = r.sub || '';
     b.appendChild(t); b.appendChild(s);
-    b.addEventListener('click', () => {
+    b.addEventListener('click', (e) => {
       navSetDest(r);         // navSetDest annulla da solo la ricerca in volo
       navClearResults();
       if (els.navQuery) els.navQuery.value = r.label;
+      /* Il bottone appena premuto esce dal DOM (navClearResults svuota la lista) e
+         il fuoco cade su <body>: da li' frecce, Esc e Invio non raggiungono piu'
+         ne' il campo ne' la lista. Ma solo per attivazione NON da puntatore
+         (detail === 0: .click() programmatico e l'attivazione da tastiera di un
+         <button>). Un click col mouse o un tap hanno detail >= 1 e non devono
+         riportare il fuoco nel campo: sul telefono riaprirebbero la tastiera
+         virtuale subito dopo la scelta della destinazione, proprio mentre la
+         tastiera si sta chiudendo da sola perche' il fuoco e' uscito dal campo. */
+      if (e && e.detail === 0 && els.navQuery) els.navQuery.focus();
     });
     box.appendChild(b);
   }

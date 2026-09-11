@@ -133,7 +133,12 @@ function makeEl(tag) {
     removeAttribute(k) { delete el.attrs[k]; },
     focus() { documentMock.activeElement = el; },
     blur() { if (documentMock.activeElement === el) documentMock.activeElement = null; },
-    click() { (listeners['click'] || []).forEach(fn => fn({ target: el })); },
+    /* detail 0 di default: e' quello che il DOM assegna a un .click()
+       programmatico e all'attivazione da tastiera di un <button>, mentre un click
+       vero di mouse o un tap hanno detail >= 1. La ricerca nav distingue i due
+       casi (il puntatore non deve riportare il fuoco nel campo), quindi il mock
+       deve poterli distinguere: click({ detail: 1 }) simula il dito. */
+    click(ev) { (listeners['click'] || []).forEach(fn => fn(Object.assign({ target: el, detail: 0 }, ev))); },
     _txt: '',
   };
   /* textContent con la semantica dello spec (il codice la usa per svuotare un
