@@ -10,7 +10,7 @@
 
 'use strict';
 
-const CACHE_VERSION = 'v15';   // shell (codice app): alzare per forzare il rinnovo
+const CACHE_VERSION = 'v16';   // shell (codice app): alzare per forzare il rinnovo
 const MAP_VERSION  = 'v12';    // tile/liberty/satellite: indipendente dallo shell. Parte
                                // dallo stesso valore del vecchio schema (v12) così il primo
                                // deploy NON orfanizza le cache già scaricate; va alzato solo
@@ -43,6 +43,7 @@ const SHELL = [
   './js/inputs.js',
   './js/nav-ui.js',
   './js/nav-config.js',
+  './js/nav-gen.js',
   './js/video.js',
   './js/sensor-src.js',
   './js/cam-map.js',

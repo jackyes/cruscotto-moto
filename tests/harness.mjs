@@ -105,10 +105,17 @@ const exportLine = `
   fmtDurH, climbMeters, countCurves, leanHistogram, posterStats, projectTrackXY,
   posterMoments, posterLayout, posterLayoutFor, posterSizeFor, posterTitle, POSTER_FORMATS,
   buildPosterModel, posterTrackXY,
-  geoDest, geoProject, pathPointAt, resampleXY, curveStats, curveScore, curveFit,
-  CURVE_TARGETS, CURVE_STEP_M, CURVE_R_MAX, CURVE_TIGHT_R,
-  navIsLoop, navViasRemaining, navHeadForReq,
-  NAV_LOOP_CLOSE_M, NAV_LOOP_MIN_M, NAV_VIA_MANUAL_MAX
+  pickOr, NAVGEN_KM_CHOICES, NAVGEN_KM_DEFAULT, NAVGEN_CURVE_CHOICES, NAVGEN_TYPE_CHOICES, NAVGEN_DIR_CHOICES,
+  geoDest, geoProject, resampleXY, curveStats, curveScore, curveFit, CURVE_TARGETS,
+  CURVE_STEP_M, CURVE_R_MAX, CURVE_TIGHT_R,
+  navIsLoop, navViasRemaining, navHeadForReq, NAV_LOOP_CLOSE_M, NAV_LOOP_MIN_M,
+  navGenReduceWays, navGenRankWays, navGenSectors, navGenPickWay,
+  navGenSeedLoop, navGenSeedLine, navGenWayPair, navGenMeasure, navGenScore, navGenScanCurvy,
+  pathPointAt,
+  navGenFetchTrip, navGenRun, navGenCancel, navGenOpts, navGenKey, navGenStats,
+  NAVGEN_SEEDS, NAVGEN_ITER_MAX, NAVGEN_REQ_MAX, NAVGEN_DIST_TOL, NAVGEN_DIR_DEG,
+  NAVGEN_WAY_MIN_M, NAVGEN_WAY_MIN_DPK, NAVGEN_WAY_KEEP, NAVGEN_SCAN_TTL_MS,
+  navTick, navMaybeReroute, NAV_VIA_MANUAL_MAX
 };
 `;
 
@@ -208,6 +215,12 @@ const sandbox = {
   // ECMAScript, sono aggiunte del runtime): servono a js/vendor/webm-muxer.js
   // (SubtitleEncoder li usa a livello di modulo, quindi ad ogni load).
   TextEncoder, TextDecoder,
+  /* Come TextEncoder: non e' un globale ECMAScript, quindi la vm non lo eredita da
+     Node. Senza, fetchWithTimeout (js/net-base.js) esplode alla prima riga e ogni
+     percorso di rete resta non testabile. `fetch` invece NON si mette qui: lo
+     inietta il singolo test (vmSandbox.fetch = ...), cosi' un test che scorda di
+     mockarlo fallisce con un ReferenceError chiaro invece di andare in rete. */
+  AbortController,
   performance: { now: () => Date.now() },
   setTimeout,
   clearTimeout,

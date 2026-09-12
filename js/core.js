@@ -53,6 +53,23 @@ function choiceOr(choices, v, def) {
   return choices.indexOf(n) >= 0 ? n : def;
 }
 function camDistFrom(v) { return choiceOr(CAM_DIST_CHOICES, v, CAM_DIST_DEFAULT); }
+/* Gemello di choiceOr per le liste chiuse di STRINGHE. Gli enum a due valori
+   (gravityMode) restano un ternario inline, che si legge meglio di una lista; ma
+   "poche|medie|tante", "veloci|strette|misto" e i nove valori della direzione sono
+   liste vere, e scritte a ternario diventerebbero illeggibili. String() e non il
+   valore grezzo: dal localStorage può arrivare un numero o un oggetto. */
+function pickOr(choices, v, def) {
+  return choices.indexOf(String(v)) >= 0 ? String(v) : def;
+}
+/* --- generatore di giri (scheda Naviga) ---
+   Anche i km sono una lista chiusa, non un campo libero: vedi il commento su
+   CAM_DIST_CHOICES sopra, e comunque "all'incirca cento chilometri" è esattamente
+   il genere di richiesta che una lista di tacche esprime meglio di una cifra. */
+const NAVGEN_KM_CHOICES = [30, 50, 75, 100, 150, 200, 300];
+const NAVGEN_KM_DEFAULT = 100;
+const NAVGEN_CURVE_CHOICES = ['poche', 'medie', 'tante'];
+const NAVGEN_TYPE_CHOICES = ['veloci', 'strette', 'misto'];
+const NAVGEN_DIR_CHOICES = ['auto', 'N', 'NE', 'E', 'SE', 'S', 'SO', 'O', 'NO'];
 const CAM_MARKER_FACTOR = 1.5; // oltre il bordo scaricato c'e' ancora dato, se importato
 const CAM_MOVE_FACTOR = 0.5;   // refetch a meta' raggio: mezzo raggio di copertura resta davanti
 const CAM_MARKER_MAX = 400;    // tetto marker disegnati (un DB nazionale a 50 km blocca il telefono)
@@ -231,7 +248,10 @@ const state = {
   navVoice: true, navNoHw: false, navNoToll: false, navBackroads: false, navNoFerry: false,
   nav: null,                 // null = nessun percorso caricato
   navDest: null,             // {lat, lon, label} scelta ma non ancora calcolata
-  navVias: [],               // tappe intermedie [{lat, lon, label}] (max 1 in v1)
+  navVias: [],               // tappe intermedie [{lat, lon, label}]
+  // generatore di giri: km, forma, curve, tipo di curva, direzione
+  navGenKm: NAVGEN_KM_DEFAULT, navGenLoop: true, navGenCurves: 'tante',
+  navGenType: 'misto', navGenDir: 'auto',
   gpxRoute: null,            // traccia GPX importata come rotta (overlay)
   follow: true,
   trackUp: false,

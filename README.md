@@ -88,6 +88,52 @@ L'app è organizzata in 5 schede (barra in basso): **Dashboard · Mappa · Grafi
 - **Simulatore** (nel pannello Navigatore): percorre il percorso con posizioni finte e alimenta lo stesso codice dei fix veri, per provare avanzamento, banner e voce senza salire in moto.
 - Nota: Valhalla FOSSGIS è un server comunitario senza garanzie di uptime.
 
+#### Genera giro
+Il navigatore normale ti porta da A a B: devi già sapere dove vuoi andare. Il giro della
+domenica non funziona così — parti da *"ho tre ore, voglio un centinaio di chilometri,
+tutti tornanti, e voglio tornare a casa"*. Questa scheda parte da lì.
+
+- Scegli **quanti km** (~30 → ~300), **ad anello o sola andata**, **quante curve**
+  (poche / medie / tante) e **che tipo** (veloci e larghe / strette e tornanti / misto),
+  più una **direzione** se vuoi decidere tu da che parte andare.
+- In sola andata, se hai già impostato una destinazione il giro finisce lì; altrimenti
+  se la inventa a metà dei chilometri chiesti in linea d'aria, così resta spazio per le
+  curve invece di uscire un trasferimento diretto.
+- Il motore vero è **generare quattro giri candidati, chiederli a Valhalla e misurare
+  la geometria che torna** (non quella seminata), tenendo il migliore per chilometri e
+  curve. È la parte che paga: su un anello da 50 km chiesto a Lecco, il vincitore
+  scelto sbagliava di **2,7 km** contro i **20,4 km** di errore medio dei candidati
+  scartati, e usciva a 592 °/km contro i 499 medi. Senza la selezione, chiedere 50 km
+  poteva restituire 30 come 121.
+- Tetto di 22 richieste e ~25 s, con contatore a schermo e tasto Annulla. **↻ Un altro**
+  ripesca dai candidati già calcolati senza toccare la rete (una decina, poi rigenera).
+- Le tappe vengono seminate anche su strade scelte da una scansione **Overpass** delle
+  `secondary`/`tertiary` della zona, misurate per curvosità e agganciate a coppie
+  (entrata e uscita, così la strada va percorsa e non sfiorata). La scansione parte in
+  parallelo al primo candidato — quindi non allunga i tempi — e resta in cache 30
+  giorni. **Onestà: su due prove A/B controllate non ha prodotto alcun miglioramento
+  misurabile** (Lecco, montagna: 592 °/km senza contro 504 con; pianura padana: 166
+  contro 151). Il motivo è strutturale: fra una tappa e l'altra le strade le sceglie
+  Valhalla, e tre o sei punti vincolati su cinquanta chilometri non bastano a decidere
+  la curvosità del giro. Costa circa 1 MB la prima volta in una zona nuova; se non
+  serve, si toglie togliendo la chiamata a `navGenScanCurvy` in `navGenRun`.
+- A fine generazione la riga di stato riporta il **consuntivo vero** — *"53 km · 592°/km ·
+  curve ~114 m (18% tornanti). Chiesti 50 km, curve tante, strette"* — anche quando il
+  bersaglio non è stato centrato.
+- Se Overpass è lento o rifiuta, il giro si genera comunque con semina geometrica e
+  l'app lo dice. La scansione parte **in parallelo** al primo candidato, così i venti
+  secondi di Overpass non si sommano ai tempi di Valhalla.
+- Valhalla **non garantisce le curve**: sceglie lui le strade fra una tappa e l'altra.
+  La misura scarta i candidati peggiori, ma resta una scelta fra candidati, non una
+  costruzione esatta — da cui il consuntivo onesto. Per la stessa ragione una **sola
+  andata** viene quasi sempre meno tortuosa di un anello di pari lunghezza (misurato:
+  ~200 °/km contro ~590): con gli estremi fissi resta molto meno margine di manovra.
+  E in montagna esce comunque tortuosa, in pianura comunque no: il terreno conta più
+  di qualunque parametro.
+- I bersagli numerici (`CURVE_TARGETS` in `js/curvy.js`) sono tarati su misure reali —
+  1311 way OSM attorno a Lecco e un anello Valhalla da 51 km — non indovinati. Per
+  ritararli su strade tue: carica un giro e chiama `navGenStats()` dalla console.
+
 ### Grafici
 - Andamento **ultimi 60 s** di velocità, piega e accelerazione laterale (canvas nativo, nessuna libreria).
 
@@ -454,7 +500,7 @@ Il file usa la virgola come separatore. Su Excel italiano potresti vedere tutto 
 ## Sicurezza e privacy
 
 - I dati (tracce, log, calibrazione) restano sul telefono: nessun server, nessuna telemetria in uscita.
-- Le chiamate esterne sono le tile OpenStreetMap, Leaflet da unpkg, le query Overpass (autovelox), Valhalla e OSRM (routing) e Photon (geocoding). Originare e destinare il navigatore sono inviate a un server terzo quando calcoli un percorso; il resto (traccia, autovelox, preferenze) resta in locale.
+- Le chiamate esterne sono le tile OpenStreetMap, Leaflet da unpkg, le query Overpass (autovelox e strade curve del generatore di giri), Valhalla e OSRM (routing) e Photon (geocoding). Origine e destinazione del navigatore sono inviate a un server terzo quando calcoli un percorso, e la tua posizione approssimata quando generi un giro; il resto (traccia, autovelox, preferenze) resta in locale.
 - La pagina dichiara una **Content-Security-Policy** che limita gli host raggiungibili a quelli sopra.
 - Nomi e limiti degli autovelox (da OSM o da file importati) sono dati di terze parti e vengono inseriti nel DOM come **testo**, mai come HTML.
 - Leaflet (mappa live) è caricato da unpkg **con** `integrity` (SRI). MapLibre + Three.js per l'export video 3D restano CDN on-demand. Per chiudere del tutto il rischio catena di fornitura conviene vendorizzare Leaflet in repo e stringere la CSP a `script-src 'self'` (video 3D resterebbe da sbloccare a parte).

@@ -1118,6 +1118,76 @@
       </div>
 
       <div class="card">
+        <h2>Genera giro</h2>
+        <div class="set-row">
+          <span>Distanza</span>
+          <select id="navGenKm">
+            <!-- valori allineati a NAVGEN_KM_CHOICES (js/core.js) -->
+            <option value="30">~30 km</option>
+            <option value="50">~50 km</option>
+            <option value="75">~75 km</option>
+            <option value="100" selected>~100 km</option>
+            <option value="150">~150 km</option>
+            <option value="200">~200 km</option>
+            <option value="300">~300 km</option>
+          </select>
+        </div>
+        <div class="set-row">
+          <span>Forma</span>
+          <select id="navGenLoop">
+            <option value="1" selected>Ad anello (torna al via)</option>
+            <option value="0">Sola andata</option>
+          </select>
+        </div>
+        <div class="set-row">
+          <span>Curve</span>
+          <select id="navGenCurves">
+            <!-- valori allineati a NAVGEN_CURVE_CHOICES (js/core.js) -->
+            <option value="poche">Poche</option>
+            <option value="medie">Medie</option>
+            <option value="tante" selected>Tante</option>
+          </select>
+        </div>
+        <div class="set-row">
+          <span>Tipo di curva</span>
+          <select id="navGenType">
+            <!-- valori allineati a NAVGEN_TYPE_CHOICES (js/core.js) -->
+            <option value="veloci">Veloci, larghe</option>
+            <option value="strette">Strette, tornanti</option>
+            <option value="misto" selected>Misto</option>
+          </select>
+        </div>
+        <div class="set-row">
+          <span>Direzione</span>
+          <select id="navGenDir">
+            <!-- valori allineati a NAVGEN_DIR_CHOICES (js/core.js) -->
+            <option value="auto" selected>Automatica</option>
+            <option value="N">Nord</option>
+            <option value="NE">Nord-est</option>
+            <option value="E">Est</option>
+            <option value="SE">Sud-est</option>
+            <option value="S">Sud</option>
+            <option value="SO">Sud-ovest</option>
+            <option value="O">Ovest</option>
+            <option value="NO">Nord-ovest</option>
+          </select>
+        </div>
+        <div class="controls" style="margin-top:10px;">
+          <button id="btnNavGen">&#127922; Genera</button>
+          <button id="btnNavGenAgain">&#8635; Un altro</button>
+          <button id="btnNavGenStop" disabled>&#9632; Annulla</button>
+        </div>
+        <p class="hint" id="navGenTxt">
+          Scegli quanti chilometri e quante curve, e ti costruisco il giro. Le tappe
+          vengono scelte sulle strade pi&ugrave; tortuose della zona (OpenStreetMap), e
+          ogni candidato viene misurato davvero prima di proporlo. Serve rete: la prima
+          volta in una zona nuova ci vogliono una ventina di secondi in pi&ugrave; per
+          scaricare le strade. In &laquo;sola andata&raquo;, se hai gi&agrave; scelto una
+          destinazione qui sopra il giro finisce l&igrave;.
+        </p>
+      </div>
+
+      <div class="card">
         <h2>Percorso</h2>
         <div class="nav-summary">
           <div class="dstat"><div class="v" id="navSumDist">—</div><div class="k">DISTANZA</div></div>
@@ -1204,6 +1274,7 @@
 <script src="js/inputs.js"></script>
 <script src="js/nav-ui.js"></script>
 <script src="js/nav-config.js"></script>
+<script src="js/nav-gen.js"></script>
   <script src="js/draw.js"></script>
   <script src="js/video.js"></script>
   <script src="js/sensor-src.js"></script>
@@ -1260,6 +1331,9 @@ const els = {
   btnNavGpx: $('btnNavGpx'), navGpxFile: $('navGpxFile'), btnNavVia: $('btnNavVia'),
   btnNavSim: $('btnNavSim'), btnNavSimOff: $('btnNavSimOff'), btnNavSimDev: $('btnNavSimDev'),
   navSimSpeed: $('navSimSpeed'),
+  navGenKm: $('navGenKm'), navGenLoop: $('navGenLoop'), navGenCurves: $('navGenCurves'),
+  navGenType: $('navGenType'), navGenDir: $('navGenDir'), navGenTxt: $('navGenTxt'),
+  btnNavGen: $('btnNavGen'), btnNavGenAgain: $('btnNavGenAgain'), btnNavGenStop: $('btnNavGenStop'),
   navVoice: $('navVoice'), navNoHw: $('navNoHw'), navNoToll: $('navNoToll'),
   navBackroads: $('navBackroads'), navNoFerry: $('navNoFerry'),
   btnImportCam: $('btnImportCam'), camFile: $('camFile'), btnViewer: $('btnViewer'),
@@ -2146,9 +2220,9 @@ function init() {
   els.btnNavVia.addEventListener('click', () => {
     const d = state.navDest;
     if (!d) { toast('Imposta prima la destinazione, poi spostala a tappa intermedia.', 'err'); return; }
-    // Il motore ne gestisce quante ne arrivano (js/nav-net.js); il tetto qui e' solo
-    // per il flusso manuale, dove ogni tappa costa un giro di ricerca e piu' di
-    // qualcuna diventa ingestibile.
+    // Il motore ne gestisce quante ne arrivano (js/nav-net.js) e il generatore di
+    // giri ne scrive fino a cinque; il tetto qui e' solo per il flusso manuale, dove
+    // ogni tappa costa un giro di ricerca e piu' di qualcuna diventa ingestibile.
     if ((state.navVias || []).length >= NAV_VIA_MANUAL_MAX) {
       toast('Massimo ' + NAV_VIA_MANUAL_MAX + ' tappe intermedie a mano.', 'err'); return;
     }
@@ -2171,6 +2245,28 @@ function init() {
   els.navNoToll.addEventListener('change', () => { state.navNoToll = els.navNoToll.checked; saveSettings(); });
   els.navBackroads.addEventListener('change', () => { state.navBackroads = els.navBackroads.checked; saveSettings(); });
   els.navNoFerry.addEventListener('change', () => { state.navNoFerry = els.navNoFerry.checked; saveSettings(); });
+
+  /* Generatore di giri. I cinque <select> sono validati contro le stesse liste che
+     usa loadSettings: una <option> aggiunta qui e non la' (o viceversa) deve cadere
+     sul default, non finire in una formula. */
+  els.navGenKm.addEventListener('change', () => {
+    state.navGenKm = choiceOr(NAVGEN_KM_CHOICES, els.navGenKm.value, NAVGEN_KM_DEFAULT); saveSettings();
+  });
+  els.navGenLoop.addEventListener('change', () => {
+    state.navGenLoop = els.navGenLoop.value === '1'; saveSettings();
+  });
+  els.navGenCurves.addEventListener('change', () => {
+    state.navGenCurves = pickOr(NAVGEN_CURVE_CHOICES, els.navGenCurves.value, 'tante'); saveSettings();
+  });
+  els.navGenType.addEventListener('change', () => {
+    state.navGenType = pickOr(NAVGEN_TYPE_CHOICES, els.navGenType.value, 'misto'); saveSettings();
+  });
+  els.navGenDir.addEventListener('change', () => {
+    state.navGenDir = pickOr(NAVGEN_DIR_CHOICES, els.navGenDir.value, 'auto'); saveSettings();
+  });
+  els.btnNavGen.addEventListener('click', () => { navGenRun(false); });
+  els.btnNavGenAgain.addEventListener('click', () => { navGenRun(true); });
+  els.btnNavGenStop.addEventListener('click', navGenCancel);
 
   els.btnMapFull.addEventListener('click', () => {
     const full = document.body.classList.toggle('map-fullscreen');

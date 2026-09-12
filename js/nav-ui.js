@@ -403,5 +403,9 @@ function navSetDest(d) {
   navDrawRoute();
   const p = state.pos.lat != null ? state.pos : (state.gps.lat != null ? state.gps : null);
   if (!p) { navSetStatus('In attesa del primo fix GPS per calcolare il percorso.'); return; }
-  navRequestRouteSafe(p, state.navDest, trackUpHeading(), null);
+  /* La promise si RESTITUISCE: quasi tutti i chiamanti (click su un risultato,
+     long-press sulla mappa) la ignorano e va benissimo, ma il generatore di giri
+     deve sapere quando la rotta e' montata prima di scrivere il consuntivo — e un
+     test non ha altro modo di aspettare la fine di un'operazione asincrona. */
+  return navRequestRouteSafe(p, state.navDest, trackUpHeading(), null);
 }

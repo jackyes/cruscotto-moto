@@ -195,6 +195,14 @@ function loadSettings() {
   state.navNoToll = !!s.navNoToll;
   state.navBackroads = !!s.navBackroads;
   state.navNoFerry = !!s.navNoFerry;
+  // Generatore di giri: liste chiuse come ogni altro setting a <select>, e per gli
+  // stessi motivi — i km finiscono in una formula di raggio, curve/tipo/direzione
+  // indicizzano tabelle di bersagli (CURVE_TARGETS, NAVGEN_DIR_DEG).
+  state.navGenKm = choiceOr(NAVGEN_KM_CHOICES, s.navGenKm, NAVGEN_KM_DEFAULT);
+  state.navGenLoop = s.navGenLoop !== false;
+  state.navGenCurves = pickOr(NAVGEN_CURVE_CHOICES, s.navGenCurves, 'tante');
+  state.navGenType = pickOr(NAVGEN_TYPE_CHOICES, s.navGenType, 'misto');
+  state.navGenDir = pickOr(NAVGEN_DIR_CHOICES, s.navGenDir, 'auto');
   // choiceOr coerce con Number: dal localStorage arriva sempre stringa, e "90" || 0
   // restava stringa — compass + offset + 360 concatenava invece di sommare.
   state.compassOffset = choiceOr(COMPASS_OFFSETS, s.compassOffset, 0);
@@ -230,6 +238,11 @@ function loadSettings() {
   els.navNoToll.checked = state.navNoToll;
   els.navBackroads.checked = state.navBackroads;
   els.navNoFerry.checked = state.navNoFerry;
+  if (els.navGenKm) els.navGenKm.value = String(state.navGenKm);
+  if (els.navGenLoop) els.navGenLoop.value = state.navGenLoop ? '1' : '0';
+  if (els.navGenCurves) els.navGenCurves.value = state.navGenCurves;
+  if (els.navGenType) els.navGenType.value = state.navGenType;
+  if (els.navGenDir) els.navGenDir.value = state.navGenDir;
   els.compassOffsetSel.value = String(state.compassOffset);
   els.gyroFusion.checked = state.gyroFusion;
   els.gravityModeSel.value = state.gravityMode;
@@ -261,6 +274,8 @@ function saveSettings() {
     gravityMode: state.gravityMode, rectNull: state.rectNull,
     navVoice: state.navVoice, navNoHw: state.navNoHw, navNoToll: state.navNoToll,
     navBackroads: state.navBackroads, navNoFerry: state.navNoFerry,
+    navGenKm: state.navGenKm, navGenLoop: state.navGenLoop, navGenCurves: state.navGenCurves,
+    navGenType: state.navGenType, navGenDir: state.navGenDir,
     camLegalOk: state.camLegalOk, guidaAlways: state.guidaAlways
   });
 }

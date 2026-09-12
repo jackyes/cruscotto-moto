@@ -44,7 +44,9 @@ async function navTryOsrm(from, to, hdg, vias) {
 
 /* L'heading conta solo se si e' davvero in movimento (vedi navRequestRoute). Vive
    qui, in una funzione sola, perche' lo devono sapere in DUE punti che non possono
-   divergere: la richiesta e la chiave di cache. */
+   divergere: la richiesta e la chiave di cache. Il generatore di giri (js/nav-gen.js)
+   e' il terzo, e scalda la cache con la stessa chiave che questo file ricalcolera'
+   un istante dopo. */
 function navHeadForReq(hdg) {
   return (hdg != null && isFinite(hdg) && state.speedMs >= HEADING_MIN_MS) ? hdg : null;
 }

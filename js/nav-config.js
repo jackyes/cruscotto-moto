@@ -201,6 +201,7 @@ function navStart() {
 }
 function navStop() {
   navSimStop();
+  navGenCancel();             // una generazione in corso non deve applicare un giro a navigatore chiuso
   navSearchCancel();          // una risposta Photon in volo non deve ripopolare la lista a navigatore chiuso
   navArriveReset(state.nav);  // il timer del banner "Arrivato" non deve sopravvivere alla rotta
   state.nav = null; state.navDest = null; state.navVias = []; state.gpxRoute = null;
