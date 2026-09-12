@@ -156,12 +156,20 @@ function statsOfLine() {
   return curveStats(lat, lon, lat.length);
 }
 
-test('curveScore: "tante" premia la strada piu tortuosa delle due', () => {
-  const tortuosa = statsOfCircle(60, 120);
-  const blanda = statsOfCircle(250, 240);
-  assert.ok(curveScore(tortuosa, 'tante', 'misto', 'way') > curveScore(blanda, 'tante', 'misto', 'way'));
-  // ...e "poche" ribalta la preferenza: il punteggio non e' "piu curve e' meglio"
-  assert.ok(curveScore(blanda, 'poche', 'misto', 'way') > curveScore(tortuosa, 'poche', 'misto', 'way'));
+test('curveScore: i bersagli sono centrati, non "piu curve e meglio"', () => {
+  /* 57296/R gradi per km su un cerchio di raggio R, quindi ~450 (il bersaglio di
+     "tante" per un percorso intero) cade su R≈127 e ~143 su R=400. Il punteggio
+     deve CENTRARE il bersaglio, non massimizzare: un percorso da 950 gradi/km e'
+     lontano da "tante" quanto uno da 210, solo dall'altra parte. */
+  const tante = statsOfCircle(127, 200);
+  const blanda = statsOfCircle(400, 400);
+  assert.ok(curveScore(tante, 'tante', 'misto') > curveScore(blanda, 'tante', 'misto'));
+  // ...e "poche" ribalta la preferenza
+  assert.ok(curveScore(blanda, 'poche', 'misto') > curveScore(tante, 'poche', 'misto'));
+  // oltre il bersaglio si torna a scendere: e' una campana, non una rampa
+  const esagerata = statsOfCircle(45, 120);
+  assert.ok(curveScore(tante, 'tante', 'misto') > curveScore(esagerata, 'tante', 'misto'),
+    'il punteggio premia lo sforamento invece di centrare il bersaglio');
 });
 
 test('curveScore: una strada dritta vale zero anche a "poche curve"', () => {
@@ -170,33 +178,17 @@ test('curveScore: una strada dritta vale zero anche a "poche curve"', () => {
      curve" non vuol dire "nessuna curva", e come SEME un rettilineo non serve a
      niente — e' il caso che il generatore deve scartare sempre. */
   const dritta = statsOfLine();
-  assert.equal(curveScore(dritta, 'poche', 'misto', 'way'), 0);
-  assert.equal(curveScore(dritta, 'poche', 'veloci', 'route'), 0);
-  assert.ok(curveScore(statsOfCircle(250, 240), 'poche', 'misto', 'way') > 0);
+  assert.equal(curveScore(dritta, 'poche', 'misto'), 0);
+  assert.equal(curveScore(dritta, 'poche', 'veloci'), 0);
+  assert.ok(curveScore(statsOfCircle(250, 240), 'poche', 'misto') > 0);
 });
 
-test('curveScore: "strette" preferisce i tornanti, "veloci" i curvoni', () => {
-  /* Su una strada a raggio costante gradi/km e raggio sono legati (57296/R), quindi
-     questo e' anche il test che l'asse del TIPO pesa abbastanza da non farsi
-     schiacciare da quello della quantita': coi pesi della rotta applicati alle way,
-     "strette" sceglieva il curvone perche' era piu' vicino al bersaglio di gradi/km. */
-  const stretta = statsOfCircle(45, 120);
-  const larga = statsOfCircle(270, 240);
-  assert.ok(curveScore(stretta, 'medie', 'strette', 'way') > curveScore(larga, 'medie', 'strette', 'way'));
-  assert.ok(curveScore(larga, 'medie', 'veloci', 'way') > curveScore(stretta, 'medie', 'veloci', 'way'));
-});
 
-test('curveScore: scala way e route usano bersagli diversi', () => {
-  assert.ok(CURVE_TARGETS.way.tante > CURVE_TARGETS.route.tante);
-  const s = { degPerKm: CURVE_TARGETS.route.tante, medRadius: 120, q1: 80, q3: 200, tightFrac: 0.1 };
-  // la stessa misura e' "tante" per una rotta intera ma mediocre per una singola strada
-  assert.ok(curveScore(s, 'tante', 'misto', 'route') > curveScore(s, 'tante', 'misto', 'way'));
-});
 
 test('curveScore: input nullo -> 0, mai throw', () => {
-  assert.equal(curveScore(null, 'tante', 'misto', 'route'), 0);
+  assert.equal(curveScore(null, 'tante', 'misto'), 0);
   const vuoto = curveStats([], [], 0);
-  assert.equal(curveScore(vuoto, 'tante', 'misto', 'route'), 0);
+  assert.equal(curveScore(vuoto, 'tante', 'misto'), 0);
 });
 
 test('CURVE_STEP_M coerente con i bersagli documentati', () => {

@@ -109,12 +109,9 @@ const exportLine = `
   geoDest, geoProject, resampleXY, curveStats, curveScore, curveFit, CURVE_TARGETS,
   CURVE_STEP_M, CURVE_R_MAX, CURVE_TIGHT_R,
   navIsLoop, navViasRemaining, navHeadForReq, NAV_LOOP_CLOSE_M, NAV_LOOP_MIN_M,
-  navGenReduceWays, navGenRankWays, navGenSectors, navGenPickWay,
-  navGenSeedLoop, navGenSeedLine, navGenWayPair, navGenMeasure, navGenScore, navGenScanCurvy,
-  pathPointAt,
+  navGenSectors, navGenSeedLoop, navGenSeedLine, navGenMeasure, navGenScore,
   navGenFetchTrip, navGenRun, navGenCancel, navGenOpts, navGenKey, navGenStats,
   NAVGEN_SEEDS, NAVGEN_ITER_MAX, NAVGEN_REQ_MAX, NAVGEN_DIST_TOL, NAVGEN_DIR_DEG,
-  NAVGEN_WAY_MIN_M, NAVGEN_WAY_MIN_DPK, NAVGEN_WAY_KEEP, NAVGEN_SCAN_TTL_MS,
   navTick, navMaybeReroute, NAV_VIA_MANUAL_MAX
 };
 `;

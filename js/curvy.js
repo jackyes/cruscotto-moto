@@ -46,32 +46,14 @@ const CURVE_R_MAX = 500;       // sopra questo raggio non è una curva, è una p
 const CURVE_TIGHT_R = 60;      // sotto questo raggio è un tornante
 const CURVE_MAX_PTS = 40000;   // tappo: 1000 km a passo 25 m, oltre è input malato
 
-/* Punto a una frazione della LUNGHEZZA di una polilinea (non del numero di nodi:
-   i nodi OSM sono spaziati in modo irregolare, e il nodo di mezzo può cadere a un
-   quinto della strada). Serve a prendere due punti di aggancio su una way — uno
-   vicino all'inizio e uno vicino alla fine — invece del solo centro. */
-function pathPointAt(lat, lon, n, frac) {
-  if (!n || n < 1) return null;
-  if (n === 1) return { lat: lat[0], lon: lon[0] };
-  const cum = new Float64Array(n);
-  for (let i = 1; i < n; i++) cum[i] = cum[i - 1] + haversineM(lat[i - 1], lon[i - 1], lat[i], lon[i]);
-  const total = cum[n - 1];
-  if (!(total > 0)) return { lat: lat[0], lon: lon[0] };
-  const s = Math.max(0, Math.min(1, frac)) * total;
-  let j = 0;
-  while (j + 2 < n && cum[j + 1] < s) j++;
-  const span = cum[j + 1] - cum[j];
-  const t = span > 1e-9 ? (s - cum[j]) / span : 0;
-  return { lat: lat[j] + t * (lat[j + 1] - lat[j]), lon: lon[j] + t * (lon[j + 1] - lon[j]) };
-}
-
 /* Ricampionamento a passo fisso, nel piano. I nodi OSM sono spaziati in modo
    irregolare: un incrocio, un ponte o un confine comunale mettono cinque nodi in
    venti metri anche su un rettilineo perfetto, e la somma dei |Δdirezione| grezzi
    conterebbe quel grappolo come curva. A passo costante il conto misura la strada
    invece della densità con cui è stata mappata — che è l'unica cosa che vogliamo
-   sapere. È anche ciò che rende confrontabili una way OSM e una polilinea Valhalla,
-   che hanno densità di nodi molto diverse. */
+   sapere. È anche ciò che rende confrontabili percorsi che vengono da fonti
+   diverse — una polilinea Valhalla e una traccia GPX hanno densità di nodi molto
+   diverse, e senza ricampionare non sarebbero paragonabili. */
 function resampleXY(x, y, n, stepM) {
   const step = stepM > 0 ? stepM : CURVE_STEP_M;
   if (!n || n < 2) return { x: new Float64Array(0), y: new Float64Array(0), n: 0, lenM: 0 };
@@ -142,8 +124,7 @@ function curveStats(lat, lon, n) {
      e l'ultimo campione non ne producono: su n campioni si contano n−2 angoli, che
      coprono (n−2) passi. Dividere per la lunghezza intera regalava quei due passi
      al rettilineo e sottostimava tutto — invisibile su un giro da mille campioni,
-     ma su una way OSM da 150 m (sette campioni) erano il 30% dei gradi buttati via.
-     Ed è proprio su quelle way corte che si decide dove seminare le tappe. */
+     ma su un tratto da 150 m (sette campioni) erano il 30% dei gradi buttati via. */
   const spanM = (rs.n - 2) * CURVE_STEP_M;
   out.degPerKm = deg / (spanM / 1000);
   out.tightFrac = tightM / spanM;
@@ -156,24 +137,19 @@ function curveStats(lat, lon, n) {
   return out;
 }
 
-/* Bersagli. NON sono indovinati: vengono dalla misura di 1895 way reali
-   (secondary + tertiary, 20 km attorno a Lecco, scaricate da Overpass) e da un
-   anello Valhalla vero da 51 km con le preferenze moto attive.
+/* Bersagli. NON sono indovinati: vengono dalla misura di 1311 strade reali
+   (secondary + tertiary sopra i 150 m, 20 km attorno a Lecco) e da un anello
+   Valhalla vero da 51,7 km con le preferenze moto attive.
 
-   Way sopra i 150 m (n=1311), gradi/km:        p25 92 · p50 216 · p75 445 · p90 698
-   Way sopra i 150 m, raggio mediano (m):       p10 74 · p25 101 · p50 147 · p90 291
-   Anello Valhalla non seminato da 51,7 km: 205 gradi/km, raggio mediano 181 m,
-   5% di tornanti — cioe' il giro che esce SENZA sforzo, il metro di paragone.
+   Strade reali, raggio mediano di curva (m):  p10 74 · p25 101 · p50 147 · p90 291
+   Anello Valhalla da 51,7 km: 205 gradi/km, raggio mediano 181 m, 5% di tornanti.
 
-   Da qui le due scale, che sono diverse e non vanno confuse:
-   - WAY: una singola strada, corta, presa o scartata come seme. Si pesca in alto
-     nella distribuzione, perché il seme deve essere una strada NOTEVOLE.
-   - ROUTE: il giro intero, che media curve e rettilinei e paesi attraversati.
-     I 205 gradi/km dell'anello a caso sono il punto di partenza "senza sforzo":
-     "medie" ci si siede sopra, "tante" deve battere quel numero di parecchio. */
+   Quei 205 gradi/km sono il metro di paragone: è il giro che esce SENZA sforzo.
+   "medie" ci si siede sopra, "tante" deve battere quel numero di parecchio, e
+   "poche" deve starci sotto. I bersagli valgono per un PERCORSO INTERO, che media
+   curve, rettilinei e paesi attraversati. */
 const CURVE_TARGETS = {
-  way:   { poche: 100, medie: 300, tante: 700 },
-  route: { poche: 80,  medie: 200, tante: 450 },
+  route: { poche: 80, medie: 200, tante: 450 },
   // raggio mediano bersaglio per il tipo di curva; `misto` non ha un raggio:
   // chiede varietà, e si giudica sull'ampiezza dell'intervallo interquartile.
   radius: { veloci: 260, strette: 80 },
@@ -188,28 +164,18 @@ function curveFit(v, target, tol) {
   return 1 / (1 + e * e);
 }
 
-/* Quanto pesa il "quante curve" rispetto al "che tipo di curve". I due pesi sono
-   diversi per scala, e non è una messa a punto arbitraria:
-   - ROUTE (il giro intero): comanda la quantità. È l'asse che l'utente ha davvero
-     quantificato, ed è quello che si sente in sella su cento chilometri.
-   - WAY (la singola strada scelta come seme): comanda il tipo. Una way è corta, i
-     suoi gradi/km dicono poco su come verrà il giro, mentre "tornanti" contro
-     "curvone" è proprio l'informazione per cui la si sta scegliendo. Coi pesi della
-     rotta, chi chiedeva curve strette si vedeva seminare curvoni: su una strada a
-     raggio costante gradi/km e raggio sono legati (gradi/km ≈ 57296/R), quindi
-     l'asse della quantità da solo sceglieva anche il tipo, e lo sceglieva storto. */
-const CURVE_W = { route: { qty: 0.65, kind: 0.35 }, way: { qty: 0.45, kind: 0.55 } };
+/* Quanto pesa il "quante curve" rispetto al "che tipo di curve". La quantità pesa
+   di più: è l'asse che l'utente ha davvero quantificato, ed è quello che si sente
+   in sella su cento chilometri. */
+const CURVE_W_QTY = 0.65, CURVE_W_KIND = 0.35;
 
-/* Punteggio 0..1 di quanto una geometria assomiglia a ciò che l'utente ha chiesto.
-   `scale` è 'way' (seme) o 'route' (candidato intero): stessi assi, bersagli e pesi
-   diversi. Una strada perfettamente dritta prende zero anche a "poche curve": la
-   scala è logaritmica e lo zero è infinitamente lontano da qualunque bersaglio —
-   che è il comportamento voluto, perché "poche curve" non vuol dire "nessuna". */
-function curveScore(stats, curves, type, scale) {
+/* Punteggio 0..1 di quanto un percorso assomiglia a ciò che l'utente ha chiesto.
+   Un percorso perfettamente dritto prende zero anche a "poche curve": la scala è
+   logaritmica e lo zero è infinitamente lontano da qualunque bersaglio — che è il
+   comportamento voluto, perché "poche curve" non vuol dire "nessuna". */
+function curveScore(stats, curves, type) {
   if (!stats) return 0;
-  const isWay = scale === 'way';
-  const tgt = CURVE_TARGETS[isWay ? 'way' : 'route'];
-  const w = CURVE_W[isWay ? 'way' : 'route'];
+  const tgt = CURVE_TARGETS.route;
   const qty = curveFit(stats.degPerKm, tgt[curves] != null ? tgt[curves] : tgt.medie, 0.85);
   let kind;
   if (type === 'misto') {
@@ -224,5 +190,5 @@ function curveScore(stats, curves, type, scale) {
     // metà del punteggio di tipo viene dalla frazione di metri dentro un tornante.
     if (type === 'strette') kind = 0.5 * kind + 0.5 * Math.min(1, stats.tightFrac / 0.25);
   }
-  return w.qty * qty + w.kind * kind;
+  return CURVE_W_QTY * qty + CURVE_W_KIND * kind;
 }

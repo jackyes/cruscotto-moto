@@ -107,22 +107,19 @@ tutti tornanti, e voglio tornare a casa"*. Questa scheda parte da lì.
   poteva restituire 30 come 121.
 - Tetto di 22 richieste e ~25 s, con contatore a schermo e tasto Annulla. **↻ Un altro**
   ripesca dai candidati già calcolati senza toccare la rete (una decina, poi rigenera).
-- Le tappe vengono seminate anche su strade scelte da una scansione **Overpass** delle
-  `secondary`/`tertiary` della zona, misurate per curvosità e agganciate a coppie
-  (entrata e uscita, così la strada va percorsa e non sfiorata). La scansione parte in
-  parallelo al primo candidato — quindi non allunga i tempi — e resta in cache 30
-  giorni. **Onestà: su due prove A/B controllate non ha prodotto alcun miglioramento
-  misurabile** (Lecco, montagna: 592 °/km senza contro 504 con; pianura padana: 166
-  contro 151). Il motivo è strutturale: fra una tappa e l'altra le strade le sceglie
-  Valhalla, e tre o sei punti vincolati su cinquanta chilometri non bastano a decidere
-  la curvosità del giro. Costa circa 1 MB la prima volta in una zona nuova; se non
-  serve, si toglie togliendo la chiamata a `navGenScanCurvy` in `navGenRun`.
 - A fine generazione la riga di stato riporta il **consuntivo vero** — *"53 km · 592°/km ·
   curve ~114 m (18% tornanti). Chiesti 50 km, curve tante, strette"* — anche quando il
   bersaglio non è stato centrato.
-- Se Overpass è lento o rifiuta, il giro si genera comunque con semina geometrica e
-  l'app lo dice. La scansione parte **in parallelo** al primo candidato, così i venti
-  secondi di Overpass non si sommano ai tempi di Valhalla.
+- Le tappe intermedie sono **punti geometrici**, agganciati alla strada più vicina da
+  Valhalla: un anello le mette su settori uguali attorno al punto di partenza, una sola
+  andata dentro un corridoio a zig-zag lungo la retta. Una versione precedente le
+  sceglieva invece fra le strade più tortuose della zona, scaricate da Overpass: su due
+  A/B controllati **non cambiava niente** (Lecco, montagna: 592 °/km senza contro 504
+  con; pianura padana: 166 contro 151), e costava ~1 MB di download, quindi è stata
+  tolta. Il motivo è strutturale, e vale la pena saperlo prima di riprovarci: fra una
+  tappa e l'altra le strade le sceglie comunque Valhalla, e sei punti vincolati su
+  cinquanta chilometri non decidono la curvosità del giro. A decidere è la misura dei
+  candidati.
 - Valhalla **non garantisce le curve**: sceglie lui le strade fra una tappa e l'altra.
   La misura scarta i candidati peggiori, ma resta una scelta fra candidati, non una
   costruzione esatta — da cui il consuntivo onesto. Per la stessa ragione una **sola
@@ -131,7 +128,7 @@ tutti tornanti, e voglio tornare a casa"*. Questa scheda parte da lì.
   E in montagna esce comunque tortuosa, in pianura comunque no: il terreno conta più
   di qualunque parametro.
 - I bersagli numerici (`CURVE_TARGETS` in `js/curvy.js`) sono tarati su misure reali —
-  1311 way OSM attorno a Lecco e un anello Valhalla da 51 km — non indovinati. Per
+  1311 strade OSM attorno a Lecco e un anello Valhalla da 51,7 km — non indovinati. Per
   ritararli su strade tue: carica un giro e chiama `navGenStats()` dalla console.
 
 ### Grafici
@@ -500,7 +497,7 @@ Il file usa la virgola come separatore. Su Excel italiano potresti vedere tutto 
 ## Sicurezza e privacy
 
 - I dati (tracce, log, calibrazione) restano sul telefono: nessun server, nessuna telemetria in uscita.
-- Le chiamate esterne sono le tile OpenStreetMap, Leaflet da unpkg, le query Overpass (autovelox e strade curve del generatore di giri), Valhalla e OSRM (routing) e Photon (geocoding). Origine e destinazione del navigatore sono inviate a un server terzo quando calcoli un percorso, e la tua posizione approssimata quando generi un giro; il resto (traccia, autovelox, preferenze) resta in locale.
+- Le chiamate esterne sono le tile OpenStreetMap, Leaflet da unpkg, le query Overpass (autovelox), Valhalla e OSRM (routing) e Photon (geocoding). Origine e destinazione del navigatore sono inviate a un server terzo quando calcoli un percorso o generi un giro; il resto (traccia, autovelox, preferenze) resta in locale.
 - La pagina dichiara una **Content-Security-Policy** che limita gli host raggiungibili a quelli sopra.
 - Nomi e limiti degli autovelox (da OSM o da file importati) sono dati di terze parti e vengono inseriti nel DOM come **testo**, mai come HTML.
 - Leaflet (mappa live) è caricato da unpkg **con** `integrity` (SRI). MapLibre + Three.js per l'export video 3D restano CDN on-demand. Per chiudere del tutto il rischio catena di fornitura conviene vendorizzare Leaflet in repo e stringere la CSP a `script-src 'self'` (video 3D resterebbe da sbloccare a parte).
