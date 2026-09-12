@@ -130,11 +130,6 @@ function processSample(sm) {
   if (sm.grav && !finiteVec(sm.grav)) sm.grav = null;
 
   const ig = sm.acc;
-  /* Fallback come in buildBasis (js/core.js), via l'unico validatore mountDef
-     (js/core.js): qui la chiave ignota significherebbe TypeError a ogni campione
-     (m.lat su undefined) — cioè strumentazione morta in marcia. Un orientamento di
-     ripiego sbagliato è meglio di un loop di eccezioni. */
-  const m = mountDef(state.mount);
   const B = state.calib;
 
   /* Velocita' angolare, vettoriale. Saturazione simmetrica (non azzeramento: mettere
@@ -144,7 +139,6 @@ function processSample(sm) {
      vettore (grezzo, filtrato, Wc) — GC continuo sul main thread. */
   const wRaw = state._wRaw || (state._wRaw = { x: 0, y: 0, z: 0 });
   let W = wRaw;
-  W.x = 0; W.y = 0; W.z = 0;
   state.hasGyro = !!sm.gyro;
   if (sm.gyro) {
     wRaw.x = gyroSat(sm.gyro.x) * state.gyroSign;
@@ -175,6 +169,11 @@ function processSample(sm) {
       state._wFlt = null;
       W = wRaw;
     }
+  } else {
+    // L'azzeramento vive SOLO qui: con il giroscopio presente — cioe' il caso
+    // normale — le tre componenti venivano scritte due volte a ogni campione,
+    // prima a zero e subito dopo col valore.
+    W.x = 0; W.y = 0; W.z = 0;
   }
 
   /* LP dedicato sull'imbardata attorno alla verticale del telaio. L'errore
@@ -329,6 +328,14 @@ function processSample(sm) {
       lon  = vdot(la, B.fwd)   / G;
       vert = vdot(la, B.up)    / G;
     } else {
+      /* Solo qui serve, e qui si calcola: con la calibrazione attiva — cioe' sempre,
+         dopo il primo uso — il ramo sopra usa B e questa risoluzione non servirebbe
+         a niente, ma girava lo stesso a ogni campione.
+         Fallback come in buildBasis (js/core.js), via l'unico validatore mountDef
+         (js/core.js): qui la chiave ignota significherebbe TypeError a ogni campione
+         (m.lat su undefined) — cioe' strumentazione morta in marcia. Un orientamento
+         di ripiego sbagliato e' meglio di un loop di eccezioni. */
+      const m = mountDef(state.mount);
       lat  = axis(la, m.lat)  / G;
       lon  = axis(la, m.lon)  / G;
       vert = axis(la, m.vert) / G;

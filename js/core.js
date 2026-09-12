@@ -40,10 +40,19 @@ const CAM_RADIUS_DEFAULT = 15000;
    il change scatta solo su una scelta esplicita dell'utente. */
 const CAM_DIST_CHOICES = [300, 400, 600];
 const CAM_DIST_DEFAULT = 400;
-function camDistFrom(v) {
-  const n = parseInt(v, 10);
-  return CAM_DIST_CHOICES.indexOf(n) >= 0 ? n : CAM_DIST_DEFAULT;
+const COMPASS_OFFSETS = [0, 90, 180, 270];
+/* Validazione di un valore persistito contro una lista CHIUSA di scelte. Le tre
+   impostazioni numeriche che ne hanno bisogno (camDist, camRadius, compassOffset)
+   lo facevano in tre modi diversi — parseInt, nessuna coercizione, Number — e dal
+   localStorage arriva sempre una stringa: `[10000,15000].indexOf("15000")` non
+   trova nulla e resetta al default un valore legittimo. Number e non parseInt:
+   parseInt("400px") vale 400, e da una <select> o da uno storage manomesso una
+   stringa mezza numerica non e' una scelta valida, e' spazzatura. */
+function choiceOr(choices, v, def) {
+  const n = Number(v);
+  return choices.indexOf(n) >= 0 ? n : def;
 }
+function camDistFrom(v) { return choiceOr(CAM_DIST_CHOICES, v, CAM_DIST_DEFAULT); }
 const CAM_MARKER_FACTOR = 1.5; // oltre il bordo scaricato c'e' ancora dato, se importato
 const CAM_MOVE_FACTOR = 0.5;   // refetch a meta' raggio: mezzo raggio di copertura resta davanti
 const CAM_MARKER_MAX = 400;    // tetto marker disegnati (un DB nazionale a 50 km blocca il telefono)

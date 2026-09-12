@@ -126,3 +126,26 @@ test('distM: haversine in metri', () => {
   assert.ok(Math.abs(api.distM(a, b) - 111.19) < 0.5);
   assert.equal(api.distM(a, a), 0);
 });
+
+/* choiceOr: validazione contro una lista chiusa. Dal localStorage il valore torna
+   sempre come stringa, quindi la coercizione non e' un dettaglio — senza,
+   `[10000,15000].indexOf("15000")` vale -1 e un raggio legittimo salvato dalla
+   sessione precedente veniva silenziosamente resettato al default. */
+test('choiceOr: coerce la stringa dallo storage, scarta la spazzatura', () => {
+  const { choiceOr, CAM_DIST_CHOICES, CAM_DIST_DEFAULT, camDistFrom,
+          CAM_RADIUS_CHOICES, CAM_RADIUS_DEFAULT, COMPASS_OFFSETS } = api;
+  // la stringa che arriva dallo storage e' una scelta valida
+  assert.equal(choiceOr(CAM_RADIUS_CHOICES, '15000', CAM_RADIUS_DEFAULT), 15000);
+  assert.equal(camDistFrom('600'), 600);
+  assert.equal(choiceOr(COMPASS_OFFSETS, '90', 0), 90);
+  // fuori lista, mezza numerica, vuoto, assente: tutti default
+  assert.equal(choiceOr(CAM_RADIUS_CHOICES, 12345, CAM_RADIUS_DEFAULT), CAM_RADIUS_DEFAULT);
+  assert.equal(camDistFrom('400px'), CAM_DIST_DEFAULT);
+  assert.equal(camDistFrom(''), CAM_DIST_DEFAULT);
+  assert.equal(camDistFrom(undefined), CAM_DIST_DEFAULT);
+  assert.equal(camDistFrom(null), CAM_DIST_DEFAULT);
+  // 0 legittimo non viene mascherato da un `|| default`
+  assert.equal(choiceOr(COMPASS_OFFSETS, 0, 90), 0);
+  // il tipo restituito e' sempre numero, mai la stringa in ingresso
+  assert.equal(typeof choiceOr(CAM_DIST_CHOICES, '300', CAM_DIST_DEFAULT), 'number');
+});

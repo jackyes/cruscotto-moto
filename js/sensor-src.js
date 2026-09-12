@@ -129,8 +129,13 @@ function startGenericSensors() {
   const RAD2DEG = 180 / Math.PI;
   /* Tutti e tre gli assi, non solo x: la Generic Sensor API restituisce null su una
      lettura non disponibile, e `null * RAD2DEG` vale 0 — un asse mancante entrava
-     come uno zero VERO in grado/s, cioe' un campione credibile e sbagliato. */
-  const assiOk = s => s.x != null && s.y != null && s.z != null;
+     come uno zero VERO in grado/s, cioe' un campione credibile e sbagliato.
+     E' finiteVec (js/core.js), non un controllo locale gemello: quello scartava il
+     null ma lasciava passare NaN/Infinity, che finivano in cache in gyroLast/
+     gravLast/linLast e venivano ripescati poi da sensors-pipe. Il campione sporco
+     lo intercettava comunque finiteVec un livello piu' in la', ma con due gate
+     diversi sullo stesso dato il prossimo irrigidimento ne avrebbe toccato uno solo. */
+  const assiOk = finiteVec;
   sensorSrc.gyro = mk(window.Gyroscope, function () {
     const g = this;
     if (!assiOk(g)) return;

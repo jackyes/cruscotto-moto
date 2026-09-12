@@ -186,19 +186,18 @@ function loadSettings() {
   // a mano; il range 50-2000 accettava valori che la <select> non sa mostrare.
   state.camDist = camDistFrom(s.camDist);
   /* Validato contro la lista, non `|| default`: il valore finisce interpolato nella
-     query Overpass, e un localStorage modificato a mano non deve poterci scrivere. */
-  state.camRadius = CAM_RADIUS_CHOICES.indexOf(s.camRadius) >= 0 ? s.camRadius : CAM_RADIUS_DEFAULT;
+     query Overpass, e un localStorage modificato a mano non deve poterci scrivere.
+     choiceOr e non indexOf crudo: dallo storage il valore torna anche come stringa,
+     e "15000" non e' nella lista dei numeri — un raggio legittimo veniva resettato. */
+  state.camRadius = choiceOr(CAM_RADIUS_CHOICES, s.camRadius, CAM_RADIUS_DEFAULT);
   state.navVoice = s.navVoice !== false;
   state.navNoHw = !!s.navNoHw;
   state.navNoToll = !!s.navNoToll;
   state.navBackroads = !!s.navBackroads;
   state.navNoFerry = !!s.navNoFerry;
-  // Number(): dal localStorage arriva sempre stringa, e "90" || 0 restava
-  // stringa — compass + offset + 360 concatenava invece di sommare.
-  {
-    const co = Number(s.compassOffset);
-    state.compassOffset = [0, 90, 180, 270].indexOf(co) >= 0 ? co : 0;
-  }
+  // choiceOr coerce con Number: dal localStorage arriva sempre stringa, e "90" || 0
+  // restava stringa — compass + offset + 360 concatenava invece di sommare.
+  state.compassOffset = choiceOr(COMPASS_OFFSETS, s.compassOffset, 0);
   state.gyroFusion = s.gyroFusion !== false;
   state.gravityMode = (s.gravityMode === 'native' || s.gravityMode === 'own') ? s.gravityMode : 'auto';
   state.rectNull = !!s.rectNull;
