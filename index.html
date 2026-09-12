@@ -2145,8 +2145,13 @@ function init() {
   els.btnNavVia.addEventListener('click', () => {
     const d = state.navDest;
     if (!d) { toast('Imposta prima la destinazione, poi spostala a tappa intermedia.', 'err'); return; }
-    if ((state.navVias || []).length >= 1) { toast('Una sola tappa intermedia supportata.', 'err'); return; }
-    state.navVias = [d];
+    // Il motore ne gestisce quante ne arrivano (js/nav-net.js); il tetto qui e' solo
+    // per il flusso manuale, dove ogni tappa costa un giro di ricerca e piu' di
+    // qualcuna diventa ingestibile.
+    if ((state.navVias || []).length >= NAV_VIA_MANUAL_MAX) {
+      toast('Massimo ' + NAV_VIA_MANUAL_MAX + ' tappe intermedie a mano.', 'err'); return;
+    }
+    state.navVias = [...(state.navVias || []), d];
     state.navDest = null;
     if (els.navQuery) els.navQuery.value = '';
     navSearchCancel();       // come sopra: campo e lista svuotati a mano, ma debounce armato

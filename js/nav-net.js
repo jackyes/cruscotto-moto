@@ -42,6 +42,32 @@ async function navTryOsrm(from, to, hdg, vias) {
   return navFromOsrm(j);
 }
 
+/* L'heading conta solo se si e' davvero in movimento (vedi navRequestRoute). Vive
+   qui, in una funzione sola, perche' lo devono sapere in DUE punti che non possono
+   divergere: la richiesta e la chiave di cache. */
+function navHeadForReq(hdg) {
+  return (hdg != null && isFinite(hdg) && state.speedMs >= HEADING_MIN_MS) ? hdg : null;
+}
+
+/* Tappe da rimettere in un RICALCOLO. Non tutte: solo quelle non ancora superate.
+   Prima erano zero — "per non far ripassare Valhalla da una tappa gia' superata" —
+   ma buttarle tutte e' una cura peggiore del male: su un giro generato ad anello la
+   destinazione e' la partenza, quindi il primo fuori-percorso mandava dritti a casa
+   e il giro finiva li'; su una tappa messa a mano, deviare prima di raggiungerla la
+   faceva sparire in silenzio.
+   Quale sia superata lo dice la rotta stessa: Valhalla apre una leg nuova a ogni
+   tappa, navBuild scrive `legIdx` su ogni manovra, quindi la tappa k e' alle spalle
+   quando la prossima manovra e' gia' nella leg k+1. */
+function navViasRemaining() {
+  const vias = state.navVias || [];
+  const nv = state.nav;
+  if (!vias.length) return [];
+  if (!nv || !nv.man || !nv.man.length) return vias;
+  const k = Math.min(nv.nextMan | 0, nv.man.length - 1);
+  const leg = nv.man[k] ? (nv.man[k].legIdx | 0) : 0;
+  return vias.slice(Math.min(leg, vias.length));
+}
+
 function navRequestRouteSafe(from, to, hdg, why) {
   return navRequestRoute(from, to, hdg, why).catch(e => {
     const m = (e && e.message) || String(e);
@@ -95,11 +121,10 @@ async function navRequestRoute(from, to, hdg, why) {
   // L'heading si passa a Valhalla SOLO quando si e' davvero in movimento: il compass
   // magnetica da fermo e' rumore, e con heading_tolerance stretto fa fallire Valhalla
   // con "No suitable edges near location" (error_code 171) = HTTP 400.
-  const useHead = hdg != null && isFinite(hdg) && state.speedMs >= HEADING_MIN_MS;
-  // Via intermedie solo sul calcolo "fresco" (why null): in ricalcolo/ripresa
-  // (why non-null) si va dritti da→dest, per non far ripassare Valhalla da una
-  // tappa già superata durante una deviazione.
-  const vias = (why == null ? (state.navVias || []) : [])
+  const useHead = navHeadForReq(hdg) != null;
+  // Calcolo "fresco" (why null): tutte le tappe. In ricalcolo/ripresa (why non-null)
+  // solo quelle ancora davanti — vedi navViasRemaining.
+  const vias = (why == null ? (state.navVias || []) : navViasRemaining())
     .filter(v => v && isFinite(v.lat) && isFinite(v.lon));
   const build = (withHead) => {
     const orig = { lat: from.lat, lon: from.lon };

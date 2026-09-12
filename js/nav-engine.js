@@ -132,7 +132,14 @@ function navTick(pLat, pLon, acc) {
      valido comunque — se sei a 20 m dal nuovo dest ci sei arrivato davvero, anche se
      il ricalcolo e' fallito e la polilinea e' rimasta quella vecchia (bloccando
      tutto, un errore di rete sopprimeva per sempre l'annuncio di arrivo). */
-  if (nv.status === 'ACTIVE' && ((!nv.destStale && nv.distRemain < 15) || near < arriveM)) {
+  /* Su un anello la destinazione E' la partenza, quindi `near` vale zero fin dal
+     primo fix: senza questo gate il navigatore annunciava "sei arrivato" prima che
+     la moto fosse uscita dal parcheggio, e cancellava activeRoute da IndexedDB.
+     Il termine geometrico torna valido solo dopo mezzo giro; quello per
+     progressione lungo la polilinea (distRemain) resta intatto, ed e' comunque
+     quello giusto per chiudere un anello. */
+  const nearOk = !nv.loop || nv.sAlong > nv.totalM * 0.5;
+  if (nv.status === 'ACTIVE' && ((!nv.destStale && nv.distRemain < 15) || (nearOk && near < arriveM))) {
     nv.arriveCount++;
     if (nv.arriveCount >= NAV_ARRIVE_FIXES) {
       nv.status = 'ARRIVED';

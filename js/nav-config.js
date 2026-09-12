@@ -32,6 +32,7 @@ const NAV_PASS_EARLY_M = 10;
 const NAV_PASS_HEAD_DEG = 45;
 const NAV_CHAIN_MIN_M = 150;      // due manovre "incatenate" sotto questa distanza
 const NAV_MAX_SEG_SCAN = 400;     // tappo duro sui segmenti valutati per fix
+const NAV_VIA_MANUAL_MAX = 4;     // tetto delle tappe aggiunte a mano (il generatore non passa di li')
 
 const MAN_ROUNDABOUT_IN = 26, MAN_ROUNDABOUT_OUT = 27;
 
@@ -63,6 +64,12 @@ async function navPersistRoute() {
     await idb.kvPut('activeRoute', {
       ts: Date.now(), dest: nv.dest, req: nv.reqSaved, shape: nv.shapeRaw,
       man: nv.man, totalM: nv.totalM, totalS: nv.totalS,
+      /* Le tappe servono al RICALCOLO (navViasRemaining), che dopo un riavvio a
+         meta' giro e' proprio il caso piu' probabile: senza, il primo fuori-percorso
+         ignora le tappe residue e su un anello punta dritto a casa. Il flag di
+         anello no: navBuild lo ricava dalla geometria, quindi si ricostruisce da
+         solo anche qui. */
+      vias: state.navVias || [],
     });
   } catch (e) {
     // Persistenza rotta rotta: la navigazione continua, ma al riavvio non ci
@@ -142,6 +149,7 @@ async function navRestore() {
   nv.stale = !pg || (Date.now() - pg.ts > 1800000);
   state.nav = nv;
   state.navDest = nv.dest ? { lat: nv.dest.lat, lon: nv.dest.lon, label: nv.dest.label } : null;
+  state.navVias = (r.vias || []).filter(v => v && isFinite(v.lat) && isFinite(v.lon));
   navDrawRoute();
   renderNavPanel();
   navSetStatus(nv.stale

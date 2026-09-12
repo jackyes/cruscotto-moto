@@ -104,7 +104,9 @@ const exportLine = `
   hudGdot, rectsOverlap, hudMotoBox, hudLayout, hudPanel, hudText,
   fmtDurH, climbMeters, countCurves, leanHistogram, posterStats, projectTrackXY,
   posterMoments, posterLayout, posterLayoutFor, posterSizeFor, posterTitle, POSTER_FORMATS,
-  buildPosterModel, posterTrackXY
+  buildPosterModel, posterTrackXY,
+  navIsLoop, navViasRemaining, navHeadForReq,
+  NAV_LOOP_CLOSE_M, NAV_LOOP_MIN_M, NAV_VIA_MANUAL_MAX
 };
 `;
 

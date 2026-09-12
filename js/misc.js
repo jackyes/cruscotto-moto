@@ -84,7 +84,21 @@ function navBuild(trip) {
     if (man[k].type === MAN_ROUNDABOUT_OUT) man[k].silent = true;
   }
   return { n, lat, lon, cum, brg, flags, man, sMan, tEnd,
-           totalM: cum[n - 1], totalS: acc };
+           totalM: cum[n - 1], totalS: acc,
+           loop: navIsLoop(lat, lon, n, cum[n - 1]) };
+}
+
+/* Un anello è una rotta che finisce dove è cominciata. Si riconosce dalla GEOMETRIA
+   e non da un flag messo da chi l'ha chiesta: così vale anche per una rotta
+   ripristinata da IndexedDB dopo un riavvio e per un GPX chiuso importato a mano,
+   senza un secondo pezzo di stato da tenere allineato con la rotta viva.
+   Il minimo di lunghezza esclude il caso degenere "partenza ≈ arrivo", che è una
+   rotta sbagliata, non un giro. */
+const NAV_LOOP_CLOSE_M = 200;
+const NAV_LOOP_MIN_M = 3000;
+function navIsLoop(lat, lon, n, totalM) {
+  if (!n || n < 2 || !(totalM > NAV_LOOP_MIN_M)) return false;
+  return distM({ lat: lat[0], lon: lon[0] }, { lat: lat[n - 1], lon: lon[n - 1] }) < NAV_LOOP_CLOSE_M;
 }
 
 function wakeLockWarn(msg) {

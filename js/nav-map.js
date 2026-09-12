@@ -162,6 +162,14 @@ function navDrawRoute() {
         if (seg.length > 1) L.polyline(seg, { color: '#f0abfc', weight: 7 }).addTo(state.navLayer);
       }
     }
+    /* Tappe intermedie, piu' piccole e cave della destinazione. Erano invisibili:
+       sulla mappa si vedeva una linea viola che gira senza motivo apparente, e su
+       una rotta ad anello — dove partenza e arrivo coincidono — il marker della
+       destinazione era l'unica cosa disegnata. */
+    for (const v of (state.navVias || [])) {
+      if (!v || !isFinite(v.lat) || !isFinite(v.lon)) continue;
+      L.circleMarker([v.lat, v.lon], { radius: 5, color: '#a78bfa', fillColor: 'transparent', fillOpacity: 0, weight: 3 }).addTo(state.navLayer);
+    }
     const d = (state.nav && state.nav.dest) || state.navDest;
     if (d) L.circleMarker([d.lat, d.lon], { radius: 8, color: '#a78bfa', fillColor: '#a78bfa', fillOpacity: 0.9, weight: 3 }).addTo(state.navLayer);
   }
