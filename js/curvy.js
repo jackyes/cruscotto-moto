@@ -155,6 +155,82 @@ const CURVE_TARGETS = {
   radius: { veloci: 260, strette: 80 },
 };
 
+const CURVE_OVERLAP_M = 9;        // stessa strada = entro 9 m
+const CURVE_OVERLAP_GAP_M = 400;  // ...e almeno 400 m più avanti lungo la traccia
+const CURVE_OVERLAP_RUN_M = 200;  // conta solo se ci ripassa per almeno 200 m di fila
+const CURVE_OVERLAP_CELL_M = 30;  // lato della cella della griglia
+
+/* Percentuale di percorso che ripassa sopra un altro tratto dello stesso percorso.
+   È la misura che dice se un "anello" è davvero un anello o è una stella che esce e
+   rientra: su un giro da 50 km attorno a Lecco segnava l'83%, e la matrice
+   leg-contro-leg ha confermato che non era un falso allarme.
+
+   Le tre soglie sono tutte lì per lo stesso motivo, e la più importante è la prima.
+   Un TORNANTE ha due rami paralleli e controverse, distanti quanto è largo il
+   tornante stesso — 15-40 m. Con una soglia larga (20-30 m) ogni tornante verrebbe
+   contato come "ripasso", e siccome questa misura entra nel punteggio che sceglie il
+   giro, il generatore sarebbe spinto a EVITARE le strade curve — esattamente il
+   contrario di quello che l'utente chiede. A 9 m si contano solo i ripassi veri,
+   sullo stesso asfalto: una strada percorsa due volte ha i due passaggi a pochi
+   metri, spesso a zero.
+
+   Le altre due sono difese di secondo livello: il GAP esclude i punti vicini, che
+   stanno sulla stessa strada per definizione, e il RUN scarta le strisce troppo
+   corte per essere un vero rientro (un tornante è corto, un ripasso no).
+
+   Geometria piatta e griglia, non ricampionamento: a differenza di curveStats qui
+   conta DOVE passa la traccia, quindi i punti si usano come sono. La griglia evita
+   il confronto a coppie, che su 8.000 punti sarebbe 64 milioni di distanze. */
+function routeOverlapPct(lat, lon, n) {
+  if (!lat || !lon || !n || n < 4) return 0;
+  const p = geoProject(lat, lon, n);
+  const cum = new Float64Array(n);
+  for (let i = 1; i < n; i++) cum[i] = cum[i - 1] + Math.hypot(p.x[i] - p.x[i - 1], p.y[i] - p.y[i - 1]);
+  const totalM = cum[n - 1];
+  // Sotto questa lunghezza un "ripasso" non ci sta nemmeno: non c'è spazio per due passaggi.
+  if (!(totalM > 2 * CURVE_OVERLAP_RUN_M)) return 0;
+
+  const cell = (v) => Math.floor(v / CURVE_OVERLAP_CELL_M);
+  const grid = new Map();
+  for (let i = 0; i < n; i++) {
+    const k = cell(p.x[i]) + ',' + cell(p.y[i]);
+    let a = grid.get(k);
+    if (!a) grid.set(k, a = []);
+    a.push(i);
+  }
+  /* 3x3 celle da 30 m coprono ±30 m in entrambi gli assi, cioè molto più dei 9 m che
+     cerchiamo: nessun vicino può sfuggire restando fuori dalla finestra. */
+  const hit = new Uint8Array(n);
+  for (let i = 0; i < n; i++) {
+    const cx = cell(p.x[i]), cy = cell(p.y[i]);
+    let found = false;
+    for (let a = -1; a <= 1 && !found; a++) {
+      for (let b = -1; b <= 1 && !found; b++) {
+        const arr = grid.get((cx + a) + ',' + (cy + b));
+        if (!arr) continue;
+        for (const j of arr) {
+          if (Math.abs(cum[j] - cum[i]) < CURVE_OVERLAP_GAP_M) continue;
+          if (Math.hypot(p.x[i] - p.x[j], p.y[i] - p.y[j]) < CURVE_OVERLAP_M) { found = true; break; }
+        }
+      }
+    }
+    if (found) hit[i] = 1;
+  }
+
+  // Somma solo le strisce contigue abbastanza lunghe da essere un rientro vero.
+  let overlapM = 0, runStart = -1;
+  for (let i = 0; i <= n; i++) {
+    const on = i < n && hit[i] === 1;
+    if (on && runStart < 0) runStart = i;
+    if (!on && runStart >= 0) {
+      const len = cum[i - 1] - cum[runStart];
+      if (len >= CURVE_OVERLAP_RUN_M) overlapM += len;
+      runStart = -1;
+    }
+  }
+  return 100 * overlapM / totalM;
+}
+
 /* Aderenza 0..1 fra una misura e il suo bersaglio, su scala LOGARITMICA: 100 e 400
    gradi/km distano quanto 400 e 1600, che è come li percepisce chi guida. Lineare,
    un bersaglio alto avrebbe schiacciato tutte le differenze in basso. */

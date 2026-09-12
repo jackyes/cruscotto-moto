@@ -2,8 +2,33 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { api } from './harness.mjs';
 
-const { geoDest, geoProject, resampleXY, curveStats, curveScore, curveFit,
-        CURVE_TARGETS, CURVE_STEP_M, haversineM, bearing } = api;
+const { geoDest, geoProject, resampleXY, curveStats, curveScore, curveFit, routeOverlapPct,
+        CURVE_TARGETS, CURVE_STEP_M, CURVE_OVERLAP_M, CURVE_OVERLAP_RUN_M,
+        haversineM, bearing } = api;
+
+const ov = pts => routeOverlapPct(pts.map(p => p.lat), pts.map(p => p.lon), pts.length);
+function outAndBack(stepM, lenM) {
+  const o = [];
+  for (let d = 0; d <= lenM; d += stepM) o.push(geoDest(45.85, 9.39, 90, d));
+  for (let d = lenM - stepM; d >= 0; d -= stepM) o.push(geoDest(45.85, 9.39, 90, d));
+  return o;
+}
+/* Tornanti: rami paralleli e controverse, distanti `ampM`. E' la figura che puo'
+   falsare la misura — se il ripasso conta anche questi, il generatore verrebbe
+   spinto a evitare le strade curve, cioe' il contrario di cio' che serve. */
+function switchback(ampM, legs, legM) {
+  const o = [];
+  const n = Math.round(legM / 30);
+  for (let L = 0; L < legs; L++) {
+    const side = (L % 2 === 0) ? 1 : -1;
+    for (let i = 0; i <= n; i++) {
+      const along = L * legM + i * 30;
+      const p = geoDest(45.85, 9.39, 0, along);
+      o.push(geoDest(p.lat, p.lon, 90, side * ampM));
+    }
+  }
+  return o;
+}
 
 /* Cerchio di raggio noto attorno a un centro: e' l'unica figura di cui si conoscono
    in anticipo TUTTE le statistiche, quindi e' la prova che la matematica e' giusta e
@@ -189,6 +214,52 @@ test('curveScore: input nullo -> 0, mai throw', () => {
   assert.equal(curveScore(null, 'tante', 'misto'), 0);
   const vuoto = curveStats([], [], 0);
   assert.equal(curveScore(vuoto, 'tante', 'misto'), 0);
+});
+
+/* --- ripasso su se stesso (routeOverlapPct) --- */
+
+test('routeOverlapPct: un cerchio non ripassa, un andata-e-ritorno si', () => {
+  const cerchio = [];
+  for (let i = 0; i <= 400; i++) cerchio.push(geoDest(45.85, 9.39, i * 360 / 400, 2000));
+  assert.ok(ov(cerchio) < 2, 'cerchio: ' + ov(cerchio).toFixed(1) + '%');
+  const ab = ov(outAndBack(50, 5000));
+  assert.ok(ab > 90, 'andata-e-ritorno: ' + ab.toFixed(1) + '%');
+});
+
+test('routeOverlapPct: un tornante NON e un ripasso', () => {
+  /* Il test che conta. Rami a 18, 25 e 40 m: tutti sotto o attorno alla larghezza
+     di un tornante vero, tutti ben oltre la soglia di CURVE_OVERLAP_M. Se questi
+     venissero contati come ripasso, il punteggio spingerebbe il generatore a
+     evitare le strade tortuose — l'opposto di quello che l'utente chiede. */
+  for (const amp of [18, 25, 40]) {
+    const v = ov(switchback(amp, 8, 600));
+    assert.ok(v < 2, 'tornanti a ' + amp + ' m contati come ripasso: ' + v.toFixed(1) + '%');
+  }
+  // ...e la soglia deve restare stretta: se qualcuno la allarga, questo test lo dice
+  assert.ok(CURVE_OVERLAP_M <= 12, 'soglia troppo larga: ' + CURVE_OVERLAP_M + ' m');
+});
+
+test('routeOverlapPct: rettilineo e degeneri non lanciano', () => {
+  const r = [];
+  for (let i = 0; i <= 200; i++) r.push({ lat: 45 + i * 0.0005, lon: 9 });
+  assert.equal(ov(r), 0);
+  assert.equal(routeOverlapPct([], [], 0), 0);
+  assert.equal(routeOverlapPct([45, 45.1], [9, 9], 2), 0);
+  assert.equal(routeOverlapPct(null, null, 5), 0);
+});
+
+test('routeOverlapPct: una striscia di ripasso piu corta della soglia non conta', () => {
+  /* Ritorno solo per un pezzo breve: sotto CURVE_OVERLAP_RUN_M non e' un rientro, e'
+     una deviazione. Attenzione alla seconda cosa che si misura qui: il filtro sul GAP
+     fa si' che su un andata-e-ritorno lungo L il tratto RILEVABILE non sia tutto,
+     ma solo L - GAP/2 — i punti vicini alla meta hanno il gemello a meno di GAP metri
+     lungo la traccia e vengono esclusi. Una rotta deve quindi essere lunga almeno
+     il doppio del GAP perche' il ripasso sia misurabile, ed e' per questo che i due
+     casi qui sotto sono a 300 m e 1000 m e non a 200 e 320. */
+  const corto = ov(outAndBack(25, 300));      // striscia rilevabile ~100 m
+  assert.equal(corto, 0, 'striscia corta contata: ' + corto.toFixed(1) + '%');
+  const lungo = ov(outAndBack(25, 1000));     // striscia rilevabile ~800 m
+  assert.ok(lungo > 50, 'striscia lunga non contata: ' + lungo.toFixed(1) + '%');
 });
 
 test('CURVE_STEP_M coerente con i bersagli documentati', () => {

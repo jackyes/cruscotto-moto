@@ -106,11 +106,12 @@ const exportLine = `
   posterMoments, posterLayout, posterLayoutFor, posterSizeFor, posterTitle, POSTER_FORMATS,
   buildPosterModel, posterTrackXY,
   pickOr, NAVGEN_KM_CHOICES, NAVGEN_KM_DEFAULT, NAVGEN_CURVE_CHOICES, NAVGEN_TYPE_CHOICES, NAVGEN_DIR_CHOICES,
-  geoDest, geoProject, resampleXY, curveStats, curveScore, curveFit, CURVE_TARGETS,
+  geoDest, geoProject, resampleXY, curveStats, curveScore, curveFit, routeOverlapPct, CURVE_TARGETS,
   CURVE_STEP_M, CURVE_R_MAX, CURVE_TIGHT_R,
+  CURVE_OVERLAP_M, CURVE_OVERLAP_GAP_M, CURVE_OVERLAP_RUN_M,
   navIsLoop, navViasRemaining, navHeadForReq, NAV_LOOP_CLOSE_M, NAV_LOOP_MIN_M,
   navGenSectors, navGenSeedLoop, navGenSeedLine, navGenMeasure, navGenScore,
-  navGenFetchTrip, navGenRun, navGenCancel, navGenOpts, navGenKey, navGenStats,
+  navGenFetchTrip, navGenRun, navGenCancel, navGenOpts, navGenKey, navGenStats, navGenReport,
   NAVGEN_SEEDS, NAVGEN_ITER_MAX, NAVGEN_REQ_MAX, NAVGEN_DIST_TOL, NAVGEN_DIR_DEG,
   navTick, navMaybeReroute, NAV_VIA_MANUAL_MAX
 };

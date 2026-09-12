@@ -7,7 +7,12 @@
 const NAVGEN_SEEDS = 4;          // semi diversi provati per generazione
 const NAVGEN_ITER_MAX = 5;       // raffinamenti della distanza per seme
 const NAVGEN_REQ_MAX = 22;       // tetto DURO di richieste di rotta per generazione
-const NAVGEN_DIST_TOL = 0.12;    // entro il 12% dai km chiesti = smetti di raffinare
+/* Entro il 15% dai km chiesti il seme e' finito. Era 12%, ed e' stato allargato di
+   proposito: e' la traduzione del compromesso scelto — meglio un giro da 53 km che
+   non ripassa, che uno da 50 che torna indietro sulla stessa strada. Effetto
+   collaterale utile: il raffinamento si ferma prima, e smette di inseguire i km
+   stringendo il raggio, che e' proprio cio' che trasformava l'anello in una stella. */
+const NAVGEN_DIST_TOL = 0.15;
 const NAVGEN_LOOP_SHRINK0 = 0.85; // le strade vere sono più lunghe del poligono geometrico
 const NAVGEN_LINE_BULGE0 = 0.18;  // scarto laterale iniziale delle tappe, in frazione della retta
 const NAVGEN_VALHALLA_TIMEOUT_MS = 12000;  // più lungo di una rotta normale: qui ci sono 5 tappe
@@ -65,7 +70,7 @@ function navGenSectors(km) { return km < 60 ? 3 : (km <= 150 ? 4 : 5); }
    padana: 166 contro 151), perché fra una tappa e l'altra le strade le sceglie
    comunque Valhalla e sei punti vincolati su cinquanta chilometri non decidono la
    curvosità del giro. A decidere è la MISURA dei candidati, più in basso. */
-function navGenSeedLoop(from, opts, seedIdx, shrink) {
+function navGenSeedLoop(from, opts, seedIdx, shrink, withMid) {
   const K = navGenSectors(opts.km);
   const r = (opts.km * 1000) / (2 * Math.PI) * shrink;
   const base = (opts.dir === 'auto' ? 0 : (NAVGEN_DIR_DEG[opts.dir] || 0)) + seedIdx * 37;
@@ -74,6 +79,16 @@ function navGenSeedLoop(from, opts, seedIdx, shrink) {
   for (let k = 0; k < K; k++) {
     const b = ((base + k * sector) % 360 + 360) % 360;
     vias.push(geoDest(from.lat, from.lon, b, r));
+    /* Con `withMid` si aggiunge una tappa a metà dell'arco fra questo settore e il
+       successivo. Serve a una cosa sola, e l'ho verificato: senza, niente obbliga il
+       percorso a passare dall'ESTERNO dell'anello, e Valhalla taglia per il centro —
+       il giro diventa una stella che esce verso una tappa e rientra. Con le tappe
+       sugli archi il giro largo e' forzato: misurato su 8 casi A/B a pari km finale,
+       il ripasso scende in 6 (Lecco 50 km: 80%->48%) e sale in 2 (Piacenza 100 km:
+       1%->29%). Per questo NON sostituisce la semina normale: sono due famiglie, e
+       siccome rispondono diversamente a seconda della geometria, e' il punteggio a
+       dover scegliere. Vedi l'alternanza dei semi in navGenRun. */
+    if (withMid) vias.push(geoDest(from.lat, from.lon, ((b + sector / 2) % 360 + 360) % 360, r));
   }
   return vias;
 }
@@ -137,18 +152,40 @@ function navGenMeasure(trip) {
     for (let i = 0; i < d.lat.length; i++) { lats.push(d.lat[i]); lons.push(d.lon[i]); }
   }
   const st = curveStats(lats, lons, lats.length);
+  // Quanto di questo giro ripassa su se stesso: e' quello che distingue un anello da
+  // una stella che esce e rientra (vedi routeOverlapPct in js/curvy.js).
+  const ov = routeOverlapPct(lats, lons, lats.length);
   // summary.length è in km (units: kilometers nella richiesta)
   const km = (trip.summary && isFinite(trip.summary.length)) ? trip.summary.length : st.lenM / 1000;
-  return { km: km, stats: st };
+  return { km: km, stats: st, ov: ov };
 }
 
-/* Punteggio finale del candidato: quanto azzecca i km chiesti, e quanto azzecca le
-   curve chieste. I km pesano di più perché sono l'unica cosa che l'utente ha
-   davvero quantificato — "tante curve" è un desiderio, "100 km" è un vincolo (il
-   serbatoio, le ore di luce, l'ora di cena). */
+/* Punteggio finale del candidato: quanto azzecca i km chiesti, quanto azzecca le curve
+   chieste, e quanto NON ripassa su se stesso. */
 function navGenScore(m, opts) {
   const distFit = curveFit(m.km, opts.km, 0.22);
-  return 0.45 * distFit + 0.55 * curveScore(m.stats, opts.curves, opts.type);
+  /* Il ripasso pesa quasi quanto i chilometri, e non e' un dettaglio estetico: un
+     "anello" che esce e rientra sulla stessa strada per l'80% non e' il giro che
+     l'utente ha chiesto. Prima questa misura non esisteva, e il punteggio sceglieva
+     fra candidati tutti ugualmente storti — cioe' non sceglieva niente.
+     Tetto a 50%: oltre, la differenza fra 60% e 80% non cambia piu' la decisione,
+     sono brutti tutti e due. */
+  /* Curva smorzata, NON un tetto: `1 - min(1, ov/50)` dava lo stesso punteggio a
+     ogni candidato oltre il 50% di ripasso, cioe' azzerava la capacita' di scegliere
+     proprio dove serve di piu' — quando sono brutti tutti (a Lecco 100 km il
+     migliore in cassa era al 72% e non c'era niente di meglio vicino ai km chiesti).
+     Cosi' invece resta monotona su tutto l'intervallo, e fra due candidati storti
+     vince comunque il meno storto. */
+  const ovv = isFinite(m.ov) ? Math.max(0, m.ov) : 0;
+  const overlapFit = 1 / (1 + (ovv / 30) * (ovv / 30));
+  /* I pesi non sono a occhio, sono tarati su due casi concreti:
+       - un giro da 115 km con il 20% di ripasso DEVE battere uno da 100 km con l'80%
+         (15% di scarto accettato per un forte calo di ripasso);
+       - uno da 130 km con il 20% NON deve battere quello da 100 km
+         (30% di scarto non e' piu' il compromesso che l'utente ha accettato).
+     I chilometri restano l'asse dominante: sono l'unica cosa che l'utente ha davvero
+     quantificato, mentre "tante curve" e "poco ripasso" sono desideri. */
+  return 0.40 * distFit + 0.30 * curveScore(m.stats, opts.curves, opts.type) + 0.30 * overlapFit;
 }
 
 /* ---- ciclo principale ---- */
@@ -171,7 +208,12 @@ function navGenSetBusy(on) {
 function navGenReport(best, opts) {
   const s = best.m.stats;
   const r = isFinite(s.medRadius) ? Math.round(s.medRadius) + ' m' : 'larghe';
-  return 'Giro pronto: ' + best.m.km.toFixed(0) + ' km · ' + Math.round(s.degPerKm) +
+  /* Il ripasso si dichiara sempre, anche quando resta alto. In montagna un anello
+     pulito puo' semplicemente non esserci — attorno a Lecco c'e' il lago in mezzo —
+     e in quel caso e' meglio leggerlo qui che scoprirlo a meta' giro. */
+  return 'Giro pronto: ' + best.m.km.toFixed(0) + ' km' +
+    (best.m.ov >= 5 ? ' · ripassa il ' + Math.round(best.m.ov) + '%' : '') +
+    ' · ' + Math.round(s.degPerKm) +
     '°/km · curve ~' + r + (s.tightFrac > 0.05 ? ' (' + Math.round(s.tightFrac * 100) + '% tornanti)' : '') +
     '. Chiesti ' + opts.km + ' km, curve ' + opts.curves + ', ' + opts.type + '.';
 }
@@ -253,8 +295,13 @@ async function navGenRun(again) {
         if (navGenAbort || navGenReqs >= NAVGEN_REQ_MAX) break;
         navGenStatus('Cerco un giro… tentativo ' + (seed + 1) + '/' + NAVGEN_SEEDS +
                      ' · ' + navGenReqs + '/' + NAVGEN_REQ_MAX + ' richieste');
+        /* Semi PARI: tappe solo sui settori. Semi DISPARI: anche sui punti di mezzo
+           dell'arco. Non e' ridondanza — le due famiglie danno risultati diversi a
+           seconda della geometria (vedi navGenSeedLoop), e alternarle fa nascere nel
+           pool entrambe le geometrie senza spendere una richiesta in piu': il numero
+           di candidati e il tetto di rete restano quelli di prima. */
         const vias = opts.loop
-          ? navGenSeedLoop(from, opts, seed, knob)
+          ? navGenSeedLoop(from, opts, seed, knob, (seed % 2) === 1)
           : navGenSeedLine(from, dest, opts, seed, knob);
         let trip;
         try {

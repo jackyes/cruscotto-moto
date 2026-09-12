@@ -5,7 +5,7 @@ import { createFakeIndexedDB } from './fake-indexeddb.mjs';
 
 const { state, idb, els, geoDest, haversineM, bearing, angleDiff, curveStats,
         navGenSectors, navGenSeedLoop, navGenSeedLine, navGenMeasure, navGenScore,
-        navGenRun, navGenCancel, navGenKey,
+        navGenRun, navGenCancel, navGenKey, navGenReport,
         NAVGEN_REQ_MAX, NAVGEN_SEEDS, NAVGEN_ITER_MAX, NAVGEN_DIR_DEG } = api;
 
 const HOME = { lat: 45.70, lon: 9.68 };
@@ -83,6 +83,14 @@ function mockFetch(handler) {
 }
 
 
+/* Una circonferenza di raggio noto: statistica di curvosita' prevedibile, cosi' i
+   test sul punteggio confrontano il ripasso senza che le curve cambino sotto. */
+function statsOfCircle(R, n) {
+  const lat = [], lon = [];
+  for (let i = 0; i <= n; i++) { const p = geoDest(HOME.lat, HOME.lon, i * 360 / n, R); lat.push(p.lat); lon.push(p.lon); }
+  return curveStats(lat, lon, lat.length);
+}
+
 /* --- semina --- */
 
 test('navGenSectors: piu tappe sui giri lunghi', () => {
@@ -110,6 +118,30 @@ test('navGenSeedLoop: una tappa per settore, tutte sulla corona', () => {
       assert.ok(angleDiff(brgs[i], brgs[j]) > 30, 'due tappe nello stesso settore');
 });
 
+
+test('navGenSeedLoop: withMid raddoppia le tappe, sui punti di mezzo dell arco', () => {
+  /* Senza tappe sugli archi niente obbliga il percorso a passare dall'esterno
+     dell'anello e Valhalla taglia per il centro: il giro diventa una stella.
+     Le due famiglie convivono perche' rispondono diversamente a seconda della
+     geometria, e sceglie il punteggio. */
+  const opts = { km: 100, loop: true, curves: 'tante', type: 'misto', dir: 'auto' };
+  const K = navGenSectors(opts.km), r = (opts.km * 1000) / (2 * Math.PI) * 0.85;
+  const solo = navGenSeedLoop(HOME, opts, 0, 0.85);
+  const medi = navGenSeedLoop(HOME, opts, 0, 0.85, true);
+  assert.equal(solo.length, K);
+  assert.equal(medi.length, K * 2);
+  // ...e le tappe in piu' stanno davvero a meta' strada fra due settori
+  for (let k = 0; k < K; k++) {
+    assert.ok(Math.abs(haversineM(HOME.lat, HOME.lon, medi[2 * k].lat, medi[2 * k].lon) - r) < r * 0.02);
+    assert.ok(Math.abs(haversineM(HOME.lat, HOME.lon, medi[2 * k + 1].lat, medi[2 * k + 1].lon) - r) < r * 0.02);
+    // meta' dell'ampiezza del settore, che dipende da K (4 settori -> 90 -> 45)
+    const mezzo = 360 / K / 2;
+    const fra = angleDiff(bearing(HOME, solo[k]), bearing(HOME, medi[2 * k + 1]));
+    assert.ok(Math.abs(fra - mezzo) < 2, 'la tappa di mezzo non sta a meta arco: ' + fra.toFixed(0) + 'deg su ' + mezzo);
+  }
+  // le due famiglie devono essere geometrie diverse, non lo stesso giro
+  assert.notEqual(medi.length, solo.length);
+});
 
 test('navGenSeedLoop: giro corto, meno tappe', () => {
   const opts = { km: 50, loop: true, curves: 'tante', type: 'misto', dir: 'auto' };
@@ -172,6 +204,31 @@ test('navGenMeasure: km dal sommario, curve dalla geometria di tutte le leg', ()
   assert.ok(m.stats.lenM > 0, 'geometria non concatenata');
 });
 
+test('navGenScore: il ripasso conta, ma i km restano l asse dominante', () => {
+  /* Tre proprieta', che insieme definiscono i pesi. Il ripasso prima non entrava
+     affatto nel punteggio: fra dieci candidati che ripassavano tutti fra il 51% e
+     l'88% la scelta era arbitraria. */
+  const s = statsOfCircle(200, 240);
+  const opts = { km: 100, curves: 'medie', type: 'misto' };
+  const sc = (km, ov) => navGenScore({ km: km, stats: s, ov: ov }, opts);
+
+  // 1. a parita' di chilometri vince chi ripassa meno
+  assert.ok(sc(100, 5) > sc(100, 85), 'il ripasso non sposta il punteggio');
+
+  // 2. il compromesso che l'utente ha accettato: 15% di scarto sui km si prende,
+  //    se in cambio il ripasso crolla
+  assert.ok(sc(115, 0) > sc(100, 80),
+    'non accetta 15% di scarto sui km per non ripassare');
+
+  // 3. ma non e' un assegno in bianco: uno strappo del 60% non lo salva il ripasso zero
+  assert.ok(sc(100, 40) > sc(160, 0),
+    'pur di non ripassare ha accettato un giro fuori misura');
+
+  // 4. ov mancante o NaN non deve produrre NaN nel punteggio
+  assert.ok(isFinite(navGenScore({ km: 100, stats: s }, opts)));
+  assert.ok(isFinite(navGenScore({ km: 100, stats: s, ov: NaN }, opts)));
+});
+
 test('navGenScore: a parita di curve vince chi centra i km', () => {
   const s = curveStats(...(() => {
     const lat = [], lon = [];
@@ -179,8 +236,8 @@ test('navGenScore: a parita di curve vince chi centra i km', () => {
     return [lat, lon, lat.length];
   })());
   const opts = { km: 100, curves: 'medie', type: 'misto' };
-  assert.ok(navGenScore({ km: 100, stats: s }, opts) > navGenScore({ km: 160, stats: s }, opts));
-  assert.ok(navGenScore({ km: 100, stats: s }, opts) > navGenScore({ km: 55, stats: s }, opts));
+  assert.ok(navGenScore({ km: 100, stats: s, ov: 0 }, opts) > navGenScore({ km: 160, stats: s, ov: 0 }, opts));
+  assert.ok(navGenScore({ km: 100, stats: s, ov: 0 }, opts) > navGenScore({ km: 55, stats: s, ov: 0 }, opts));
 });
 
 /* --- scansione Overpass --- */
@@ -313,6 +370,18 @@ test('navGenRun: annullare a meta non applica niente', async () => {
   await navGenRun(false);
   assert.equal(state.nav, null, 'ha applicato un giro dopo l annullamento');
   assert.match(els.navGenTxt.textContent, /annullata/i);
+});
+
+test('navGenReport: dichiara il ripasso solo quando c e', () => {
+  const opts = { km: 50, curves: 'tante', type: 'misto' };
+  const m = { km: 52, ov: 73, stats: { degPerKm: 500, medRadius: 90, tightFrac: 0.2 } };
+  const txt = navGenReport({ m: m }, opts);
+  assert.match(txt, /73%/, 'il ripasso non compare nel consuntivo: ' + txt);
+  assert.match(txt, /52 km/);
+  // sotto il 5% e' rumore e non si dice: un anello pulito non deve portarsi dietro
+  // una cifra che sembra un difetto
+  const pulito = navGenReport({ m: { km: 52, ov: 2, stats: m.stats } }, opts);
+  assert.ok(!/ripassa/.test(pulito), 'ripasso irrilevante dichiarato lo stesso: ' + pulito);
 });
 
 test('navGenKey: cambiare una qualsiasi opzione invalida la cassa', () => {

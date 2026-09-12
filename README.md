@@ -105,14 +105,29 @@ tutti tornanti, e voglio tornare a casa"*. Questa scheda parte da lì.
   scelto sbagliava di **2,7 km** contro i **20,4 km** di errore medio dei candidati
   scartati, e usciva a 592 °/km contro i 499 medi. Senza la selezione, chiedere 50 km
   poteva restituire 30 come 121.
+- Il terzo asse della misura è **quanto il giro ripassa su se stesso**. Serve perché
+  senza, un "anello" degenera in una **stella**: esce verso una tappa, torna indietro,
+  esce verso la successiva. Non era un'ipotesi — su un giro da 50 km attorno a Lecco la
+  matrice tratta-contro-tratta diceva che la seconda tratta ripassava l'81% della prima.
+  Ora il ripasso entra nel punteggio, e sulle stesse quattro prove (Lecco e Piacenza,
+  50 e 100 km, contro Valhalla vero) la media è scesa dal **54% al 36%**: Lecco 50 km da
+  71% a 33%, Piacenza 50 km da 55% a 20%, Piacenza 100 km da 30% a 17%. Un caso peggiora
+  (Lecco 100 km, 61% → 72%) e non lo nascondo: lì in cassa non c'era nessun anello pulito
+  vicino ai 100 km, e il punteggio ha giustamente preferito centrare i chilometri.
 - Tetto di 22 richieste e ~25 s, con contatore a schermo e tasto Annulla. **↻ Un altro**
   ripesca dai candidati già calcolati senza toccare la rete (una decina, poi rigenera).
-- A fine generazione la riga di stato riporta il **consuntivo vero** — *"53 km · 592°/km ·
-  curve ~114 m (18% tornanti). Chiesti 50 km, curve tante, strette"* — anche quando il
-  bersaglio non è stato centrato.
+- A fine generazione la riga di stato riporta il **consuntivo vero** — *"Giro pronto:
+  45 km · ripassa il 33% · 421°/km · curve ~133 m (13% tornanti). Chiesti 50 km..."* —
+  anche quando il bersaglio non è stato centrato. Il ripasso compare solo sopra il 5%:
+  sotto è rumore, e una cifra che sembra un difetto su un anello pulito è peggio di
+  nessuna cifra.
 - Le tappe intermedie sono **punti geometrici**, agganciati alla strada più vicina da
   Valhalla: un anello le mette su settori uguali attorno al punto di partenza, una sola
-  andata dentro un corridoio a zig-zag lungo la retta. Una versione precedente le
+  andata dentro un corridoio a zig-zag lungo la retta. Metà dei tentativi le mette
+  **anche a metà dell'arco** fra un settore e il successivo: senza, niente obbliga il
+  percorso a passare dall'esterno dell'anello e Valhalla taglia per il centro. Le due
+  semine convivono perché rispondono diversamente a seconda della geometria — la prima
+  migliora 6 casi su 8, la seconda i 2 restanti — e a scegliere è la misura. Una versione precedente le
   sceglieva invece fra le strade più tortuose della zona, scaricate da Overpass: su due
   A/B controllati **non cambiava niente** (Lecco, montagna: 592 °/km senza contro 504
   con; pianura padana: 166 contro 151), e costava ~1 MB di download, quindi è stata
