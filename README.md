@@ -98,7 +98,13 @@ tutti tornanti, e voglio tornare a casa"*. Questa scheda parte da lì.
   più una **direzione** se vuoi decidere tu da che parte andare.
 - In sola andata, se hai già impostato una destinazione il giro finisce lì; altrimenti
   se la inventa a metà dei chilometri chiesti in linea d'aria, così resta spazio per le
-  curve invece di uscire un trasferimento diretto.
+  curve invece di uscire un trasferimento diretto. Con **direzione automatica** le
+  quattro mete stanno a 90° l'una dall'altra, non tutte dalla stessa parte: era il
+  difetto più grave della modalità, e si vedeva solo dove una direzione non ha un giro
+  possibile — da Lecco, per una richiesta di 75 km, sei prove su sei sbagliavano i
+  chilometri di oltre il 20% (mediana 54%, peggiore 150%, cioè 187 km per 75 chiesti),
+  perché tutti e quattro i candidati partivano verso il lago e non c'era niente da
+  confrontare. Col ventaglio: mediana 6%, peggiore 14%, nessuna fuori dal 20%.
 - Il motore vero è **generare quattro giri candidati, chiederli a Valhalla e misurare
   la geometria che torna** (non quella seminata), tenendo il migliore per chilometri e
   curve. È la parte che paga: su un anello da 50 km chiesto a Lecco, il vincitore

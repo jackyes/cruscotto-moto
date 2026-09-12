@@ -117,6 +117,33 @@ function navGenSeedLine(from, dest, opts, seedIdx, bulge) {
   return vias;
 }
 
+/* Direzione della meta inventata, una per seme, per la sola andata.
+   Con una direzione scelta dall'utente sono tutte la stessa. Con "automatica" si
+   sparpagliano di 360/NAVGEN_SEEDS gradi l'una dall'altra, su una base estratta a
+   caso a ogni generazione — il caso sulla base, non sui singoli semi, altrimenti due
+   direzioni su quattro potevano capitare a dieci gradi l'una dall'altra e il
+   ventaglio non copriva niente.
+
+   Prima la direzione era UNA sola per tutti e quattro i semi. Da Lecco in su, per un
+   giro da 75 km, questo significava quattro candidati che partivano tutti dalla
+   stessa parte: se da quella parte c'era il lago, o solo pianura monotona, la
+   generazione non aveva niente da confrontare — e il confronto fra candidati diversi
+   e' il motore di tutto il resto. Il ventaglio fa nascere nel pool quattro direzioni
+   vere, allo stesso costo di rete. */
+function navGenLineBearings(opts) {
+  // Direzione scelta a mano: tutti i semi la stessa, o "automatica" diventa un modo
+  // per non rispettare la scelta dell'utente.
+  if (opts.dir !== 'auto') {
+    const b = NAVGEN_DIR_DEG[opts.dir] || 0;
+    return new Array(NAVGEN_SEEDS).fill(b);
+  }
+  const base = Math.floor(Math.random() * 360);
+  const step = 360 / NAVGEN_SEEDS;
+  const out = [];
+  for (let k = 0; k < NAVGEN_SEEDS; k++) out.push(((base + k * step) % 360 + 360) % 360);
+  return out;
+}
+
 /* ---- richiesta di un candidato ---- */
 
 /* Solo Valhalla, e senza il retry senza heading del percorso normale: i candidati
@@ -265,31 +292,26 @@ async function navGenRun(again) {
   const targetM = opts.km * 1000;
   try {
     if (again && await navGenPoolTake(from, opts)) return;
-    // Arrivo: la destinazione impostata se c'è (sola andata), altrimenti la partenza
-    // (anello) o un punto inventato alla distanza giusta.
-    let dest, destLabel = '';
-    if (opts.loop) {
-      dest = { lat: from.lat, lon: from.lon };
-    } else if (state.navDest) {
-      dest = { lat: state.navDest.lat, lon: state.navDest.lon };
-      destLabel = state.navDest.label || '';
-    } else {
-      const b = opts.dir === 'auto' ? Math.floor(Math.random() * 360) : NAVGEN_DIR_DEG[opts.dir];
-      /* Metà dei chilometri chiesti in linea d'aria, non tre quarti. Con 0,72 la
-         meta inventata finiva così lontano che il percorso non era altro che un
-         trasferimento diretto: niente margine per deviare sulle strade belle, e
-         infatti usciva alla curvosità di base (misurato: 200 gradi/km contro i 592
-         di un anello con gli stessi parametri). La metà lascia all'incirca il doppio
-         della strada rispetto alla linea retta, cioè lo spazio in cui le curve
-         chieste ci possono stare. Quando la meta la sceglie l'utente non si tocca:
-         è un vincolo suo, e se è lontana quanto i chilometri chiesti il percorso
-         sarà dritto — il consuntivo finale lo dice invece di far finta. */
-      dest = geoDest(from.lat, from.lon, b, targetM * 0.5);
-    }
+    /* Arrivo: fisso per tutta la generazione in tutti i casi TRANNE la sola andata con
+       direzione automatica, dove cambia a ogni seme — vedi navGenLineBearings.
+       Anello: la partenza. Sola andata con destinazione scelta: quella, ed e' un
+       vincolo dell'utente che non si tocca. */
+    const fixedDest = opts.loop ? { lat: from.lat, lon: from.lon }
+      : (state.navDest ? { lat: state.navDest.lat, lon: state.navDest.lon } : null);
+    const destLabel = (!opts.loop && state.navDest) ? (state.navDest.label || '') : '';
+    const bearings = fixedDest ? null : navGenLineBearings(opts);
 
     const cands = [];
     for (let seed = 0; seed < NAVGEN_SEEDS; seed++) {
       if (navGenAbort || navGenReqs >= NAVGEN_REQ_MAX) break;
+      /* Metà dei chilometri chiesti in linea d'aria, non tre quarti. Con 0,72 la meta
+         inventata finiva così lontano che il percorso non era altro che un
+         trasferimento diretto: niente margine per deviare sulle strade belle, e
+         infatti usciva alla curvosità di base (misurato: 200 gradi/km contro i 592 di
+         un anello con gli stessi parametri). La metà lascia all'incirca il doppio
+         della strada rispetto alla linea retta, cioè lo spazio in cui le curve
+         chieste ci possono stare. */
+      const dest = fixedDest || geoDest(from.lat, from.lon, bearings[seed], targetM * 0.5);
       let knob = opts.loop ? NAVGEN_LOOP_SHRINK0 : NAVGEN_LINE_BULGE0;
       for (let it = 0; it < NAVGEN_ITER_MAX; it++) {
         if (navGenAbort || navGenReqs >= NAVGEN_REQ_MAX) break;

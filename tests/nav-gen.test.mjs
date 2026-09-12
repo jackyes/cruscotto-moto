@@ -4,7 +4,7 @@ import { api, resetState, vmSandbox } from './harness.mjs';
 import { createFakeIndexedDB } from './fake-indexeddb.mjs';
 
 const { state, idb, els, geoDest, haversineM, bearing, angleDiff, curveStats,
-        navGenSectors, navGenSeedLoop, navGenSeedLine, navGenMeasure, navGenScore,
+        navGenSectors, navGenSeedLoop, navGenSeedLine, navGenLineBearings, navGenMeasure, navGenScore,
         navGenRun, navGenCancel, navGenKey, navGenReport,
         NAVGEN_REQ_MAX, NAVGEN_SEEDS, NAVGEN_ITER_MAX, NAVGEN_DIR_DEG } = api;
 
@@ -382,6 +382,58 @@ test('navGenReport: dichiara il ripasso solo quando c e', () => {
   // una cifra che sembra un difetto
   const pulito = navGenReport({ m: { km: 52, ov: 2, stats: m.stats } }, opts);
   assert.ok(!/ripassa/.test(pulito), 'ripasso irrilevante dichiarato lo stesso: ' + pulito);
+});
+
+test('navGenLineBearings: in automatico le direzioni si sparpagliano, a mano no', () => {
+  /* Prima la direzione era UNA sola per tutti e quattro i semi: quattro candidati che
+     partivano dalla stessa parte, e se da quella parte non c'era un giro decente la
+     generazione non aveva niente da confrontare. */
+  const auto = navGenLineBearings({ dir: 'auto' });
+  assert.equal(auto.length, NAVGEN_SEEDS);
+  for (let i = 0; i < auto.length; i++) {
+    assert.ok(auto[i] >= 0 && auto[i] < 360, 'direzione fuori range: ' + auto[i]);
+    for (let j = i + 1; j < auto.length; j++) {
+      assert.ok(angleDiff(auto[i], auto[j]) > 60,
+        'due semi quasi nella stessa direzione: ' + auto[i].toFixed(0) + ' e ' + auto[j].toFixed(0));
+    }
+  }
+  // la base cambia fra una generazione e l'altra: il ventaglio si sposta
+  const basi = new Set();
+  for (let i = 0; i < 40; i++) basi.add(Math.round(navGenLineBearings({ dir: 'auto' })[0]));
+  assert.ok(basi.size > 5, 'la base non e\' mai diversa: sempre lo stesso ventaglio');
+
+  // direzione scelta a mano: tutti i semi la rispettano, o non e' piu' una scelta
+  for (const [d, deg] of Object.entries(NAVGEN_DIR_DEG)) {
+    const b = navGenLineBearings({ dir: d });
+    assert.equal(b.length, NAVGEN_SEEDS);
+    for (const v of b) assert.equal(v, deg, 'direzione ' + d + ' ignorata: ' + v);
+  }
+});
+
+test('navGenRun: in sola andata automatica i candidati coprono piu direzioni', async () => {
+  /* La prova che il ventaglio arriva davvero fino ai candidati: si genera, poi si
+     sfilano quelli in cassa e si guarda dove puntano. */
+  await setup();
+  state.navGenKm = 75; state.navGenLoop = false; state.navGenDir = 'auto';
+  state.navGenCurves = 'tante'; state.navGenType = 'misto';
+  mockFetch((url) => jsonRes({
+    trip: fakeTrip(JSON.parse(decodeURIComponent(url.split('?json=')[1])).locations, 75),
+  }));
+  await navGenRun(false);
+  const mete = [];
+  for (let i = 0; i < NAVGEN_SEEDS + 2; i++) {
+    const d = state.navDest;
+    if (d) mete.push({ lat: d.lat, lon: d.lon });
+    await navGenRun(true);
+  }
+  assert.ok(mete.length >= 3, 'meno di tre candidati da confrontare: ' + mete.length);
+  // almeno tre direzioni distinte fra le mete dei candidati
+  const brg = mete.map(m => Math.round(bearing(HOME, m)));
+  let distinte = 0;
+  for (let i = 0; i < brg.length; i++) {
+    if (brg.slice(0, i).every(b => angleDiff(b, brg[i]) > 45)) distinte++;
+  }
+  assert.ok(distinte >= 3, 'le mete dei candidati non coprono direzioni diverse: ' + brg.join(', '));
 });
 
 test('navGenKey: cambiare una qualsiasi opzione invalida la cassa', () => {
