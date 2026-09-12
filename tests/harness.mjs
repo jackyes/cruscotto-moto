@@ -105,6 +105,8 @@ const exportLine = `
   fmtDurH, climbMeters, countCurves, leanHistogram, posterStats, projectTrackXY,
   posterMoments, posterLayout, posterLayoutFor, posterSizeFor, posterTitle, POSTER_FORMATS,
   buildPosterModel, posterTrackXY,
+  geoDest, geoProject, pathPointAt, resampleXY, curveStats, curveScore, curveFit,
+  CURVE_TARGETS, CURVE_STEP_M, CURVE_R_MAX, CURVE_TIGHT_R,
   navIsLoop, navViasRemaining, navHeadForReq,
   NAV_LOOP_CLOSE_M, NAV_LOOP_MIN_M, NAV_VIA_MANUAL_MAX
 };

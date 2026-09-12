@@ -26,6 +26,7 @@ const SHELL = [
   './index.html',
   './js/core.js',
   './js/geo.js',
+  './js/curvy.js',
   './js/csv.js',
   './js/osrm-text.js',
   './js/parse.js',
