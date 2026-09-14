@@ -24,6 +24,35 @@ function navInitLive(nv) {
   nv.destStale = false;
 }
 
+/* Factory unica per lo stato "vivo" costruito da un trip: i tre chiamanti (cache
+   fresca, cache stale offline, risposta di rete) la costruivano ciascuno per conto
+   suo — stessa trappola di navInitLive sopra, un campo scritto in due rami e
+   dimenticato nel terzo, ma qui sull'INTERO oggetto nv invece che sui soli contatori
+   live.
+   carryReroute distingue le due famiglie: true porta avanti il circuit breaker
+   (rerouteAt/Wait/Streak/Log) da `prev` — e' la STESSA sessione di guida che
+   continua, che la risposta arrivi da cache o da rete (vedi il commento su `prev`
+   in navRequestRoute: azzerarlo a ogni cache-hit toglieva l'escalation reroute).
+   false lo azzera: il fallback offline-stale non e' un ricalcolo, e' un'emergenza,
+   e non deve ereditare un'escalation gia' in corso. */
+function navBuildLive(trip, engine, to, destLabel, from, lastReq, prev, carryReroute) {
+  const nv = navBuild(trip);
+  nv.engine = engine;
+  nv.dest = { lat: to.lat, lon: to.lon, label: destLabel };
+  nv.status = 'ACTIVE';
+  navInitLive(nv);
+  const carry = carryReroute && prev;
+  nv.rerouteAt = carry ? prev.rerouteAt : 0;
+  nv.rerouteWait = carry ? prev.rerouteWait : 0;
+  nv.rerouteStreak = carry ? (prev.rerouteStreak || 0) : 0;
+  nv.rerouteLog = carry ? (prev.rerouteLog || []) : [];
+  nv.lastRerouteEnd = Date.now();
+  nv.travelSinceReroute = 0;
+  nv.shapeRaw = (trip.legs || []).map(l => l.shape);
+  nv.reqSaved = lastReq || { from: { lat: from.lat, lon: from.lon }, to: { lat: to.lat, lon: to.lon } };
+  return nv;
+}
+
 /* Il retry senza heading di Valhalla scatta al massimo una volta a sessione:
    se la richiesta senza heading ha già fallito con 171/154, riprovarci è quota
    sprecata su un motore pubblico — si parte direttamente senza heading. */
@@ -152,17 +181,8 @@ async function navRequestRoute(from, to, hdg, why) {
   const cached = await cacheGetFresh(rKey, ROUTE_CACHE_TTL_MS);
   if (cached && !cached.stale) {
     try {
-      const nv0 = navBuild(cached.body.trip);
-      nv0.engine = cached.body.engine || 'cache';
-      nv0.dest = { lat: to.lat, lon: to.lon, label: (state.navDest && state.navDest.label) || '' };
-      nv0.status = 'ACTIVE';
-      navInitLive(nv0);
-      nv0.rerouteAt = prev ? prev.rerouteAt : 0; nv0.rerouteWait = prev ? prev.rerouteWait : 0;
-      nv0.rerouteStreak = prev ? (prev.rerouteStreak || 0) : 0;
-      nv0.rerouteLog = prev ? (prev.rerouteLog || []) : [];
-      nv0.lastRerouteEnd = Date.now(); nv0.travelSinceReroute = 0;
-      nv0.shapeRaw = (cached.body.trip.legs || []).map(l => l.shape);
-      nv0.reqSaved = lastReq || { from: { lat: from.lat, lon: from.lon }, to: { lat: to.lat, lon: to.lon } };
+      const nv0 = navBuildLive(cached.body.trip, cached.body.engine || 'cache', to,
+        (state.navDest && state.navDest.label) || '', from, lastReq, prev, true);
       if (reqStale()) return;
       state.nav = nv0;
       navSetStatus((why ? 'Percorso ricalcolato' : 'Percorso pronto') + ' · motore: ' + nv0.engine + ' (cache)');
@@ -222,16 +242,8 @@ async function navRequestRoute(from, to, hdg, why) {
   // Offline con cache stale: meglio rotta vecchia che niente.
   if (!data && cached && cached.stale && cached.body && cached.body.trip) {
     try {
-      const nvS = navBuild(cached.body.trip);
-      nvS.engine = cached.body.engine || 'cache';
-      nvS.dest = { lat: to.lat, lon: to.lon, label: (state.navDest && state.navDest.label) || '' };
-      nvS.status = 'ACTIVE';
-      // Stesso init del ramo cache-fresh e di quello di rete (navInitLive).
-      navInitLive(nvS);
-      nvS.rerouteAt = 0; nvS.rerouteWait = 0; nvS.rerouteStreak = 0; nvS.rerouteLog = [];
-      nvS.lastRerouteEnd = Date.now(); nvS.travelSinceReroute = 0;
-      nvS.shapeRaw = (cached.body.trip.legs || []).map(l => l.shape);
-      nvS.reqSaved = lastReq || { from: { lat: from.lat, lon: from.lon }, to: { lat: to.lat, lon: to.lon } };
+      const nvS = navBuildLive(cached.body.trip, cached.body.engine || 'cache', to,
+        (state.navDest && state.navDest.label) || '', from, lastReq, prev, false);
       if (reqStale()) return;
       state.nav = nvS;
       navSetStatus('Offline: uso ultimo percorso salvato.');
@@ -268,21 +280,12 @@ async function navRequestRoute(from, to, hdg, why) {
     return;
   }
   let nv;
-  try { nv = navBuild(trip); }
+  try {
+    nv = navBuildLive(trip, engine, to,
+      (state.navDest && state.navDest.label) || (prev && prev.dest && prev.dest.label) || '',
+      from, lastReq, prev, true);
+  }
   catch (e) { navSetStatus('Percorso illeggibile: ' + e.message); toast('Percorso illeggibile.', 'err', 5000); return; }
-  nv.engine = engine;
-
-  nv.dest = { lat: to.lat, lon: to.lon, label: (state.navDest && state.navDest.label) || (prev && prev.dest && prev.dest.label) || '' };
-  nv.status = 'ACTIVE';
-  navInitLive(nv);
-  nv.rerouteAt = prev ? prev.rerouteAt : 0;
-  nv.rerouteWait = prev ? prev.rerouteWait : 0;
-  nv.rerouteStreak = prev ? (prev.rerouteStreak || 0) : 0;
-  nv.rerouteLog = prev ? (prev.rerouteLog || []) : [];
-  nv.lastRerouteEnd = Date.now();
-  nv.travelSinceReroute = 0;
-  nv.shapeRaw = (trip.legs || []).map(l => l.shape);
-  nv.reqSaved = lastReq || { from: { lat: from.lat, lon: from.lon }, to: { lat: to.lat, lon: to.lon } };
   if (reqStale()) return;
   state.nav = nv;
   /* Dire quale motore ha risposto: con OSRM le preferenze moto non si applicano, e
