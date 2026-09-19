@@ -555,6 +555,38 @@
     backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
     box-shadow: 0 4px 16px rgba(0,0,0,.4);
   }
+  /* HUD mappa: vive solo in fullscreen, dove header e cruscotto spariscono e
+     restano i due numeri che in marcia servono davvero — piega e velocita'.
+     pointer-events:none: e' un display, non deve rubare il drag alla mappa. */
+  .map-hud {
+    position: absolute; right: 10px; bottom: 22px; z-index: 900;
+    display: none; flex-direction: column; align-items: flex-end; gap: 3px;
+    padding: 8px 12px; border-radius: 14px;
+    background: rgba(15, 22, 34, 0.88); color: var(--text);
+    border: 1px solid var(--line);
+    backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+    box-shadow: 0 6px 20px rgba(0,0,0,.45);
+    font-variant-numeric: tabular-nums; pointer-events: none;
+    text-align: right;
+  }
+  body.map-fullscreen .map-hud { display: flex; }
+  .map-hud .mh-row { display: flex; align-items: baseline; justify-content: flex-end; gap: 3px; }
+  .map-hud .mh-big { font-size: 32px; font-weight: 900; line-height: 1.02; }
+  .map-hud .mh-unit { font-size: 11px; font-weight: 800; color: var(--text-3); letter-spacing: .4px; }
+  .map-hud .mh-dir { font-size: 11px; font-weight: 800; letter-spacing: .6px; color: var(--text-2); min-height: 13px; }
+  .map-hud .mh-dir.left { color: var(--good); }
+  .map-hud .mh-dir.right { color: var(--accent); }
+  .map-hud .mh-max { display: flex; gap: 8px; font-size: 11px; font-weight: 800; color: var(--text-3); }
+  .map-hud .mh-max #mhMaxL { color: var(--good); }
+  .map-hud .mh-max #mhMaxR { color: var(--accent); }
+  .map-hud .mh-sep { width: 100%; height: 1px; background: var(--line); margin: 3px 0; }
+  /* Schermi bassi in orizzontale: l'HUD non deve mangiare mezza mappa. */
+  @media (max-height: 420px) {
+    .map-hud { bottom: 10px; padding: 6px 9px; }
+    .map-hud .mh-big { font-size: 24px; }
+  }
+  .map-box.rot .map-hud { transform: none; }
+
   .map-ctrl {
     position: absolute; top: 10px; left: 10px; z-index: 900;
     display: flex; flex-direction: column; gap: 6px;
@@ -893,6 +925,13 @@
             </button>
           </div>
           <button id="btnMapFull" class="map-full-btn" title="Fullscreen mappa">⛶</button>
+          <div id="mapHud" class="map-hud" aria-hidden="true">
+            <div class="mh-row"><span id="mhLeanVal" class="mh-big">--</span><span class="mh-unit">°</span></div>
+            <div id="mhLeanDir" class="mh-dir"></div>
+            <div class="mh-max"><span id="mhMaxL">0°</span><span id="mhMaxR">0°</span></div>
+            <div class="mh-sep"></div>
+            <div class="mh-row"><span id="mhSpeedVal" class="mh-big">0</span><span class="mh-unit">km/h</span></div>
+          </div>
         </div>
       </div>
     </section>
@@ -1322,6 +1361,8 @@ const els = {
   sessionList: $('sessionList'), sessionDetail: $('sessionDetail'),
   btnExportCsv: $('btnExportCsv'), btnExportGpx: $('btnExportGpx'), btnExportCsvHist: $('btnExportCsvHist'),
   camAlert: $('camAlert'), camAlertsChk: $('camAlerts'), camDistSel: $('camDist'), btnMapFull: $('btnMapFull'),
+  mapHud: $('mapHud'), mhLeanVal: $('mhLeanVal'), mhLeanDir: $('mhLeanDir'),
+  mhMaxL: $('mhMaxL'), mhMaxR: $('mhMaxR'), mhSpeedVal: $('mhSpeedVal'),
   camRadiusSel: $('camRadius'), camDot: $('camDot'), camTxt: $('camTxt'),
   navBanner: $('navBanner'), navQuery: $('navQuery'), navResults: $('navResults'),
   navDestTxt: $('navDestTxt'), navStatusTxt: $('navStatusTxt'), navSteps: $('navSteps'),
@@ -2272,6 +2313,7 @@ function init() {
     const full = document.body.classList.toggle('map-fullscreen');
     els.btnMapFull.textContent = full ? '✕' : '⛶';
     updateGuidaMode();
+    updateMapHud(); // riempie l'HUD subito: updateDisplay arriverebbe fino a 67 ms dopo
     if (state.mapType === 'leaflet' && state.map) setTimeout(() => { state.map.invalidateSize(); applyMapRotation(); }, 60);
     else if (state.mapType === 'canvas') drawCanvasMap();
   });

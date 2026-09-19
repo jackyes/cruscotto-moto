@@ -75,6 +75,7 @@ const exportLine = `
   navRequestRoute, navGeocode, checkCameras, camsToDraw, maybeLoadCameras, fetchCameras,
   startCalibration, collectCalib, finishCalibration, startAccBiasCapture, collectAccBias, sampleTick, flushLog, tickDemo,
   switchTab, updateDisplay, setTxt, setBar, startLog, updateLeaflet, updateMap, drawCanvasMap,
+  updateMapHud,
   // bench e' un let di script: la closure lo legge per i test di #31.
   benchPeek: () => bench, startBench, finishBench, BENCH_SEC,
   navPersistRoute, navRestore, fetchWithTimeout, navTick, navMaybeReroute, navTryOsrm,

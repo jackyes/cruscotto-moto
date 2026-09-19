@@ -122,6 +122,39 @@ function updateGuidaMode() {
   document.body.classList.toggle('guida', on);
 }
 
+/* HUD in basso a destra della mappa fullscreen: in fullscreen il cruscotto non
+   c'e' piu', quindi piega (valore, verso, massimi di sessione) e velocita' vanno
+   ripetuti qui. Esce subito fuori dal fullscreen: gira a DISPLAY_HZ e scrivere
+   nodi invisibili e' solo batteria. */
+function updateMapHud() {
+  if (!els.mapHud || !document.body.classList.contains('map-fullscreen')) return;
+  const calibrated = state.demo || state.calib;
+  if (calibrated) {
+    setTxt(els.mhLeanVal, Math.abs(state.lean).toFixed(0));
+    if (Math.abs(state.lean) < 1) {
+      setTxt(els.mhLeanDir, '');
+      els.mhLeanDir.className = 'mh-dir';
+      els.mhLeanVal.style.color = 'var(--text)';
+    } else if (state.lean > 0) {
+      setTxt(els.mhLeanDir, 'DESTRA ▶');
+      els.mhLeanDir.className = 'mh-dir right';
+      els.mhLeanVal.style.color = 'var(--accent)';
+    } else {
+      setTxt(els.mhLeanDir, '◀ SINISTRA');
+      els.mhLeanDir.className = 'mh-dir left';
+      els.mhLeanVal.style.color = 'var(--good)';
+    }
+  } else {
+    setTxt(els.mhLeanVal, '--');
+    setTxt(els.mhLeanDir, 'non calibrato');
+    els.mhLeanDir.className = 'mh-dir';
+    els.mhLeanVal.style.color = 'var(--text-3)';
+  }
+  setTxt(els.mhMaxL, Math.abs(state.session.maxLeanL).toFixed(0) + '°');
+  setTxt(els.mhMaxR, Math.abs(state.session.maxLeanR).toFixed(0) + '°');
+  setTxt(els.mhSpeedVal, Math.round(state.speedKph));
+}
+
 function updateDisplay() {
   setTxt(els.speedVal, Math.round(state.speedKph));
   updateGuidaMode();
@@ -237,6 +270,7 @@ function updateDisplay() {
   setTxt(els.statTime, mm + ':' + ss);
   setTxt(els.topTime, mm + ':' + ss);
 
+  updateMapHud();
   updateGpsStatus();
   updateCamStatus();
 }
