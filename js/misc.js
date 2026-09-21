@@ -1,5 +1,5 @@
 'use strict';
-/* js/misc.js (step 29): wakeLock request/release, renderHistory/openSessionDetail, loadImportedCameras, navBuild. Ordine: dopo js/ui-core.js. */
+/* js/misc.js (step 29): wakeLock request/release, renderHistory/renderHistTotals, sessionTotals/sessKey/planRestore/parseBackup, backupSessions/restoreSessions/loadAllSessions/buildBackupParts, openSessionDetail, loadImportedCameras, navBuild. Ordine: dopo js/ui-core.js. */
 async function loadImportedCameras() {
   let cams = null;
   try { cams = await idb.kvGet('importedCameras'); } catch (e) {}
@@ -133,11 +133,63 @@ async function releaseWakeLock() {
   wakeLock = null;
 }
 
+/* Pura: totali dello storico. I meta arrivano da IndexedDB o da un import di
+   terzi, quindi tutto passa da numOr0: una durata salvata come stringa non deve
+   far lanciare il riepilogo (stessa lezione delle card). */
+function sessionTotals(metas) {
+  let km = 0, sec = 0, n = 0;
+  for (const s of metas) {
+    const m = (s && s.meta) ? s.meta : {};
+    km += numOr0(m.distKm);
+    sec += numOr0(m.duration);
+    n++;
+  }
+  return { n, km, sec };
+}
+
+/* Pura: chiave di un giro per riconoscere i doppioni in un ripristino. Inizio e
+   durata arrotondata, non l'id: dopo un backup su un altro telefono gli id
+   possono coincidere per caso, mentre due giri non partono nello stesso secondo
+   e non durano lo stesso tempo. */
+function sessKey(meta) {
+  const m = meta || {};
+  return String(m.startISO || '') + '|' + Math.round(numOr0(m.duration));
+}
+
+/* Pura: cosa aggiungere e cosa saltare di un backup. Salta le sessioni già
+   presenti e quelle malformate; deduplica anche dentro lo stesso file, così due
+   copie nello stesso backup non entrano due volte. */
+function planRestore(existingMetas, incoming) {
+  // idb.getMetas() restituisce record {id, meta, points}, mentre il file di
+  // backup porta le sessioni intere: la chiave si prende dal meta in entrambi.
+  const keyOf = e => sessKey(e && e.meta ? e.meta : e);
+  const have = new Set((existingMetas || []).map(keyOf));
+  const add = [], skip = [];
+  for (const s of (incoming || [])) {
+    if (!s || !s.meta || !Array.isArray(s.rows)) { skip.push(s); continue; }
+    const k = keyOf(s);
+    if (have.has(k)) { skip.push(s); continue; }
+    have.add(k);
+    add.push(s);
+  }
+  return { add, skip };
+}
+
+/* Pura: legge il file di backup. Non si fida di niente: il file può essere
+   troncato, di un'altra app o scritto a mano. Ritorna null se non è un backup. */
+function parseBackup(text) {
+  let obj = null;
+  try { obj = JSON.parse(text); } catch (e) { return null; }
+  if (!obj || typeof obj !== 'object' || !Array.isArray(obj.sessions)) return null;
+  return obj.sessions;
+}
+
 async function renderHistory() {
   let sessions = [];
   try { sessions = await idb.getMetas(); } catch (e) {}
   sessions = sessions.filter(s => s && s.meta);
   sessions.sort((a, b) => (a.meta.startISO < b.meta.startISO ? 1 : -1));
+  renderHistTotals(sessions);
   const list = els.sessionList;
   if (!sessions.length) {
     list.innerHTML = '<div class="empty">Nessun giro salvato. Avvia un log e fermalo per salvarlo qui.</div>';
@@ -178,6 +230,102 @@ async function renderHistory() {
     card.addEventListener('click', () => openSessionDetail(s.id));
     list.appendChild(card);
   }
+}
+
+/* Riepilogo in testa allo Storico. textContent e non innerHTML, come le card. */
+function renderHistTotals(metas) {
+  const el = els.histTotals;
+  if (!el) return;
+  el.hidden = !metas.length;
+  if (!metas.length) return;
+  const t = sessionTotals(metas);
+  const row = (label, val) => {
+    const span = document.createElement('span');
+    span.textContent = label + ' ';
+    const b = document.createElement('b');
+    b.textContent = val;
+    span.appendChild(b);
+    return span;
+  };
+  el.textContent = '';
+  el.appendChild(row('Giri', String(t.n)));
+  // Un decimale: sui totali il centesimo di km è rumore.
+  el.appendChild(row('Totali', t.km.toFixed(1) + ' km'));
+  el.appendChild(row('In sella', fmtDurH(t.sec)));
+}
+
+/* Legge tutte le sessioni dallo storico. Una per volta: caricarle tutte insieme
+   su ore di log significa tenere in RAM centinaia di MB. */
+async function loadAllSessions() {
+  let ids = [];
+  try { ids = await idb.keys(); } catch (e) { return []; }
+  const out = [];
+  for (const id of ids) {
+    let s = null;
+    try { s = await idb.get(id); } catch (e) { continue; }
+    if (s && s.meta) out.push(s);
+  }
+  return out;
+}
+
+/* Pura: il backup come parti di stringa, una per sessione. Il chiamante le passa
+   a Blob senza concatenarle: su ore di log la stringa unica era il picco di
+   memoria (stesso motivo dell'export CSV storico). */
+function buildBackupParts(sessions, exportedISO) {
+  const parts = ['{"app":"cruscotto-moto","v":1,"exportedISO":' + JSON.stringify(exportedISO) + ',"sessions":['];
+  let n = 0;
+  for (const s of sessions) {
+    let txt = '';
+    try { txt = JSON.stringify({ id: s.id, meta: s.meta, rows: s.rows || [], track: s.track || [] }); } catch (e) { continue; }
+    parts.push((n ? ',' : '') + txt);
+    n++;
+  }
+  parts.push(']}');
+  return { parts, n };
+}
+
+/* Backup di TUTTO lo storico in un file che si può rimettere dentro l'app.
+   Serve perché i giri vivono in IndexedDB: "cancella dati del sito", un browser
+   che sfratta lo storage o un telefono nuovo li perdono, e i CSV/GPX sono per
+   singolo giro e non si reimportano. */
+async function backupSessions() {
+  const sessions = await loadAllSessions();
+  if (!sessions.length) { toast('Nessun giro da salvare.', 'err'); return; }
+  const t = toast('Preparo il backup…', null, 60000);
+  const { parts, n } = buildBackupParts(sessions, new Date().toISOString());
+  t.remove();
+  if (!n) { toast('Backup non riuscito: dati non serializzabili.', 'err', 6000); return; }
+  let bytes = 0;
+  for (const p of parts) bytes += p.length;
+  downloadBlob('cruscotto_backup_' + stamp() + '.json', parts, 'application/json');
+  // La dimensione in chiaro: su ore di log il file e' grosso, e chi lo salva
+  // deve sapere quanto sta per scaricare.
+  toast('Backup di ' + n + ' giri (' + (bytes / (1024 * 1024)).toFixed(1) + ' MB).', 'ok', 6000);
+}
+
+/* Ripristino dal file di backup: aggiunge i giri che mancano e salta i doppioni
+   e le voci malformate. Gli id già occupati vengono rimpiazzati da uno nuovo,
+   così un ripristino non può sovrascrivere un giro esistente. */
+async function restoreSessions(file) {
+  let text = '';
+  try { text = await file.text(); } catch (e) { toast('File non leggibile.', 'err'); return; }
+  const incoming = parseBackup(text);
+  if (!incoming) { toast('Non è un backup di Cruscotto Moto.', 'err', 6000); return; }
+  let existing = [];
+  try { existing = await idb.getMetas(); } catch (e) {}
+  const { add, skip } = planRestore(existing, incoming);
+  const usedIds = new Set(existing.map(m => m && m.id));
+  const t = toast('Ripristino ' + add.length + ' giri…', null, 60000);
+  let done = 0;
+  for (let i = 0; i < add.length; i++) {
+    const s = add[i];
+    const id = usedIds.has(s.id) ? 'r_' + Date.now() + '_' + i : s.id;
+    try { await idb.put({ id, meta: s.meta, rows: s.rows, track: s.track || [] }); done++; } catch (e) {}
+  }
+  t.remove();
+  renderHistory();
+  if (!done) { toast('Nessun giro ripristinato (' + skip.length + ' saltati).', 'err', 6000); return; }
+  toast('Ripristinati ' + done + ' giri' + (skip.length ? ', ' + skip.length + ' saltati' : '') + '.', 'ok', 6000);
 }
 
 async function openSessionDetail(id) {

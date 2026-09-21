@@ -155,10 +155,13 @@ tutti tornanti, e voglio tornare a casa"*. Questa scheda parte da lì.
 
 ### Grafici
 - Andamento **ultimi 60 s** di velocità, piega e accelerazione laterale (canvas nativo, nessuna libreria).
+- I campioni senza dato (velocità GPS muta in galleria) **non vengono disegnati**: la linea passa dritta fra i due campioni validi invece di precipitare a zero, che si leggeva come una frenata mai avvenuta. Vale anche per i grafici di un giro salvato.
 
 ### Storico sessioni
 - A ogni **Stop Log** la sessione viene salvata in **IndexedDB** (dati 20 Hz + traccia GPS).
-- Elenco giri passati; tap → dettaglio (statistiche + replay traccia su mappa) + **Export CSV / GPX / video / Elimina**.
+- Elenco giri passati con **riepilogo in testa**: quanti giri, quanti km e quanto tempo in sella in tutto.
+- Tap → dettaglio: statistiche, **replay della traccia su mappa**, **grafici di velocità e piega di tutto il giro** (stessa `drawChart` dei grafici dal vivo, ma su tutte le righe invece che sugli ultimi 60 s), e **Export CSV / GPX / video / Card PNG / Elimina**.
+- **Backup e ripristino** (`💾 Backup giri` / `♻ Ripristina giri`): un file JSON con tutto lo storico, righe e tracce comprese, che si può rimettere dentro l'app. Serve perché i giri vivono in IndexedDB e "cancella dati del sito", un browser che sfratta lo spazio o un telefono nuovo li perdono — mentre CSV e GPX sono per singolo giro e non si reimportano. Il ripristino aggiunge solo i giri che mancano (riconosciuti da inizio + durata, non dall'id), salta le voci malformate e non sovrascrive mai una sessione esistente.
 - L'elenco legge solo i metadati: le righe di una sessione si caricano quando apri il dettaglio o esporti, così lo Storico resta leggero anche con molte ore registrate.
 - **Recupero sessione interrotta**: se l'app si chiude durante un log (crash, batteria, refresh), alla riapertura ti propone di recuperare i dati già scritti su disco.
 - `localStorage` resta per impostazioni e calibrazione. Log e archivio autovelox importato stanno su IndexedDB (localStorage ha un tetto di ~5 MB, che il log saturava dopo una ventina di minuti).
@@ -173,7 +176,9 @@ tutti tornanti, e voglio tornare a casa"*. Questa scheda parte da lì.
   - **3D (default)**: mappa 3D MapLibre (terreno AWS Terrain + stile OpenFreeMap, gratis senza chiave) con telecamera che segue il tracciato e una **moto 3D** stilizzata (primitive Three.js) che si inclina con la piega e ha le ruote in rotazione.
   - **2D**: cruscotto animato (velocità, piega, accelerazioni) + tracciato stilizzato.
 - Dipendenze 3D caricate **on demand** da CDN (MapLibre GL + Three.js, ~1,4 MB); senza rete si ripiega sul render 2D.
-- Limiti: solo **WebM** (MediaRecorder non produce MP4); il render avviene in tempo reale (10 min di giro = 10 min a 1×; 2×/4×/12× accorciano). **Su iOS/Safari l'export video non è disponibile** (manca `canvas.captureStream` + codec WebM): serve Android/Chrome o desktop Chrome.
+- Formato: **WebM** ovunque, più **MP4** (muxer `mp4-muxer` vendorizzato, codifica **WebCodecs**) dove `VideoEncoder` esiste — Chrome/Edge desktop e Android. Dove WebCodecs c'è, il render è **offline**: più veloce del tempo reale e senza `captureStream`.
+- Il render realtime (MediaRecorder + `canvas.captureStream`) avanza a 1× la durata del giro; 2×/4×/12× accorciano. Il percorso offline no: è più rapido del tempo reale.
+- **Su iOS/Safari**: `VideoEncoder` non è disponibile, quindi niente MP4 e niente percorso offline; resta il realtime, che su iOS può mancare di `canvas.captureStream`. In quel caso l'app lo dice con un avviso invece di restare appesa. Da verificare su un iPhone vero: qui non è stato provato.
 
 ## Angolo di piega — come funziona
 

@@ -1,0 +1,151 @@
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { api, resetState, vmSandbox } from './harness.mjs';
+import { createFakeIndexedDB } from './fake-indexeddb.mjs';
+
+const {
+  idb, els, sessionTotals, sessKey, planRestore, parseBackup, buildBackupParts,
+  loadAllSessions, restoreSessions, rowsForChart, renderHistory,
+} = api;
+
+async function initDb() {
+  vmSandbox.indexedDB = createFakeIndexedDB();
+  idb.db = null;
+  await idb.open();
+}
+
+const meta = (startISO, over) =>
+  Object.assign({ startISO, duration: 600, distKm: 20, maxSpeed: 100, maxLeanR: 30, maxLeanL: -28 }, over || {});
+const sess = (id, startISO, over) => ({
+  id, meta: meta(startISO, over), rows: [{ t: 0, speedKmh: 50, lean: 10 }], track: [],
+});
+
+test('sessionTotals: somma giri, km e secondi anche con campi sporchi', () => {
+  // Un import di terzi può avere numeri come stringhe o mancare del tutto: il
+  // riepilogo non deve lanciare (stessa lezione delle card dello Storico).
+  const zero = sessionTotals([]);
+  assert.equal(zero.n + '/' + zero.km + '/' + zero.sec, '0/0/0');
+  const t = sessionTotals([
+    { meta: { distKm: 12.5, duration: 3600 } },
+    { meta: { distKm: '7.5', duration: '600' } },
+    { meta: {} },
+    { meta: { distKm: null, duration: undefined } },
+  ]);
+  assert.equal(t.n, 4);
+  assert.equal(t.km, 20);
+  assert.equal(t.sec, 4200);
+});
+
+test('sessKey: inizio + durata arrotondata identificano il giro', () => {
+  assert.equal(sessKey(meta('2024-05-01T10:00:00Z', { duration: 600.4 })),
+               sessKey(meta('2024-05-01T10:00:00Z', { duration: 600.2 })));
+  assert.notEqual(sessKey(meta('2024-05-01T10:00:00Z')),
+                  sessKey(meta('2024-05-01T11:00:00Z')));
+  assert.equal(sessKey(null), '|0');
+});
+
+test('planRestore: aggiunge i giri mancanti, salta doppioni e voci malformate', () => {
+  const existing = [sess('a', '2024-05-01T10:00:00Z')];
+  const incoming = [
+    sess('x', '2024-05-01T10:00:00Z'),        // già presente (stesso inizio/durata)
+    sess('y', '2024-05-02T10:00:00Z'),        // nuovo
+    sess('y', '2024-05-02T10:00:00Z'),        // doppione DENTRO il file
+    { id: 'z', rows: [] },                    // senza meta
+    { id: 'w', meta: meta('2024-05-03T10:00:00Z') }, // senza rows
+    null,
+  ];
+  const { add, skip } = planRestore(existing, incoming);
+  assert.deepEqual(Array.from(add, s => s.id), ['y']);
+  assert.equal(skip.length, 5);
+  // Nessun ingresso: tutto è nuovo tranne il malformato.
+  assert.equal(planRestore([], incoming).add.length, 2);
+});
+
+test('parseBackup: accetta solo un backup con sessions, non si fida del resto', () => {
+  assert.equal(parseBackup('non json'), null);
+  assert.equal(parseBackup('null'), null);
+  assert.equal(parseBackup('{"app":"altro","v":1}'), null);
+  assert.equal(parseBackup('{"sessions":"nope"}'), null);
+  assert.equal(parseBackup('{"sessions":[]}').length, 0);
+  assert.equal(parseBackup('{"sessions":[{"id":"a"}]}').length, 1);
+});
+
+test('buildBackupParts: JSON valido che si rilegge, una parte per sessione', () => {
+  const a = sess('a', '2024-05-01T10:00:00Z');
+  const b = sess('b', '2024-05-02T10:00:00Z');
+  // Una sessione non serializzabile non deve far fallire il backup intero.
+  const rotto = { id: 'c', meta: meta('2024-05-03T10:00:00Z'), rows: [] };
+  rotto.self = rotto;
+  const { parts, n } = buildBackupParts([a, b, rotto], '2024-06-01T00:00:00Z');
+  // Si copiano solo i campi noti (id/meta/rows/track): un riferimento circolare
+  // in un campo estraneo non entra nel file, quindi non serve saltare nulla.
+  assert.equal(n, 3);
+  assert.equal(parts.length, 5, 'intestazione + 3 sessioni + chiusura');
+  assert.equal(parts.join('').indexOf('"self"'), -1);
+  const back = parseBackup(parts.join(''));
+  assert.ok(back, 'il backup deve rileggersi');
+  assert.deepEqual(Array.from(back, s => s.id), ['a', 'b', 'c']);
+  assert.equal(back[0].meta.distKm, 20);
+  assert.equal(back[0].rows.length, 1);
+  // I campi assenti diventano array vuoti, non undefined: l'import li controlla.
+  const senzaTrack = buildBackupParts([{ id: 'd', meta: meta('2024-05-04T10:00:00Z'), rows: [] }], 'x');
+  assert.equal(parseBackup(senzaTrack.parts.join(''))[0].track.length, 0);
+});
+
+test('rowsForChart: solo righe disegnabili', () => {
+  const rows = [{ t: 0 }, { t: NaN }, { t: 1 }, null, 'x', { t: Infinity }];
+  assert.deepEqual(Array.from(rowsForChart(rows), r => r.t), [0, 1]);
+  assert.equal(rowsForChart(null).length, 0);
+  assert.equal(rowsForChart(undefined).length, 0);
+});
+
+test('storico: loadAllSessions, riepilogo e ripristino su IndexedDB', async () => {
+  resetState();
+  await initDb();
+  await idb.put(sess('a', '2024-05-01T10:00:00Z', { distKm: 12.5, duration: 3600 }));
+  await idb.put(sess('b', '2024-05-02T10:00:00Z', { distKm: 7.5, duration: 1800 }));
+
+  const all = await loadAllSessions();
+  assert.deepEqual(Array.from(all, s => s.id).sort(), ['a', 'b']);
+  const t = sessionTotals(await idb.getMetas());
+  assert.equal(t.n, 2);
+  assert.equal(t.km, 20);
+  assert.equal(t.sec, 5400);
+
+  // Riepilogo a schermo: prima voce = numero di giri, e niente innerHTML.
+  await renderHistory();
+  assert.equal(els.histTotals.hidden, false);
+  assert.equal(els.histTotals.children.length, 3);
+  /* Nel DOM vero la voce legge "Giri 2" (testo + <b>): qui si controlla il <b>,
+     perché il textContent del mock, quando ci sono figli, restituisce solo i
+     figli. L'etichetta vive accanto al valore per il colore e il peso diversi. */
+  const voci = Array.from({ length: 3 }, (_, i) => els.histTotals.children[i].children[0].textContent);
+  assert.deepEqual(voci, ['2', '20.0 km', '1:30:00']);
+
+  // Backup delle due sessioni, poi ripristino su uno storico che ne ha già una
+  // e ne ha persa un'altra: torna solo quella mancante.
+  const payload = { sessions: await loadAllSessions() };
+  const file = { text: async () => JSON.stringify(payload) };
+  await idb.del('a');
+  assert.equal((await idb.getMetas()).length, 1);
+  await restoreSessions(file);
+  const after = Array.from(await idb.getMetas(), m => m.id).sort();
+  assert.deepEqual(after, ['a', 'b'], 'mancante ripristinata, doppione saltato');
+  assert.equal((await idb.get('a')).rows.length, 1, 'le righe tornano con la sessione');
+
+  // File che non è un backup: nessuna scrittura, e lo storico resta com'era.
+  const prima = (await idb.getMetas()).length;
+  await restoreSessions({ text: async () => 'ciao' });
+  assert.equal((await idb.getMetas()).length, prima);
+
+  // Telefono nuovo: storico vuoto, e lo stesso file rimette tutto.
+  await idb.del('a'); await idb.del('b');
+  assert.equal((await loadAllSessions()).length, 0);
+  await restoreSessions(file);
+  assert.equal((await idb.getMetas()).length, 2);
+
+  // Backup senza sessioni: nessuna scrittura e nessun lancio.
+  await restoreSessions({ text: async () => '{"sessions":[]}' });
+  assert.equal((await idb.getMetas()).length, 2);
+  resetState();
+});

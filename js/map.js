@@ -128,6 +128,13 @@ async function recoverChunks() {
   no.addEventListener('click', () => { state._recoveryPending = false; el.remove(); idb.clearChunks().catch(() => {}); });
 }
 
+/* Pura: le righe disegnabili di una sessione. Un giro importato da terzi puo'
+   avere righe senza t (o non oggetti): drawChart legge d.t per l'asse X, quindi
+   si filtra qui una volta invece di lasciar decidere al canvas. */
+function rowsForChart(rows) {
+  return Array.isArray(rows) ? rows.filter(r => r && isFinite(r.t)) : [];
+}
+
 function showSessionDetail(s) {
   s = s || {};
   const el = els.sessionDetail;
@@ -138,6 +145,9 @@ function showSessionDetail(s) {
      DENTRO la concatenazione: la innerHTML non veniva mai assegnata e il pannello
      restava su "Caricamento…". */
   const meta = s.meta || {};
+  // Righe disegnabili (con t finito): calcolate una volta e riusate nel rAF.
+  const chartRows = rowsForChart(s.rows);
+  const hasRows = chartRows.length > 1;
   const d = new Date(meta.startISO);
   const pad = n => String(n).padStart(2, '0');
   const when = isFinite(d.getTime())
@@ -155,6 +165,12 @@ function showSessionDetail(s) {
       '<div class="dstat"><div class="v">' + (s.rows ? s.rows.length : 0) + '</div><div class="k">campioni</div></div>' +
     '</div>' +
     '<canvas id="replayCanvas" style="height:200px;"></canvas>' +
+    (hasRows
+      ? '<div class="chart-cap"><span>Velocità km/h</span><span id="sessSpdTop"></span></div>' +
+        '<canvas id="sessSpd" class="chart"></canvas>' +
+        '<div class="chart-cap"><span>Piega °</span><span>±60 f.s.</span></div>' +
+        '<canvas id="sessLean" class="chart"></canvas>'
+      : '') +
     '<div class="dbtns">' +
       '<button id="dCsv">Export CSV</button>' +
       '<button id="dGpx">Export GPX</button>' +
@@ -163,7 +179,22 @@ function showSessionDetail(s) {
       '<button id="dDel" style="color:var(--bad); border-color:var(--bad);">Elimina</button>' +
     '</div>';
   state._replayTrack = s.track || [];
-  requestAnimationFrame(() => drawTrackOnCanvas($('replayCanvas'), state._replayTrack, { startEnd: true }));
+  requestAnimationFrame(() => {
+    drawTrackOnCanvas($('replayCanvas'), state._replayTrack, { startEnd: true });
+    /* Grafici del giro salvato: stessa drawChart dei live, ma su tutte le righe
+       invece che sulla finestra di 60 s. Serve a vedere dove si e' piegato e
+       come e' andata la velocita' curva per curva — prima, finito il giro, del
+       tracciato restava solo il disegno della mappa.
+       Nel rAF perche' il canvas deve avere gia' una misura: drawChart legge
+       clientWidth/clientHeight, e appena assegnata la innerHTML sono zero. */
+    if (!hasRows) return;
+    const sc = diagChartScale('speedKmh', chartRows);
+    drawChart($('sessSpd'), chartRows, 'speedKmh', canvasTheme.get('c-accent'), sc.min, sc.max);
+    drawChart($('sessLean'), chartRows, 'lean', canvasTheme.get('c-good'), -60, 60);
+    // Punta misurata in etichetta, come il badge dei grafici live.
+    const top = $('sessSpdTop');
+    if (top) top.textContent = 'scala ' + sc.max;
+  });
   $('dCsv').addEventListener('click', () => exportCsv(s.rows, s.meta, 'storico'));
   $('dGpx').addEventListener('click', () => exportGpx(s.track, 'storico'));
   $('dVideo').addEventListener('click', () => openVideoModal(s));

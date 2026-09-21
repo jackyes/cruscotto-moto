@@ -418,6 +418,17 @@
   .sess-detail .dstat .v { font-size: 20px; font-weight: 900; color: var(--text); }
   .sess-detail .dstat .k { font-size: 9.5px; color: var(--text-2); text-transform: uppercase; letter-spacing: .8px; font-weight: 800; margin-top: 2px; }
   .sess-detail canvas { width: 100%; height: 200px; border-radius: 12px; background: var(--surface-3); border: 1px solid var(--line); }
+  /* Grafici del giro salvato: meta' altezza del replay, stessi colori dei live. */
+  .sess-detail canvas.chart { height: 110px; }
+  .chart-cap {
+    display: flex; justify-content: space-between; font-size: 11px; font-weight: 800;
+    text-transform: uppercase; letter-spacing: 1px; color: var(--text-2);
+    margin: 10px 0 4px;
+  }
+  /* Riepilogo dello Storico: quanti giri, quanti km, quante ore in tutto. */
+  .hist-totals { display: flex; flex-wrap: wrap; gap: 6px 10px; margin-bottom: 10px; font-size: 12px; font-weight: 700; color: var(--text-2); }
+  .hist-totals span { background: var(--surface-3); border: 1px solid var(--line); border-radius: 8px; padding: 3px 9px; display: inline-flex; align-items: baseline; gap: 4px; }
+  .hist-totals b { color: var(--text); font-weight: 900; font-variant-numeric: tabular-nums; }
   .dbtns { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-top: 10px; }
   .empty { color: var(--text-2); font-size: 14px; text-align: center; padding: 24px 0; }
 
@@ -1155,6 +1166,7 @@
     <section id="tab-history" role="tabpanel" aria-label="Storico" class="panel">
       <div class="card">
         <h2>Giri registrati</h2>
+        <div class="hist-totals" id="histTotals" hidden></div>
         <div class="controls" style="margin-bottom:12px;">
           <button id="btnExportCsv">CSV (sessione)</button>
           <button id="btnExportGpx">GPX (sessione)</button>
@@ -1164,7 +1176,12 @@
           <button id="btnImportCam">📥 Importa autovelox</button>
           <button id="btnViewer">📊 Viewer CSV</button>
         </div>
+        <div class="controls" style="margin-bottom:12px;">
+          <button id="btnBackupSess">💾 Backup giri</button>
+          <button id="btnRestoreSess">♻ Ripristina giri</button>
+        </div>
         <input type="file" id="camFile" accept=".json,.txt,.geojson,.csv" style="display:none;">
+        <input type="file" id="sessFile" accept=".json,application/json" style="display:none;">
         <div class="hist-list" id="sessionList">
           <div class="empty">Nessun giro salvato. Avvia un log e fermalo per salvarlo qui.</div>
         </div>
@@ -1556,6 +1573,7 @@ const els = {
   chSpeed: $('chSpeed'), chLean: $('chLean'), chLat: $('chLat'), chSpeedMax: $('chSpeedMax'),
   sessionList: $('sessionList'), sessionDetail: $('sessionDetail'),
   btnExportCsv: $('btnExportCsv'), btnExportGpx: $('btnExportGpx'), btnExportCsvHist: $('btnExportCsvHist'),
+  btnBackupSess: $('btnBackupSess'), btnRestoreSess: $('btnRestoreSess'), sessFile: $('sessFile'), histTotals: $('histTotals'),
   camAlert: $('camAlert'), camAlertsChk: $('camAlerts'), camDistSel: $('camDist'), btnMapFull: $('btnMapFull'),
   mapHud: $('mapHud'), mhLeanVal: $('mhLeanVal'), mhLeanDir: $('mhLeanDir'),
   mhMaxL: $('mhMaxL'), mhMaxR: $('mhMaxR'), mhSpeedVal: $('mhSpeedVal'), mhLimit: $('mhLimit'),
@@ -2519,6 +2537,14 @@ function init() {
 
   els.btnBench.addEventListener('click', startBench);
 
+  els.btnBackupSess.addEventListener('click', () => backupSessions());
+  els.btnRestoreSess.addEventListener('click', () => els.sessFile.click());
+  els.sessFile.addEventListener('change', () => {
+    const f = els.sessFile.files && els.sessFile.files[0];
+    // Azzera il valore: senza, riscegliere lo stesso file non fa scattare change.
+    els.sessFile.value = '';
+    if (f) restoreSessions(f);
+  });
   els.btnImportCam.addEventListener('click', () => els.camFile.click());
   els.btnViewer.addEventListener('click', () => window.open('viewer.html', '_blank', 'noopener'));
   els.camFile.addEventListener('change', () => {

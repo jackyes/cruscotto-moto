@@ -78,11 +78,19 @@ function drawChart(canvas, data, field, color, min, max) {
   ctx.save();
   ctx.beginPath(); ctx.rect(gx, 0, w - gx, h); ctx.clip();
   ctx.beginPath();
-  let dMin = Infinity, dMax = -Infinity;
-  data.forEach((d, i) => {
+  let dMin = Infinity, dMax = -Infinity, started = false;
+  /* I campioni non finiti si SALTANO, non si disegnano: su una sessione salvata
+     la velocita' e' null quando il GPS tace (galleria), e Y(null) vale quanto
+     Y(0) — la linea precipitava a zero disegnando una frenata che non c'e' mai
+     stata. Saltandoli, la linea passa dritta fra i due campioni validi. Lo
+     stesso vale per i grafici live se un campo manca. */
+  data.forEach(d => {
     const v = d[field];
-    if (v != null && isFinite(v)) { if (v < dMin) dMin = v; if (v > dMax) dMax = v; }
-    const x = X(d.t), y = Y(v); i ? ctx.lineTo(x, y) : ctx.moveTo(x, y);
+    if (v == null || !isFinite(v)) return;
+    if (v < dMin) dMin = v;
+    if (v > dMax) dMax = v;
+    const x = X(d.t), y = Y(v);
+    if (started) ctx.lineTo(x, y); else { ctx.moveTo(x, y); started = true; }
   });
   ctx.stroke();
   ctx.restore();
