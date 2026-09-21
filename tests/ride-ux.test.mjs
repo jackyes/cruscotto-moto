@@ -66,7 +66,9 @@ test('updateMapHud: scrive piega, verso, massimi e velocità solo in fullscreen'
   assert.equal(els.mhSpeedVal.textContent, '88');
   assert.equal(els.mhDist.textContent, '12.35 km');
   assert.equal(els.mhLeanVal.textContent, '32');
-  assert.equal(els.mapHud.className, 'map-hud lean-l nolim');
+  assert.equal(els.mapHud.className, 'map-hud cal lean-l conf-hi nolim gps-wait');
+  assert.equal(els.mhGps.textContent, 'GPS…');
+  assert.equal(els.mhClock.textContent.length, 5, 'ora locale HH:MM');
   assert.equal(els.mhLeanDir.textContent, '');
   assert.equal(els.mhArcL.getAttribute('stroke-dasharray'), '32 60');
   assert.equal(els.mhArcR.getAttribute('stroke-dasharray'), '0 60');
@@ -78,7 +80,7 @@ test('updateMapHud: scrive piega, verso, massimi e velocità solo in fullscreen'
 
   state.lean = 12.5;
   updateMapHud();
-  assert.equal(els.mapHud.className, 'map-hud lean-r nolim');
+  assert.equal(els.mapHud.className, 'map-hud cal lean-r conf-hi nolim gps-wait');
   assert.equal(els.mhArcR.getAttribute('stroke-dasharray'), '13 60');
   assert.equal(els.mhArcL.getAttribute('stroke-dasharray'), '0 60');
 
@@ -88,7 +90,7 @@ test('updateMapHud: scrive piega, verso, massimi e velocità solo in fullscreen'
   updateMapHud();
   assert.equal(els.mhLeanVal.textContent, '--');
   assert.equal(els.mhLeanDir.textContent, 'non calibrato');
-  assert.equal(els.mapHud.className, 'map-hud nocal nolim');
+  assert.equal(els.mapHud.className, 'map-hud nocal nolim gps-wait');
   assert.equal(els.mhArcR.getAttribute('stroke-dasharray'), '0 60');
   setFullscreen(false);
   resetState();
@@ -101,14 +103,14 @@ test('mapHudModel: verso, arco in gradi, limite e affidabilità con isteresi, Na
 
   // Sotto 1°: niente verso e niente arco, come l'etichetta del cruscotto.
   let r = m({ lean: -0.4 });
-  assert.equal(r.cls, 'map-hud nolim');
+  assert.equal(r.cls, 'map-hud cal conf-hi nolim gps-ok');
   assert.equal(r.lean, '0');
   assert.equal(r.dashL, '0 60');
   assert.equal(r.dashR, '0 60');
   assert.equal(r.dir, '');
   // Oltre il fondo scala l'arco satura, il numero no.
   r = m({ lean: -75 });
-  assert.equal(r.cls, 'map-hud lean-l nolim');
+  assert.equal(r.cls, 'map-hud cal lean-l conf-hi nolim gps-ok');
   assert.equal(r.dashL, '60 60');
   assert.equal(r.lean, '75');
   // Arco e testo arrotondati allo stesso modo.
@@ -122,28 +124,62 @@ test('mapHudModel: verso, arco in gradi, limite e affidabilità con isteresi, Na
   assert.equal(r.dashR, '0 60');
 
   // Limite: il margine di SPEED_LIMIT_OVER_KMH (3) è escluso, come per il badge del cruscotto.
-  assert.equal(m({ speedLimit: 50, speedKph: 53 }).cls, 'map-hud');
+  assert.equal(m({ speedLimit: 50, speedKph: 53 }).cls, 'map-hud cal conf-hi gps-ok');
   const on = m({ speedLimit: 50, speedKph: 53.1 });
-  assert.equal(on.cls, 'map-hud over');
+  assert.equal(on.cls, 'map-hud cal conf-hi over gps-ok');
   assert.equal(on.limit, '50');
   // Isteresi: una volta acceso, si spegne solo 1 km/h sotto la soglia.
   assert.equal(m({ speedLimit: 50, speedKph: 52.5 }, on).over, true);
   assert.equal(m({ speedLimit: 50, speedKph: 52 }, on).over, false);
   assert.equal(m({ speedLimit: 50, speedKph: 52.5 }).over, false);
-  assert.equal(m({ speedLimit: 130 }).cls, 'map-hud lim3');
+  assert.equal(m({ speedLimit: 130 }).cls, 'map-hud cal conf-hi lim3 gps-ok');
   assert.equal(m({}).limit, '');
 
   // Affidabilità: si accende alla soglia di .lean-conf.bad e si spegne a 0.45.
   const low = m({ leanConf: 0.33 });
-  assert.equal(low.cls, 'map-hud lowconf nolim');
+  assert.equal(low.cls, 'map-hud cal conf-low lowconf nolim gps-ok');
   assert.equal(m({ leanConf: 0.34 }).lowconf, false);
   assert.equal(m({ leanConf: 0.4 }, low).lowconf, true);
   assert.equal(m({ leanConf: 0.45 }, low).lowconf, false);
   // Non calibrato: niente "affidabilità bassa" su una piega che non c'è.
   r = m({ demo: false, leanConf: 0 });
-  assert.equal(r.cls, 'map-hud nocal nolim');
+  assert.equal(r.cls, 'map-hud nocal nolim gps-wait');
   assert.equal(r.lean, '--');
   assert.equal(r.dir, 'non calibrato');
+
+  // Registrazione: in fullscreen il badge REC dell'header e' nascosto, quindi lo
+  // dice l'HUD. La classe resta una sola stringa, confrontata com'e'.
+  assert.equal(m({ logging: true }).cls, 'map-hud cal conf-hi nolim rec gps-ok');
+  assert.equal(m({ logging: false }).cls.indexOf(' rec'), -1);
+
+  // Stato GPS: demo e fix buono = ok (col pallino verde), errore = rosso.
+  assert.equal(m({ demo: false, gpsStatus: 'waiting' }).cls, 'map-hud nocal nolim gps-wait');
+  assert.equal(m({ demo: false, gpsStatus: 'err' }).cls, 'map-hud nocal nolim gps-err');
+  assert.equal(m({ demo: false, gpsStatus: 'err' }).gps, 'NO GPS');
+  const fix = { demo: false, gpsStatus: 'ok' };
+  assert.equal(m(Object.assign({ gps: { acc: 7.6 } }, fix)).gps, '±8m');
+  assert.equal(m(Object.assign({ gps: { acc: null } }, fix)).gps, 'GPS OK');
+  assert.equal(m(Object.assign({ gps: { acc: NaN } }, fix)).gps, 'GPS OK', 'accuratezza non numerica: testo neutro');
+  assert.equal(m({}).gps, 'DEMO');
+
+  // Affidabilita': tre livelli, con isteresi su entrambi i confini.
+  const mid = m({ leanConf: 0.5 });
+  assert.equal(mid.confLvl, 'mid');
+  assert.equal(m({ leanConf: 0.67 }).confLvl, 'hi');
+  assert.equal(m({ leanConf: 0.62 }, mid).confLvl, 'mid');
+  assert.equal(m({ leanConf: 0.62 }, m({ leanConf: 0.9 })).confLvl, 'hi', 'isteresi sul confine alto');
+
+  // Beccheggio: positivo muso in su, negativo giu', sotto 1° niente numero.
+  assert.equal(m({ pitch: 4.4 }).pitch, '▲4°');
+  assert.equal(m({ pitch: -2.6 }).pitch, '▼3°');
+  assert.equal(m({ pitch: 0.4 }).pitch, '');
+  assert.equal(m({ demo: false, pitch: 9 }).pitch, '', 'senza calibrazione niente beccheggio');
+
+  // Piega cinematica: anello sull'arco, null (GPS stantio o fermo) = nascosto.
+  assert.equal(m({ leanKin: -28.3 }).kin, 'rotate(-28)');
+  assert.equal(m({ leanKin: 72 }).kin, 'rotate(60)', 'satura al fondo scala');
+  assert.equal(m({ leanKin: null }).kin, '');
+  assert.equal(m({ leanKin: 0.5 }).kin, '');
 
   // Pallini dei massimi: nascosti fino a 1°, saturi a 60°, arrotondati come il testo.
   // Km di sessione: due decimali come il cruscotto, e mai "NaN km".
@@ -184,7 +220,7 @@ test('updateMapHud: a valori fermi zero scritture, mai className sui nodi SVG', 
   });
   try {
     updateMapHud();
-    assert.equal(cls, 'map-hud lean-l');
+    assert.equal(cls, 'map-hud cal lean-l conf-hi gps-ok');
     attrW = 0; clsW = 0;
     updateMapHud();
     assert.equal(attrW, 0, 'attributi SVG riscritti a valore invariato');

@@ -112,6 +112,13 @@ function setAttr(el, k, v) {
   el.setAttribute(k, v);
 }
 
+/* Ora locale HH:MM: la usano l'orologio dell'header e quello dell'HUD (in
+   fullscreen l'header sparisce, e sul manubrio l'ora serve). */
+function clockHm() {
+  const d = new Date();
+  return String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
+}
+
 function guidaActive() {
   return !!(state.guidaAlways
     || state.logging
@@ -136,6 +143,8 @@ function updateGuidaMode() {
 const MAP_HUD_OVER_HYST_KMH = 1;
 const MAP_HUD_CONF_LOW = 0.33;   // stessa soglia di .lean-conf.bad (updateDisplay)
 const MAP_HUD_CONF_OK = 0.45;
+const MAP_HUD_CONF_HI = 0.66;    // stessa soglia di .lean-conf.warn (updateDisplay)
+const MAP_HUD_CONF_HI_OFF = 0.60;
 
 /* Pura: stato -> stringhe pronte per l'HUD. Verso, limite, affidabilita' e NaN
    si decidono qui e si testano senza DOM; updateMapHud scrive e basta. `prev` e'
@@ -144,9 +153,12 @@ const MAP_HUD_CONF_OK = 0.45;
    Gli archi valgono 60 unita' (raggio 180/pi e pathLength=60 nel markup): il
    dasharray e' in gradi e qui non si ripetono ne' raggio ne' centro. */
 function mapHudModel(st, prev) {
+  // isFinite(null) e' true (null vale 0): per i campi che possono essere null
+  // (leanKin, l'accuratezza GPS) serve il controllo esplicito.
+  const num = v => v != null && isFinite(v);
   const cal = !!(st.demo || st.calib);
   // Mai "NaN 60" nel dasharray: e' un attributo SVG non valido.
-  const ok = cal && isFinite(st.lean);
+  const ok = cal && num(st.lean);
   const a = ok ? Math.abs(st.lean) : 0;
   // Sotto 1° niente verso e niente arco, come l'etichetta del cruscotto.
   const side = a < 1 ? '' : (st.lean > 0 ? 'r' : 'l');
@@ -157,21 +169,43 @@ function mapHudModel(st, prev) {
   const over = lim != null && st.speedKph > lim + margin;
   const c = clamp01(st.leanConf);
   const lowconf = cal && (prev && prev.lowconf ? c < MAP_HUD_CONF_OK : c <= MAP_HUD_CONF_LOW);
+  // Tre livelli come la barra del cruscotto, con isteresi anche sul confine
+  // alto: a 0.66 le tacche cambierebbero colore a ogni vibrazione.
+  const confLvl = !cal ? ''
+    : (lowconf ? 'low'
+      : (c > (prev && prev.confLvl === 'hi' ? MAP_HUD_CONF_HI_OFF : MAP_HUD_CONF_HI) ? 'hi' : 'mid'));
+  // Stato GPS: in fullscreen gpsDot/gpsTxt dell'header sono nascosti, e se il
+  // fix cade l'unico sintomo e' che velocita' e piega si fermano (la fusione
+  // inerziale manda avanti la velocita' per un po', quindi non si nota subito).
+  const gs = (st.demo || st.gpsStatus === 'ok') ? 'ok' : (st.gpsStatus === 'err' ? 'err' : 'wait');
+  const gps = st.demo ? 'DEMO'
+    : gs === 'err' ? 'NO GPS'
+      : gs === 'ok' ? (num(st.gps && st.gps.acc) ? '±' + Math.round(st.gps.acc) + 'm' : 'GPS OK')
+        : 'GPS…';
+  // Beccheggio: positivo = muso in su. Sotto 1° e' rumore, e senza calibrazione
+  // l'assetto non c'e': niente numero finto.
+  const p = st.pitch;
+  const pitch = (cal && num(p) && Math.abs(p) >= 1)
+    ? (p > 0 ? '▲' : '▼') + Math.abs(p).toFixed(0) + '°' : '';
   let cls = 'map-hud';
-  if (!cal) cls += ' nocal';
-  else if (side) cls += ' lean-' + side;
+  cls += cal ? ' cal' : ' nocal';
+  if (cal && side) cls += ' lean-' + side;
+  if (confLvl) cls += ' conf-' + confLvl;
   if (lowconf) cls += ' lowconf';
   // A 3 cifre (110, 130) il cartello stringe il font invece di allargarsi.
   if (lim == null) cls += ' nolim';
   else if (String(lim).length > 2) cls += ' lim3';
   if (over) cls += ' over';
-  // Pallino del massimo: rotazione attorno al centro del quadrante (il <g> e'
+  if (st.logging) cls += ' rec';
+  cls += ' gps-' + gs;
+  // Marcatore sull'arco: rotazione attorno al centro del quadrante (il <g> e'
   // gia' traslato li'), nascosto fino a 1° come in setPeaks.
-  const peak = (d, sgn) => Math.abs(d) > 1
-    ? 'rotate(' + sgn * Math.min(60, Math.round(Math.abs(d))) + ')' : '';
+  const mark = v => num(v) && Math.abs(v) > 1
+    ? 'rotate(' + Math.sign(v) * Math.min(60, Math.round(Math.abs(v))) + ')' : '';
+  const peak = (d, sgn) => mark(sgn * Math.abs(d));
   const mxL = st.session.maxLeanL, mxR = st.session.maxLeanR;
   return {
-    cls, over, lowconf,
+    cls, over, lowconf, confLvl,
     lean: ok ? a.toFixed(0) : '--',
     dir: cal ? '' : 'non calibrato',
     dashL: (side === 'l' ? fill : 0) + ' 60',
@@ -180,6 +214,9 @@ function mapHudModel(st, prev) {
     peakR: peak(mxR, 1),
     maxL: Math.abs(mxL).toFixed(0) + '°',
     maxR: Math.abs(mxR).toFixed(0) + '°',
+    gps,
+    pitch,
+    kin: mark(st.leanKin),
     speed: String(Math.round(st.speedKph)),
     // distKm puo' essere NaN su uno storico recuperato: meglio "0.00" che "NaN km".
     dist: (isFinite(st.session.distKm) ? st.session.distKm : 0).toFixed(2) + ' km',
@@ -190,14 +227,18 @@ function mapHudModel(st, prev) {
 let mapHudPrev = null;   // modello del giro prima: solo per l'isteresi
 let mapHudErr = false;   // errore HUD gia' loggato (vedi updateDisplay)
 
-function mapHudPeak(el, t) {
+/* Marcatore sull'arco (massimo di sessione, piega cinematica): e' un attributo e
+   non una classe, perche' su un nodo SVG il CSS batterebbe l'attributo. */
+function mapHudMark(el, t) {
   setAttr(el, 'visibility', t ? 'visible' : 'hidden');
   if (t) setAttr(el, 'transform', t);
 }
 
 /* HUD in basso a sinistra della mappa fullscreen: in fullscreen il cruscotto non
    c'e' piu', quindi piega (arco, verso, massimi) e velocita' col limite vanno
-   ripetuti qui, piu' i km di sessione. Esce subito fuori dal fullscreen: gira a DISPLAY_HZ e scrivere
+   ripetuti qui, piu' i km di sessione, e le tre cose che altrimenti sparivano
+   con l'header: REC, stato GPS e ora. Esce subito fuori dal fullscreen: gira a
+   DISPLAY_HZ e scrivere
    nodi invisibili e' solo batteria. I colori li decide il CSS da UNA classe sul
    contenitore (prima className e style.color partivano a ogni tick anche a
    valori fermi); il resto passa da setTxt/setAttr: a valori fermi, zero
@@ -216,20 +257,21 @@ function updateMapHud() {
   setTxt(els.mhMaxR, m.maxR);
   setTxt(els.mhSpeedVal, m.speed);
   setTxt(els.mhDist, m.dist);
+  setTxt(els.mhGps, m.gps);
+  setTxt(els.mhPitch, m.pitch);
+  setTxt(els.mhClock, clockHm());
   setTxt(els.mhLimit, m.limit);   // vuoto = limite ignoto, nascosto da .nolim
   setAttr(els.mhArcL, 'stroke-dasharray', m.dashL);
   setAttr(els.mhArcR, 'stroke-dasharray', m.dashR);
-  mapHudPeak(els.mhPeakL, m.peakL);
-  mapHudPeak(els.mhPeakR, m.peakR);
+  mapHudMark(els.mhKin, m.kin);
+  mapHudMark(els.mhPeakL, m.peakL);
+  mapHudMark(els.mhPeakR, m.peakR);
 }
 
 function updateDisplay() {
   setTxt(els.speedVal, Math.round(state.speedKph));
   updateGuidaMode();
-  if (els.clock) {
-    const d = new Date();
-    setTxt(els.clock, String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0'));
-  }
+  if (els.clock) setTxt(els.clock, clockHm());
   if (els.speedAlt) {
     const alt = state.gps && state.gps.alt;
     setTxt(els.speedAlt, (alt != null && isFinite(alt)) ? Math.round(alt) + ' m' : '');

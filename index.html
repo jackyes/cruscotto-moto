@@ -560,7 +560,7 @@
     border: 2px solid #ffffff; letter-spacing: .6px;
   }
   .map-full-btn {
-    position: absolute; top: 10px; right: 10px; z-index: 900;
+    position: absolute; top: calc(10px + env(safe-area-inset-top)); right: calc(10px + env(safe-area-inset-right)); z-index: 900;
     min-height: 44px; padding: 6px 14px; font-size: 18px; border-radius: 12px;
     background: var(--hud-bg); color: var(--text); border: 1px solid var(--line);
     backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
@@ -586,8 +586,9 @@
     position: absolute; z-index: 900;
     left: calc(10px + env(safe-area-inset-left));
     bottom: calc(22px + env(safe-area-inset-bottom));
-    display: none; align-items: center; gap: 8px;
-    padding: 7px 10px 7px 8px; border-radius: 16px;
+    display: none; flex-direction: column; align-items: stretch; gap: 4px;
+    --mh-gw: min(124px, 33vw);
+    padding: 6px 9px 6px 8px; border-radius: 16px;
     background: var(--hud-bg); color: var(--text);
     border: 2px solid var(--hud-edge); box-shadow: var(--hud-shadow);
     font-variant-numeric: tabular-nums; line-height: 1;
@@ -596,8 +597,42 @@
   body.map-fullscreen .map-hud { display: flex; }
   .map-box.rot .map-hud { transform: none; }
 
-  /* Quadrante 124x84 come il viewBox: 1 unita' SVG = 1 px. */
-  .map-hud .mh-gauge { position: relative; flex: none; width: 124px; height: 84px; }
+  /* Riga alta: REC e stato GPS a sinistra, affidabilita', beccheggio e ora a
+     destra. Tutto quello che in fullscreen spariva con l'header. */
+  .map-hud .mh-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 11px; font-weight: 800; letter-spacing: .4px; color: var(--text-2); }
+  .map-hud .mh-tl, .map-hud .mh-tr { display: flex; align-items: center; gap: 7px; }
+  /* Registrazione: in fullscreen l'header e' nascosto, quindi il ● REC e il
+     pulsante Stop con lui. Senza questo, chi guida a mappa intera non ha nessun
+     segno che il log sia attivo — e se si ferma se ne accorge a giro finito.
+     visibility e non display: la riga non deve cambiare misura. */
+  .map-hud .mh-rec { visibility: hidden; color: var(--bad); font-weight: 900; letter-spacing: 1px; white-space: nowrap; }
+  .map-hud.rec .mh-rec { visibility: visible; animation: pulse-rec 1.2s infinite; }
+  /* Stato GPS col pallino: il testo dice la precisione quando il device la da'. */
+  .map-hud .mh-gps { display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; }
+  .map-hud .mh-gps-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--text-3); flex: none; }
+  .map-hud.gps-ok .mh-gps-dot { background: var(--good); }
+  .map-hud.gps-err .mh-gps-dot { background: var(--bad); }
+  .map-hud.gps-err .mh-gps { color: var(--bad); }
+  /* Affidabilita' della piega: tre tacche come le barre di segnale. Prima l'HUD
+     si limitava ad attenuare il numero, senza dire perche': chi guida vedeva la
+     piega sbiadire e non sapeva se era colpa sua o del telefono. */
+  .map-hud .mh-conf { display: inline-flex; align-items: flex-end; gap: 2px; visibility: hidden; }
+  .map-hud.cal .mh-conf { visibility: visible; }
+  .map-hud .mh-conf i { display: block; width: 3px; border-radius: 1px; background: var(--good); }
+  .map-hud .mh-conf i:nth-child(1) { height: 5px; }
+  .map-hud .mh-conf i:nth-child(2) { height: 8px; }
+  .map-hud .mh-conf i:nth-child(3) { height: 11px; }
+  .map-hud.conf-mid .mh-conf i { background: var(--warn); }
+  .map-hud.conf-low .mh-conf i { background: var(--bad); }
+  .map-hud.conf-mid .mh-conf i:nth-child(2), .map-hud.conf-mid .mh-conf i:nth-child(3),
+  .map-hud.conf-low .mh-conf i:nth-child(2), .map-hud.conf-low .mh-conf i:nth-child(3) { background: var(--text-3); }
+  .map-hud .mh-pitch { color: var(--text-2); white-space: nowrap; }
+  .map-hud .mh-clock { color: var(--text); letter-spacing: .5px; white-space: nowrap; }
+
+  .map-hud .mh-body { display: flex; align-items: center; gap: 8px; }
+  /* Quadrante col rapporto del viewBox e larghezza adattiva: sotto i ~330px di
+     viewport l'HUD stretto arrivava sotto i pulsanti di zoom di Leaflet. */
+  .map-hud .mh-gauge { position: relative; flex: none; width: var(--mh-gw); height: calc(var(--mh-gw) * 84 / 124); }
   .map-hud .mh-arc { display: block; width: 100%; height: 100%; }
   .map-hud .mh-track { fill: none; stroke: var(--line-2); stroke-width: 10; stroke-linecap: round; }
   .map-hud .mh-red { fill: none; stroke: var(--bad); stroke-width: 3; }
@@ -609,6 +644,11 @@
   .map-hud .mh-fill-r { stroke: var(--accent); }
   .map-hud .mh-zero { stroke: var(--text); stroke-width: 2.5; }
   .map-hud .mh-peak { stroke: var(--text); stroke-width: 1.5; }
+  /* Marcatore della piega cinematica (velocita' x imbardata GPS): anello vuoto,
+     distinto dai pallini pieni dei massimi. E' una stima indipendente
+     dall'accelerometro: quando sta sull'arco la misura e' solida, quando se ne
+     stacca c'e' qualcosa che non torna (vibrazione, pendenza, GPS). */
+  .map-hud .mh-kin { fill: none; stroke: var(--text-2); stroke-width: 1.6; }
   .map-hud .mh-peak-l { fill: var(--good); }
   .map-hud .mh-peak-r { fill: var(--accent); }
   /* Frecce del verso sotto lo zero, accesa solo quella del lato: il verso si
@@ -683,8 +723,9 @@
      larga 66) scende fino a ~262 px, e su un viewport alto ~340 (barra del
      browser) l'HUD nell'angolo le finiva sotto. */
   @media (max-height: 420px) {
-    .map-hud { left: 86px; bottom: calc(10px + env(safe-area-inset-bottom)); padding: 4px 8px 4px 6px; gap: 6px; }
-    .map-hud .mh-gauge { width: 100px; height: 68px; }
+    .map-hud { left: calc(86px + env(safe-area-inset-left)); bottom: calc(10px + env(safe-area-inset-bottom)); padding: 3px 7px 3px 5px; gap: 3px; --mh-gw: min(100px, 24vw); }
+    .map-hud .mh-top { font-size: 9.5px; gap: 6px; }
+    .map-hud .mh-tl, .map-hud .mh-tr { gap: 5px; }
     .map-hud .mh-lean { font-size: 32px; }
     .map-hud .mh-lean small { font-size: 16px; }
     .map-hud .mh-dir { font-size: 9px; letter-spacing: .3px; }
@@ -697,7 +738,7 @@
   }
 
   .map-ctrl {
-    position: absolute; top: 10px; left: 10px; z-index: 900;
+    position: absolute; top: calc(10px + env(safe-area-inset-top)); left: calc(10px + env(safe-area-inset-left)); z-index: 900;
     display: flex; flex-direction: column; gap: 6px;
     background: var(--hud-bg); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
     border: 1px solid var(--line); border-radius: 14px; padding: 4px;
@@ -1044,33 +1085,47 @@
                mhLeanDir e mhLeanVal restano HTML e non <text> SVG: un display.js
                vecchio in cache ci assegna className/style, e su un nodo SVG
                lancerebbe dentro updateDisplay fermando mainLoop. -->
-          <div id="mapHud" class="map-hud nocal nolim" aria-hidden="true">
-            <div class="mh-gauge">
-              <svg class="mh-arc" viewBox="0 0 124 84">
-                <g transform="translate(62 66)">
-                  <path class="mh-track" d="M-49.62-28.65A57.3 57.3 0 0 1 49.62-28.65"/>
-                  <path class="mh-red" d="M-50.94-42.75A66.5 66.5 0 0 0-57.59-33.25M50.94-42.75A66.5 66.5 0 0 1 57.59-33.25"/>
-                  <path id="mhArcL" class="mh-fill mh-fill-l" pathLength="60" stroke-dasharray="0 60" d="M0-57.3A57.3 57.3 0 0 0-49.62-28.65"/>
-                  <path id="mhArcR" class="mh-fill mh-fill-r" pathLength="60" stroke-dasharray="0 60" d="M0-57.3A57.3 57.3 0 0 1 49.62-28.65"/>
-                  <line class="mh-zero" x1="0" y1="-64" x2="0" y2="-50.5"/>
-                  <path class="mh-arr mh-arr-l" d="M-27-35.5-16-42v13z"/>
-                  <path class="mh-arr mh-arr-r" d="M27-35.5 16-42v13z"/>
-                  <circle id="mhPeakL" class="mh-peak mh-peak-l" cy="-57.3" r="4.5" visibility="hidden"/>
-                  <circle id="mhPeakR" class="mh-peak mh-peak-r" cy="-57.3" r="4.5" visibility="hidden"/>
-                </g>
-              </svg>
-              <div id="mhLeanDir" class="mh-dir">non calibrato</div>
-              <div class="mh-lean"><span id="mhLeanVal">--</span><small>°</small></div>
-              <span id="mhMaxL" class="mh-pk mh-pk-l">0°</span>
-              <span id="mhMaxR" class="mh-pk mh-pk-r">0°</span>
-            </div>
-            <div class="mh-sep"></div>
-            <div class="mh-spd">
-              <span class="mh-speed"><span id="mhSpeedVal" class="mh-pill">0</span></span>
-              <span class="mh-meta">
-                <span class="mh-meta-l"><span class="mh-unit">km/h</span><span id="mhDist" class="mh-dist">0.00 km</span></span>
-                <span id="mhLimit" class="mh-limit"></span>
+          <div id="mapHud" class="map-hud nocal nolim gps-wait" aria-hidden="true">
+            <div class="mh-top">
+              <span class="mh-tl">
+                <span id="mhRec" class="mh-rec">● REC</span>
+                <span class="mh-gps"><i class="mh-gps-dot"></i><span id="mhGps">GPS…</span></span>
               </span>
+              <span class="mh-tr">
+                <span class="mh-conf" title="Affidabilità della piega"><i></i><i></i><i></i></span>
+                <span id="mhPitch" class="mh-pitch"></span>
+                <span id="mhClock" class="mh-clock">--:--</span>
+              </span>
+            </div>
+            <div class="mh-body">
+              <div class="mh-gauge">
+                <svg class="mh-arc" viewBox="0 0 124 84">
+                  <g transform="translate(62 66)">
+                    <path class="mh-track" d="M-49.62-28.65A57.3 57.3 0 0 1 49.62-28.65"/>
+                    <path class="mh-red" d="M-50.94-42.75A66.5 66.5 0 0 0-57.59-33.25M50.94-42.75A66.5 66.5 0 0 1 57.59-33.25"/>
+                    <path id="mhArcL" class="mh-fill mh-fill-l" pathLength="60" stroke-dasharray="0 60" d="M0-57.3A57.3 57.3 0 0 0-49.62-28.65"/>
+                    <path id="mhArcR" class="mh-fill mh-fill-r" pathLength="60" stroke-dasharray="0 60" d="M0-57.3A57.3 57.3 0 0 1 49.62-28.65"/>
+                    <line class="mh-zero" x1="0" y1="-64" x2="0" y2="-50.5"/>
+                    <path class="mh-arr mh-arr-l" d="M-27-35.5-16-42v13z"/>
+                    <path class="mh-arr mh-arr-r" d="M27-35.5 16-42v13z"/>
+                    <circle id="mhKin" class="mh-kin" cy="-57.3" r="4" visibility="hidden"/>
+                    <circle id="mhPeakL" class="mh-peak mh-peak-l" cy="-57.3" r="4.5" visibility="hidden"/>
+                    <circle id="mhPeakR" class="mh-peak mh-peak-r" cy="-57.3" r="4.5" visibility="hidden"/>
+                  </g>
+                </svg>
+                <div id="mhLeanDir" class="mh-dir">non calibrato</div>
+                <div class="mh-lean"><span id="mhLeanVal">--</span><small>°</small></div>
+                <span id="mhMaxL" class="mh-pk mh-pk-l">0°</span>
+                <span id="mhMaxR" class="mh-pk mh-pk-r">0°</span>
+              </div>
+              <div class="mh-sep"></div>
+              <div class="mh-spd">
+                <span class="mh-speed"><span id="mhSpeedVal" class="mh-pill">0</span></span>
+                <span class="mh-meta">
+                  <span class="mh-meta-l"><span class="mh-unit">km/h</span><span id="mhDist" class="mh-dist">0.00 km</span></span>
+                  <span id="mhLimit" class="mh-limit"></span>
+                </span>
+              </div>
             </div>
           </div>
         </div>
@@ -1504,7 +1559,8 @@ const els = {
   camAlert: $('camAlert'), camAlertsChk: $('camAlerts'), camDistSel: $('camDist'), btnMapFull: $('btnMapFull'),
   mapHud: $('mapHud'), mhLeanVal: $('mhLeanVal'), mhLeanDir: $('mhLeanDir'),
   mhMaxL: $('mhMaxL'), mhMaxR: $('mhMaxR'), mhSpeedVal: $('mhSpeedVal'), mhLimit: $('mhLimit'),
-  mhDist: $('mhDist'),
+  mhDist: $('mhDist'), mhRec: $('mhRec'), mhGps: $('mhGps'), mhPitch: $('mhPitch'),
+  mhClock: $('mhClock'), mhKin: $('mhKin'),
   mhArcL: $('mhArcL'), mhArcR: $('mhArcR'), mhPeakL: $('mhPeakL'), mhPeakR: $('mhPeakR'),
   camRadiusSel: $('camRadius'), camDot: $('camDot'), camTxt: $('camTxt'),
   navBanner: $('navBanner'), navQuery: $('navQuery'), navResults: $('navResults'),
