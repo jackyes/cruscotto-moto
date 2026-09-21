@@ -63,6 +63,12 @@
     --c-acc-lon: #ffb300;
     --c-acc-vert: #b388ff;
     --shadow: 0 10px 32px rgba(0,0,0,.6);
+    /* Pannelli sopra la mappa (HUD, pulsanti, banner di manovra): token e non
+       rgba fissi. Erano scuri in entrambi i temi con testo var(--text): nel tema
+       chiaro, quello per il sole, testo quasi nero su fondo quasi nero. */
+    --hud-bg: rgba(15, 22, 34, 0.9);
+    --hud-edge: var(--line-2);
+    --hud-shadow: 0 6px 20px rgba(0, 0, 0, .45);
     color-scheme: dark;
   }
   :root[data-theme="light"] {
@@ -99,6 +105,11 @@
     --c-acc-lon: #c26900;
     --c-acc-vert: #6200ea;
     --shadow: 0 8px 24px rgba(10,24,40,.12);
+    /* Bordo e ombra piu' decisi: un pannello bianco su tile OSM chiare, al
+       sole, senza contorno si perde. */
+    --hud-bg: rgba(255, 255, 255, 0.93);
+    --hud-edge: rgba(5, 11, 20, .55);
+    --hud-shadow: 0 4px 16px rgba(5, 11, 20, .3);
     color-scheme: light;
   }
 
@@ -520,7 +531,7 @@
      sparisce e il banner puo' risalire. */
   .nav-banner {
     position: fixed; top: 60px; left: 50%; transform: translateX(-50%);
-    z-index: 150; background: rgba(15, 22, 34, 0.96); color: var(--text);
+    z-index: 150; background: var(--hud-bg); color: var(--text);
     border: 1.5px solid var(--accent); border-radius: 16px;
     padding: 12px 20px; font-size: 17px; font-weight: 800; text-align: center;
     max-width: 92%; box-shadow: 0 10px 36px rgba(0,0,0,.65), 0 0 16px rgba(0,229,255,.2);
@@ -551,49 +562,141 @@
   .map-full-btn {
     position: absolute; top: 10px; right: 10px; z-index: 900;
     min-height: 44px; padding: 6px 14px; font-size: 18px; border-radius: 12px;
-    background: rgba(15, 22, 34, 0.9); color: var(--text); border: 1px solid var(--line);
+    background: var(--hud-bg); color: var(--text); border: 1px solid var(--line);
     backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
-    box-shadow: 0 4px 16px rgba(0,0,0,.4);
+    box-shadow: var(--hud-shadow);
   }
   /* HUD mappa: vive solo in fullscreen, dove header e cruscotto spariscono e
-     restano i due numeri che in marcia servono davvero — piega e velocita'.
+     restano i due numeri che in marcia servono davvero: piega e velocita'.
+     E' il gauge del cruscotto in miniatura, stesso linguaggio: arco -60..+60
+     riempito dal centro verso il lato (verde SX, ciano DX), fascia rossa 50-60
+     come le tacche rosse di buildGauge, pallini dei massimi come setPeaks.
+     Il numero della piega prende il colore del lato come sul cruscotto; la
+     velocita' resta var(--text), a contrasto pieno.
      pointer-events:none: e' un display, non deve rubare il drag alla mappa.
-     In basso a sinistra: a destra ci sono i pulsanti di zoom di Leaflet. */
+     In basso a sinistra: a destra ci sono zoom e attribuzione di Leaflet.
+     Fondo e bordo da token: col vecchio rgba scuro fisso, nel tema chiaro
+     var(--text) quasi nero finiva su fondo quasi nero.
+     Niente backdrop-filter: col fondo al 90% non si vede, e sotto c'e' una mappa
+     che si sposta a ogni fix (Segui, track-up): andava rifiltrata ogni volta.
+     Niente variante body.guida: in fullscreen guidaActive() e' sempre vero,
+     quindi queste SONO le misure da guanti.
+     contain: il numero che cambia a 15 Hz rifa' il layout solo qui dentro. */
   .map-hud {
-    position: absolute; left: 10px; bottom: 22px; z-index: 900;
-    display: none; flex-direction: column; align-items: flex-start; gap: 3px;
-    padding: 8px 12px; border-radius: 14px;
-    background: rgba(15, 22, 34, 0.88); color: var(--text);
-    border: 1px solid var(--line);
-    backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
-    box-shadow: 0 6px 20px rgba(0,0,0,.45);
-    font-variant-numeric: tabular-nums; pointer-events: none;
-    text-align: left;
+    position: absolute; z-index: 900;
+    left: calc(10px + env(safe-area-inset-left));
+    bottom: calc(22px + env(safe-area-inset-bottom));
+    display: none; align-items: center; gap: 8px;
+    padding: 7px 10px 7px 8px; border-radius: 16px;
+    background: var(--hud-bg); color: var(--text);
+    border: 2px solid var(--hud-edge); box-shadow: var(--hud-shadow);
+    font-variant-numeric: tabular-nums; line-height: 1;
+    pointer-events: none; contain: layout;
   }
   body.map-fullscreen .map-hud { display: flex; }
-  .map-hud .mh-row { display: flex; align-items: baseline; justify-content: flex-start; gap: 3px; }
-  .map-hud .mh-big { font-size: 32px; font-weight: 900; line-height: 1.02; }
-  .map-hud .mh-unit { font-size: 11px; font-weight: 800; color: var(--text-3); letter-spacing: .4px; }
-  .map-hud .mh-dir { font-size: 11px; font-weight: 800; letter-spacing: .6px; color: var(--text-2); min-height: 13px; }
-  .map-hud .mh-dir.left { color: var(--good); }
-  .map-hud .mh-dir.right { color: var(--accent); }
-  .map-hud .mh-max { display: flex; gap: 8px; font-size: 11px; font-weight: 800; color: var(--text-3); }
-  .map-hud .mh-max #mhMaxL { color: var(--good); }
-  .map-hud .mh-max #mhMaxR { color: var(--accent); }
-  .map-hud .mh-sep { width: 100%; height: 1px; background: var(--line); margin: 3px 0; }
-  /* Schermi bassi in orizzontale: l'HUD non deve mangiare mezza mappa. */
-  @media (max-height: 420px) {
-    .map-hud { bottom: 10px; padding: 6px 9px; }
-    .map-hud .mh-big { font-size: 24px; }
-  }
   .map-box.rot .map-hud { transform: none; }
+
+  /* Quadrante 124x84 come il viewBox: 1 unita' SVG = 1 px. */
+  .map-hud .mh-gauge { position: relative; flex: none; width: 124px; height: 84px; }
+  .map-hud .mh-arc { display: block; width: 100%; height: 100%; }
+  .map-hud .mh-track { fill: none; stroke: var(--line-2); stroke-width: 10; stroke-linecap: round; }
+  .map-hud .mh-red { fill: none; stroke: var(--bad); stroke-width: 3; }
+  /* Niente stroke-dasharray, transform o visibility nelle regole di archi e
+     pallini: li scrive il JS come attributi, e una regola CSS batte l'attributo
+     di presentazione, congelandoli. */
+  .map-hud .mh-fill { fill: none; stroke-width: 10; }
+  .map-hud .mh-fill-l { stroke: var(--good); }
+  .map-hud .mh-fill-r { stroke: var(--accent); }
+  .map-hud .mh-zero { stroke: var(--text); stroke-width: 2.5; }
+  .map-hud .mh-peak { stroke: var(--text); stroke-width: 1.5; }
+  .map-hud .mh-peak-l { fill: var(--good); }
+  .map-hud .mh-peak-r { fill: var(--accent); }
+  /* Frecce del verso sotto lo zero, accesa solo quella del lato: il verso si
+     legge anche senza distinguere verde da ciano, e a 3° di piega, quando l'arco
+     e' ancora un filo, la freccia e' gia' piena. SVG e non ◀/▶: su alcuni
+     Android quei glifi diventano emoji e ignorano il colore. */
+  .map-hud .mh-arr { fill: var(--line-2); }
+  .map-hud.lean-l .mh-arr-l { fill: var(--good); }
+  .map-hud.lean-r .mh-arr-r { fill: var(--accent); }
+  .map-hud .mh-lean {
+    position: absolute; left: 0; right: 0; bottom: 0; text-align: center;
+    font-size: 40px; font-weight: 900; letter-spacing: -1px;
+  }
+  .map-hud .mh-lean small { vertical-align: top; font-size: 20px; font-weight: 800; letter-spacing: 0; color: var(--text-2); }
+  .map-hud.lean-l .mh-lean { color: var(--good); }
+  .map-hud.lean-r .mh-lean { color: var(--accent); }
+  .map-hud.nocal .mh-lean { color: var(--text-3); bottom: 12px; }
+  /* Affidabilita' bassa (vibrazione): la piega si spegne invece di sembrare
+     certa. .55 e non meno: il numero deve restare leggibile anche al sole. */
+  .map-hud.lowconf .mh-lean, .map-hud.lowconf .mh-fill, .map-hud.lowconf .mh-arr { opacity: .55; }
+  /* Solo "non calibrato": il verso lo dicono gia' arco e frecce. In basso, e il
+     numero sale (sotto): a 40px il "--" arriva fino a meta' quadrante e sopra ci
+     finiva dentro, testo su testo, proprio nello stato di chi non ha calibrato. */
+  .map-hud .mh-dir {
+    position: absolute; left: 0; right: 0; bottom: 1px; text-align: center; white-space: nowrap;
+    font-size: 11px; font-weight: 900; letter-spacing: .5px; text-transform: uppercase; color: var(--text-2);
+  }
+  /* Massimi di sessione negli angoli bassi, dal loro lato. */
+  .map-hud .mh-pk { position: absolute; bottom: 0; font-size: 13px; font-weight: 900; }
+  .map-hud .mh-pk-l { left: 0; color: var(--good); }
+  .map-hud .mh-pk-r { right: 0; color: var(--accent); }
+
+  .map-hud .mh-sep { align-self: stretch; width: 1px; margin: 6px 0; background: var(--line-2); }
+  .map-hud .mh-spd { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; }
+  /* Slot fisso di 3 cifre (+ il padding della pastiglia): da 99 a 100 km/h
+     l'HUD non si allarga. */
+  .map-hud .mh-speed {
+    min-width: calc(3ch + 10px); text-align: right;
+    font-size: 46px; font-weight: 900; line-height: .95; letter-spacing: -1px;
+  }
+  /* Oltre il limite la cifra diventa una pastiglia rossa piena: al sole un
+     blocco rosso si vede, cifre rosse su fondo scuro molto meno. Padding sempre
+     presente, cosi' accendersi non sposta nulla; la pastiglia abbraccia le sole
+     cifre anche quando sono due. */
+  .map-hud .mh-pill { display: inline-block; padding: 0 5px; border-radius: 10px; }
+  .map-hud.over .mh-pill { background: var(--bad); color: var(--bad-ink); }
+  .map-hud .mh-meta { align-self: stretch; display: flex; align-items: center; justify-content: space-between; gap: 6px; }
+  .map-hud .mh-unit { font-size: 11px; font-weight: 800; letter-spacing: 1px; text-transform: uppercase; color: var(--text-2); }
+  /* Limite come il cartello vero (anello rosso): si riconosce dalla forma prima
+     di leggerlo; nel tema chiaro e' proprio il cartello, bianco con cifre nere.
+     Tondo fisso, font piu' piccolo a 3 cifre (110, 130) invece di allargarsi.
+     visibility e non display: quando Overpass trova o perde il maxspeed l'HUD
+     non cambia misura. */
+  .map-hud .mh-limit {
+    width: 34px; height: 34px; border-radius: 50%; border: 4px solid var(--bad);
+    display: flex; align-items: center; justify-content: center;
+    background: var(--surface); color: var(--text);
+    font-size: 15px; font-weight: 900; letter-spacing: -.5px;
+  }
+  .map-hud.lim3 .mh-limit { font-size: 12px; letter-spacing: -.8px; }
+  .map-hud.nolim .mh-limit { visibility: hidden; }
+  .map-hud.over .mh-limit { background: var(--bad); color: var(--bad-ink); }
+
+  /* Schermi bassi (telefono in orizzontale): l'HUD non deve mangiare mezza
+     mappa. Quadrante con le proporzioni del viewBox (124:84): arco e frecce
+     scalano con l'SVG, i testi sopra si riducono a mano.
+     left 86: con i pulsanti Guida da 56 px la colonna .map-ctrl (left 10,
+     larga 66) scende fino a ~262 px, e su un viewport alto ~340 (barra del
+     browser) l'HUD nell'angolo le finiva sotto. */
+  @media (max-height: 420px) {
+    .map-hud { left: 86px; bottom: calc(10px + env(safe-area-inset-bottom)); padding: 4px 8px 4px 6px; gap: 6px; }
+    .map-hud .mh-gauge { width: 100px; height: 68px; }
+    .map-hud .mh-lean { font-size: 32px; }
+    .map-hud .mh-lean small { font-size: 16px; }
+    .map-hud .mh-dir { font-size: 9px; letter-spacing: .3px; }
+    .map-hud.nocal .mh-lean { bottom: 10px; }
+    .map-hud .mh-pk { font-size: 11px; }
+    .map-hud .mh-speed { font-size: 38px; }
+    .map-hud .mh-limit { width: 28px; height: 28px; border-width: 3px; font-size: 13px; }
+    .map-hud.lim3 .mh-limit { font-size: 10.5px; }
+  }
 
   .map-ctrl {
     position: absolute; top: 10px; left: 10px; z-index: 900;
     display: flex; flex-direction: column; gap: 6px;
-    background: rgba(15, 22, 34, 0.88); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+    background: var(--hud-bg); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
     border: 1px solid var(--line); border-radius: 14px; padding: 4px;
-    box-shadow: 0 6px 20px rgba(0,0,0,.45);
+    box-shadow: var(--hud-shadow);
   }
   .map-ctrl button {
     min-height: 42px; min-width: 42px; padding: 6px 8px; font-size: 18px;
@@ -926,12 +1029,41 @@
             </button>
           </div>
           <button id="btnMapFull" class="map-full-btn" title="Fullscreen mappa">⛶</button>
-          <div id="mapHud" class="map-hud" aria-hidden="true">
-            <div class="mh-row"><span id="mhLeanVal" class="mh-big">--</span><span class="mh-unit">°</span></div>
-            <div id="mhLeanDir" class="mh-dir"></div>
-            <div class="mh-max"><span id="mhMaxL">0°</span><span id="mhMaxR">0°</span></div>
+          <!-- HUD fullscreen: il gauge del cruscotto in miniatura + velocita' col
+               cartello del limite. Lo stato visivo e' UNA stringa di classi su
+               #mapHud (updateMapHud, js/display.js); la classe iniziale e' quella
+               che il JS calcola al boot (non calibrato, limite ignoto).
+               Arco: centro (62,66), raggio 57.3 = 180/pi, quindi 60° di arco sono
+               lunghi 60 unita' e lo stroke-dasharray scritto dal JS e' in gradi
+               anche dove pathLength fosse ignorato.
+               mhLeanDir e mhLeanVal restano HTML e non <text> SVG: un display.js
+               vecchio in cache ci assegna className/style, e su un nodo SVG
+               lancerebbe dentro updateDisplay fermando mainLoop. -->
+          <div id="mapHud" class="map-hud nocal nolim" aria-hidden="true">
+            <div class="mh-gauge">
+              <svg class="mh-arc" viewBox="0 0 124 84">
+                <g transform="translate(62 66)">
+                  <path class="mh-track" d="M-49.62-28.65A57.3 57.3 0 0 1 49.62-28.65"/>
+                  <path class="mh-red" d="M-50.94-42.75A66.5 66.5 0 0 0-57.59-33.25M50.94-42.75A66.5 66.5 0 0 1 57.59-33.25"/>
+                  <path id="mhArcL" class="mh-fill mh-fill-l" pathLength="60" stroke-dasharray="0 60" d="M0-57.3A57.3 57.3 0 0 0-49.62-28.65"/>
+                  <path id="mhArcR" class="mh-fill mh-fill-r" pathLength="60" stroke-dasharray="0 60" d="M0-57.3A57.3 57.3 0 0 1 49.62-28.65"/>
+                  <line class="mh-zero" x1="0" y1="-64" x2="0" y2="-50.5"/>
+                  <path class="mh-arr mh-arr-l" d="M-27-35.5-16-42v13z"/>
+                  <path class="mh-arr mh-arr-r" d="M27-35.5 16-42v13z"/>
+                  <circle id="mhPeakL" class="mh-peak mh-peak-l" cy="-57.3" r="4.5" visibility="hidden"/>
+                  <circle id="mhPeakR" class="mh-peak mh-peak-r" cy="-57.3" r="4.5" visibility="hidden"/>
+                </g>
+              </svg>
+              <div id="mhLeanDir" class="mh-dir">non calibrato</div>
+              <div class="mh-lean"><span id="mhLeanVal">--</span><small>°</small></div>
+              <span id="mhMaxL" class="mh-pk mh-pk-l">0°</span>
+              <span id="mhMaxR" class="mh-pk mh-pk-r">0°</span>
+            </div>
             <div class="mh-sep"></div>
-            <div class="mh-row"><span id="mhSpeedVal" class="mh-big">0</span><span class="mh-unit">km/h</span></div>
+            <div class="mh-spd">
+              <span class="mh-speed"><span id="mhSpeedVal" class="mh-pill">0</span></span>
+              <span class="mh-meta"><span class="mh-unit">km/h</span><span id="mhLimit" class="mh-limit"></span></span>
+            </div>
           </div>
         </div>
       </div>
@@ -1363,7 +1495,8 @@ const els = {
   btnExportCsv: $('btnExportCsv'), btnExportGpx: $('btnExportGpx'), btnExportCsvHist: $('btnExportCsvHist'),
   camAlert: $('camAlert'), camAlertsChk: $('camAlerts'), camDistSel: $('camDist'), btnMapFull: $('btnMapFull'),
   mapHud: $('mapHud'), mhLeanVal: $('mhLeanVal'), mhLeanDir: $('mhLeanDir'),
-  mhMaxL: $('mhMaxL'), mhMaxR: $('mhMaxR'), mhSpeedVal: $('mhSpeedVal'),
+  mhMaxL: $('mhMaxL'), mhMaxR: $('mhMaxR'), mhSpeedVal: $('mhSpeedVal'), mhLimit: $('mhLimit'),
+  mhArcL: $('mhArcL'), mhArcR: $('mhArcR'), mhPeakL: $('mhPeakL'), mhPeakR: $('mhPeakR'),
   camRadiusSel: $('camRadius'), camDot: $('camDot'), camTxt: $('camTxt'),
   navBanner: $('navBanner'), navQuery: $('navQuery'), navResults: $('navResults'),
   navDestTxt: $('navDestTxt'), navStatusTxt: $('navStatusTxt'), navSteps: $('navSteps'),

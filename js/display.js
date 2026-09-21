@@ -1,5 +1,5 @@
 'use strict';
-/* js/display.js (step 30): switchTab, demo state/tickDemo, setTxt, updateDisplay, setBar, mainLoop. init resta inline. Ordine: dopo js/misc.js. */
+/* js/display.js (step 30): switchTab, demo state/tickDemo, setTxt/setAttr, mapHudModel/updateMapHud, updateDisplay, setBar, mainLoop. init resta inline. Ordine: dopo js/misc.js. */
 function switchTab(name) {
   state.currentTab = name;
   document.querySelectorAll('.panel').forEach(p => p.classList.toggle('active', p.id === 'tab-' + name));
@@ -105,6 +105,13 @@ function setTxt(el, s) {
   el.textContent = s;
 }
 
+/* Come setTxt, per gli attributi dei nodi SVG dell'HUD: a DISPLAY_HZ riscrivere
+   lo stesso valore invalida comunque lo stile del nodo e ridipinge l'arco. */
+function setAttr(el, k, v) {
+  if (!el || el.getAttribute(k) === v) return;
+  el.setAttribute(k, v);
+}
+
 function guidaActive() {
   return !!(state.guidaAlways
     || state.logging
@@ -122,37 +129,95 @@ function updateGuidaMode() {
   document.body.classList.toggle('guida', on);
 }
 
+/* Isteresi dell'HUD: lo stato si accende alla soglia del cruscotto e si spegne
+   un po' prima. Il GPS balla di un km/h e leanConf segue la vibrazione: a
+   cavallo della soglia la cifra piu' grande lampeggerebbe proprio mentre la si
+   guarda. */
+const MAP_HUD_OVER_HYST_KMH = 1;
+const MAP_HUD_CONF_LOW = 0.33;   // stessa soglia di .lean-conf.bad (updateDisplay)
+const MAP_HUD_CONF_OK = 0.45;
+
+/* Pura: stato -> stringhe pronte per l'HUD. Verso, limite, affidabilita' e NaN
+   si decidono qui e si testano senza DOM; updateMapHud scrive e basta. `prev` e'
+   il modello del giro prima (null al primo): serve solo all'isteresi, passato
+   esplicito invece che parcheggiato in state.
+   Gli archi valgono 60 unita' (raggio 180/pi e pathLength=60 nel markup): il
+   dasharray e' in gradi e qui non si ripetono ne' raggio ne' centro. */
+function mapHudModel(st, prev) {
+  const cal = !!(st.demo || st.calib);
+  // Mai "NaN 60" nel dasharray: e' un attributo SVG non valido.
+  const ok = cal && isFinite(st.lean);
+  const a = ok ? Math.abs(st.lean) : 0;
+  // Sotto 1° niente verso e niente arco, come l'etichetta del cruscotto.
+  const side = a < 1 ? '' : (st.lean > 0 ? 'r' : 'l');
+  // Stesso arrotondamento del testo (toFixed(0)): arco e "50°" dicono la stessa cosa.
+  const fill = Math.min(60, Math.round(a));
+  const lim = st.speedLimit;
+  const margin = SPEED_LIMIT_OVER_KMH - (prev && prev.over ? MAP_HUD_OVER_HYST_KMH : 0);
+  const over = lim != null && st.speedKph > lim + margin;
+  const c = clamp01(st.leanConf);
+  const lowconf = cal && (prev && prev.lowconf ? c < MAP_HUD_CONF_OK : c <= MAP_HUD_CONF_LOW);
+  let cls = 'map-hud';
+  if (!cal) cls += ' nocal';
+  else if (side) cls += ' lean-' + side;
+  if (lowconf) cls += ' lowconf';
+  // A 3 cifre (110, 130) il cartello stringe il font invece di allargarsi.
+  if (lim == null) cls += ' nolim';
+  else if (String(lim).length > 2) cls += ' lim3';
+  if (over) cls += ' over';
+  // Pallino del massimo: rotazione attorno al centro del quadrante (il <g> e'
+  // gia' traslato li'), nascosto fino a 1° come in setPeaks.
+  const peak = (d, sgn) => Math.abs(d) > 1
+    ? 'rotate(' + sgn * Math.min(60, Math.round(Math.abs(d))) + ')' : '';
+  const mxL = st.session.maxLeanL, mxR = st.session.maxLeanR;
+  return {
+    cls, over, lowconf,
+    lean: ok ? a.toFixed(0) : '--',
+    dir: cal ? '' : 'non calibrato',
+    dashL: (side === 'l' ? fill : 0) + ' 60',
+    dashR: (side === 'r' ? fill : 0) + ' 60',
+    peakL: peak(mxL, -1),
+    peakR: peak(mxR, 1),
+    maxL: Math.abs(mxL).toFixed(0) + '°',
+    maxR: Math.abs(mxR).toFixed(0) + '°',
+    speed: String(Math.round(st.speedKph)),
+    limit: lim == null ? '' : String(lim),
+  };
+}
+
+let mapHudPrev = null;   // modello del giro prima: solo per l'isteresi
+let mapHudErr = false;   // errore HUD gia' loggato (vedi updateDisplay)
+
+function mapHudPeak(el, t) {
+  setAttr(el, 'visibility', t ? 'visible' : 'hidden');
+  if (t) setAttr(el, 'transform', t);
+}
+
 /* HUD in basso a sinistra della mappa fullscreen: in fullscreen il cruscotto non
-   c'e' piu', quindi piega (valore, verso, massimi di sessione) e velocita' vanno
+   c'e' piu', quindi piega (arco, verso, massimi) e velocita' col limite vanno
    ripetuti qui. Esce subito fuori dal fullscreen: gira a DISPLAY_HZ e scrivere
-   nodi invisibili e' solo batteria. */
+   nodi invisibili e' solo batteria. I colori li decide il CSS da UNA classe sul
+   contenitore (prima className e style.color partivano a ogni tick anche a
+   valori fermi); il resto passa da setTxt/setAttr: a valori fermi, zero
+   scritture nel DOM. Mai className sui nodi SVG: li' e' in sola lettura e in
+   strict mode assegnarlo lancia. */
 function updateMapHud() {
-  if (!els.mapHud || !document.body.classList.contains('map-fullscreen')) return;
-  const calibrated = state.demo || state.calib;
-  if (calibrated) {
-    setTxt(els.mhLeanVal, Math.abs(state.lean).toFixed(0));
-    if (Math.abs(state.lean) < 1) {
-      setTxt(els.mhLeanDir, '');
-      els.mhLeanDir.className = 'mh-dir';
-      els.mhLeanVal.style.color = 'var(--text)';
-    } else if (state.lean > 0) {
-      setTxt(els.mhLeanDir, 'DESTRA ▶');
-      els.mhLeanDir.className = 'mh-dir right';
-      els.mhLeanVal.style.color = 'var(--accent)';
-    } else {
-      setTxt(els.mhLeanDir, '◀ SINISTRA');
-      els.mhLeanDir.className = 'mh-dir left';
-      els.mhLeanVal.style.color = 'var(--good)';
-    }
-  } else {
-    setTxt(els.mhLeanVal, '--');
-    setTxt(els.mhLeanDir, 'non calibrato');
-    els.mhLeanDir.className = 'mh-dir';
-    els.mhLeanVal.style.color = 'var(--text-3)';
-  }
-  setTxt(els.mhMaxL, Math.abs(state.session.maxLeanL).toFixed(0) + '°');
-  setTxt(els.mhMaxR, Math.abs(state.session.maxLeanR).toFixed(0) + '°');
-  setTxt(els.mhSpeedVal, Math.round(state.speedKph));
+  // Uscendo dal fullscreen l'isteresi non ha piu' senso: al rientro il primo
+  // giro riparte dalle soglie piene invece di trascinarsi lo stato di prima.
+  if (!els.mapHud || !document.body.classList.contains('map-fullscreen')) { mapHudPrev = null; return; }
+  const m = mapHudModel(state, mapHudPrev);
+  mapHudPrev = m;
+  if (els.mapHud.className !== m.cls) els.mapHud.className = m.cls;
+  setTxt(els.mhLeanVal, m.lean);
+  setTxt(els.mhLeanDir, m.dir);
+  setTxt(els.mhMaxL, m.maxL);
+  setTxt(els.mhMaxR, m.maxR);
+  setTxt(els.mhSpeedVal, m.speed);
+  setTxt(els.mhLimit, m.limit);   // vuoto = limite ignoto, nascosto da .nolim
+  setAttr(els.mhArcL, 'stroke-dasharray', m.dashL);
+  setAttr(els.mhArcR, 'stroke-dasharray', m.dashR);
+  mapHudPeak(els.mhPeakL, m.peakL);
+  mapHudPeak(els.mhPeakR, m.peakR);
 }
 
 function updateDisplay() {
@@ -270,7 +335,13 @@ function updateDisplay() {
   setTxt(els.statTime, mm + ':' + ss);
   setTxt(els.topTime, mm + ':' + ss);
 
-  updateMapHud();
+  /* L'HUD e' un di piu': un suo errore non deve fermare il cruscotto. mainLoop
+     rimette in coda requestAnimationFrame solo in fondo, quindi un throw qui
+     congelerebbe tutto (in fullscreen, in marcia, anche l'HUD). Log una volta:
+     a 15 Hz sarebbe solo rumore. */
+  try { updateMapHud(); } catch (e) {
+    if (!mapHudErr) { mapHudErr = true; console.warn('[hud]', e); }
+  }
   updateGpsStatus();
   updateCamStatus();
 }
