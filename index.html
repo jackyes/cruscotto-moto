@@ -557,20 +557,21 @@
   }
   /* HUD mappa: vive solo in fullscreen, dove header e cruscotto spariscono e
      restano i due numeri che in marcia servono davvero — piega e velocita'.
-     pointer-events:none: e' un display, non deve rubare il drag alla mappa. */
+     pointer-events:none: e' un display, non deve rubare il drag alla mappa.
+     In basso a sinistra: a destra ci sono i pulsanti di zoom di Leaflet. */
   .map-hud {
-    position: absolute; right: 10px; bottom: 22px; z-index: 900;
-    display: none; flex-direction: column; align-items: flex-end; gap: 3px;
+    position: absolute; left: 10px; bottom: 22px; z-index: 900;
+    display: none; flex-direction: column; align-items: flex-start; gap: 3px;
     padding: 8px 12px; border-radius: 14px;
     background: rgba(15, 22, 34, 0.88); color: var(--text);
     border: 1px solid var(--line);
     backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
     box-shadow: 0 6px 20px rgba(0,0,0,.45);
     font-variant-numeric: tabular-nums; pointer-events: none;
-    text-align: right;
+    text-align: left;
   }
   body.map-fullscreen .map-hud { display: flex; }
-  .map-hud .mh-row { display: flex; align-items: baseline; justify-content: flex-end; gap: 3px; }
+  .map-hud .mh-row { display: flex; align-items: baseline; justify-content: flex-start; gap: 3px; }
   .map-hud .mh-big { font-size: 32px; font-weight: 900; line-height: 1.02; }
   .map-hud .mh-unit { font-size: 11px; font-weight: 800; color: var(--text-3); letter-spacing: .4px; }
   .map-hud .mh-dir { font-size: 11px; font-weight: 800; letter-spacing: .6px; color: var(--text-2); min-height: 13px; }

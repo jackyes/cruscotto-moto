@@ -122,7 +122,7 @@ function updateGuidaMode() {
   document.body.classList.toggle('guida', on);
 }
 
-/* HUD in basso a destra della mappa fullscreen: in fullscreen il cruscotto non
+/* HUD in basso a sinistra della mappa fullscreen: in fullscreen il cruscotto non
    c'e' piu', quindi piega (valore, verso, massimi di sessione) e velocita' vanno
    ripetuti qui. Esce subito fuori dal fullscreen: gira a DISPLAY_HZ e scrivere
    nodi invisibili e' solo batteria. */
