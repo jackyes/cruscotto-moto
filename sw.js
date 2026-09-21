@@ -10,7 +10,7 @@
 
 'use strict';
 
-const CACHE_VERSION = 'v18';   // shell (codice app): alzare per forzare il rinnovo
+const CACHE_VERSION = 'v19';   // shell (codice app): alzare per forzare il rinnovo
 const MAP_VERSION  = 'v12';    // tile/liberty/satellite: indipendente dallo shell. Parte
                                // dallo stesso valore del vecchio schema (v12) così il primo
                                // deploy NON orfanizza le cache già scaricate; va alzato solo
@@ -89,7 +89,9 @@ self.addEventListener('install', event => {
     Promise.all([
       caches.open(SHELL_CACHE)
         // addAll fallisce in blocco se una sola risorsa manca: si va a una a una.
-        .then(c => Promise.all(SHELL.map(u => c.add(u).catch(() => {
+        // cache: 'reload': il precache scavalca la HTTP cache del browser, altrimenti
+        // la shell nuova poteva nascere con dentro moduli del deploy precedente.
+        .then(c => Promise.all(SHELL.map(u => c.add(new Request(u, { cache: 'reload' })).catch(() => {
           console.warn('[sw] precache shell fallito:', u);
         })))),
       caches.open(LIB_CACHE)
@@ -168,6 +170,7 @@ async function cacheFirst(req, cacheName, opts) {
    un js/*.js vecchio accanto a un index.html nuovo, e la pagina chiamava funzioni
    che il modulo stantio non aveva ("updateMapHud is not defined"). */
 async function fetchWithTimeoutSW(req, ms) {
+  if (ms == null) return fetch(req, { cache: 'no-cache' });  // nessun timeout: decide il browser
   const ctl = new AbortController();
   const t = setTimeout(() => ctl.abort(), ms);
   try {
@@ -177,11 +180,31 @@ async function fetchWithTimeoutSW(req, ms) {
   }
 }
 
+/* Da dove e' arrivato il documento di ogni pagina (clientId -> 'net' | 'cache').
+   Serve a non mischiare versioni: pagina e moduli devono venire dallo stesso
+   deploy. Con un timeout uguale per tutti, su rete lenta index.html arrivava
+   dalla rete e un js/*.js lento ripiegava sulla copia in cache del deploy
+   precedente → funzioni mancanti ("updateMapHud is not defined").
+   - documento dalla rete: i suoi file aspettano la rete (niente timeout; la cache
+     solo se la rete fallisce davvero, cioe' e' caduta a meta' caricamento);
+   - documento dalla cache: i suoi file vengono dalla stessa cache, coerente.
+   Vive in memoria: se il worker viene terminato si perde, e per quei client si
+   torna al timeout classico. */
+const docSource = new Map();
+const DOC_SOURCE_MAX = 32;
+function rememberDocSource(clientId, source) {
+  if (!clientId) return;
+  docSource.delete(clientId);
+  docSource.set(clientId, source);
+  // Le chiavi sono in ordine di inserimento: via le pagine piu' vecchie.
+  while (docSource.size > DOC_SOURCE_MAX) docSource.delete(docSource.keys().next().value);
+}
+
 /* Navigazioni: rete prima (così un deploy nuovo arriva subito), cache se offline.
    Una risposta NON-ok (404/500: glitch server durante un deploy) va trattata come
    errore: restituirla significava mostrare la pagina d'errore anche se la cache
    aveva la shell funzionante. */
-async function networkFirst(req) {
+async function networkFirst(req, clientId) {
   const cache = await caches.open(SHELL_CACHE);
   try {
     const res = await fetchWithTimeoutSW(req, 2500);
@@ -189,10 +212,11 @@ async function networkFirst(req) {
     // Niente cache.put per URL con query string: le navigazioni cache-bustate
     // (index.html?v=…) moltiplicavano le voci di SHELL_CACHE senza fine.
     try { if (!new URL(req.url).search) await cache.put(req, res.clone()); } catch (_) {}
+    rememberDocSource(clientId, 'net');
     return res;
   } catch (e) {
     const hit = await cache.match(req) || await cache.match('./index.html');
-    if (hit) return hit;
+    if (hit) { rememberDocSource(clientId, 'cache'); return hit; }
     throw e;
   }
 }
@@ -213,7 +237,7 @@ self.addEventListener('fetch', event => {
       url.hostname.endsWith('photon.komoot.io')) return;
 
   if (req.mode === 'navigate') {
-    event.respondWith(networkFirst(req));
+    event.respondWith(networkFirst(req, event.resultingClientId));
     return;
   }
 
@@ -243,10 +267,17 @@ self.addEventListener('fetch', event => {
     // Rete prima: il codice app va servito fresco quando online (il
     // cache-first serviva versioni stantie di js/*, es. il muxer MP4 con
     // il vecchio import → "Muxer non caricato"). Offline → cache.
+    const source = docSource.get(event.clientId);
     event.respondWith(
       caches.open(SHELL_CACHE).then(async cache => {
+        // Pagina servita dalla cache: i suoi moduli dalla stessa cache, senza
+        // aspettare una rete che per la navigazione si e' gia' rivelata lenta.
+        if (source === 'cache') {
+          const hit = await cache.match(req);
+          if (hit) return hit;
+        }
         let res;
-        try { res = await fetchWithTimeoutSW(req, 2500); } catch (e) { res = null; }
+        try { res = await fetchWithTimeoutSW(req, source === 'net' ? null : 2500); } catch (e) { res = null; }
         if (res && res.ok) {
           // Niente cache.put per URL con query string: ogni richiesta
           // cache-bustata moltiplicava le voci di SHELL_CACHE senza fine
