@@ -181,6 +181,8 @@ function mapHudModel(st, prev) {
     maxL: Math.abs(mxL).toFixed(0) + '°',
     maxR: Math.abs(mxR).toFixed(0) + '°',
     speed: String(Math.round(st.speedKph)),
+    // distKm puo' essere NaN su uno storico recuperato: meglio "0.00" che "NaN km".
+    dist: (isFinite(st.session.distKm) ? st.session.distKm : 0).toFixed(2) + ' km',
     limit: lim == null ? '' : String(lim),
   };
 }
@@ -195,7 +197,7 @@ function mapHudPeak(el, t) {
 
 /* HUD in basso a sinistra della mappa fullscreen: in fullscreen il cruscotto non
    c'e' piu', quindi piega (arco, verso, massimi) e velocita' col limite vanno
-   ripetuti qui. Esce subito fuori dal fullscreen: gira a DISPLAY_HZ e scrivere
+   ripetuti qui, piu' i km di sessione. Esce subito fuori dal fullscreen: gira a DISPLAY_HZ e scrivere
    nodi invisibili e' solo batteria. I colori li decide il CSS da UNA classe sul
    contenitore (prima className e style.color partivano a ogni tick anche a
    valori fermi); il resto passa da setTxt/setAttr: a valori fermi, zero
@@ -213,6 +215,7 @@ function updateMapHud() {
   setTxt(els.mhMaxL, m.maxL);
   setTxt(els.mhMaxR, m.maxR);
   setTxt(els.mhSpeedVal, m.speed);
+  setTxt(els.mhDist, m.dist);
   setTxt(els.mhLimit, m.limit);   // vuoto = limite ignoto, nascosto da .nolim
   setAttr(els.mhArcL, 'stroke-dasharray', m.dashL);
   setAttr(els.mhArcR, 'stroke-dasharray', m.dashR);

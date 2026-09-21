@@ -656,6 +656,10 @@
   .map-hud .mh-pill { display: inline-block; padding: 0 5px; border-radius: 10px; }
   .map-hud.over .mh-pill { background: var(--bad); color: var(--bad-ink); }
   .map-hud .mh-meta { align-self: stretch; display: flex; align-items: center; justify-content: space-between; gap: 6px; }
+  /* Unita' e km percorsi impilati accanto al cartello: la riga resta alta quanto
+     il cartello, quindi i km non fanno crescere l'HUD di un pixel. */
+  .map-hud .mh-meta-l { display: flex; flex-direction: column; align-items: flex-end; gap: 1px; }
+  .map-hud .mh-dist { font-size: 12px; font-weight: 800; color: var(--text-2); white-space: nowrap; }
   .map-hud .mh-unit { font-size: 11px; font-weight: 800; letter-spacing: 1px; text-transform: uppercase; color: var(--text-2); }
   /* Limite come il cartello vero (anello rosso): si riconosce dalla forma prima
      di leggerlo; nel tema chiaro e' proprio il cartello, bianco con cifre nere.
@@ -687,6 +691,7 @@
     .map-hud.nocal .mh-lean { bottom: 10px; }
     .map-hud .mh-pk { font-size: 11px; }
     .map-hud .mh-speed { font-size: 38px; }
+    .map-hud .mh-dist { font-size: 10.5px; }
     .map-hud .mh-limit { width: 28px; height: 28px; border-width: 3px; font-size: 13px; }
     .map-hud.lim3 .mh-limit { font-size: 10.5px; }
   }
@@ -1062,7 +1067,10 @@
             <div class="mh-sep"></div>
             <div class="mh-spd">
               <span class="mh-speed"><span id="mhSpeedVal" class="mh-pill">0</span></span>
-              <span class="mh-meta"><span class="mh-unit">km/h</span><span id="mhLimit" class="mh-limit"></span></span>
+              <span class="mh-meta">
+                <span class="mh-meta-l"><span class="mh-unit">km/h</span><span id="mhDist" class="mh-dist">0.00 km</span></span>
+                <span id="mhLimit" class="mh-limit"></span>
+              </span>
             </div>
           </div>
         </div>
@@ -1496,6 +1504,7 @@ const els = {
   camAlert: $('camAlert'), camAlertsChk: $('camAlerts'), camDistSel: $('camDist'), btnMapFull: $('btnMapFull'),
   mapHud: $('mapHud'), mhLeanVal: $('mhLeanVal'), mhLeanDir: $('mhLeanDir'),
   mhMaxL: $('mhMaxL'), mhMaxR: $('mhMaxR'), mhSpeedVal: $('mhSpeedVal'), mhLimit: $('mhLimit'),
+  mhDist: $('mhDist'),
   mhArcL: $('mhArcL'), mhArcR: $('mhArcR'), mhPeakL: $('mhPeakL'), mhPeakR: $('mhPeakR'),
   camRadiusSel: $('camRadius'), camDot: $('camDot'), camTxt: $('camTxt'),
   navBanner: $('navBanner'), navQuery: $('navQuery'), navResults: $('navResults'),

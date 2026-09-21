@@ -61,8 +61,10 @@ test('updateMapHud: scrive piega, verso, massimi e velocità solo in fullscreen'
   state.lean = -32.4;
   state.session.maxLeanL = -41.6;
   state.session.maxLeanR = 37.2;
+  state.session.distKm = 12.345;
   updateMapHud();
   assert.equal(els.mhSpeedVal.textContent, '88');
+  assert.equal(els.mhDist.textContent, '12.35 km');
   assert.equal(els.mhLeanVal.textContent, '32');
   assert.equal(els.mapHud.className, 'map-hud lean-l nolim');
   assert.equal(els.mhLeanDir.textContent, '');
@@ -144,6 +146,11 @@ test('mapHudModel: verso, arco in gradi, limite e affidabilità con isteresi, Na
   assert.equal(r.dir, 'non calibrato');
 
   // Pallini dei massimi: nascosti fino a 1°, saturi a 60°, arrotondati come il testo.
+  // Km di sessione: due decimali come il cruscotto, e mai "NaN km".
+  assert.equal(m({ session: { maxLeanL: 0, maxLeanR: 0, distKm: 12.345 } }).dist, '12.35 km');
+  assert.equal(m({ session: { maxLeanL: 0, maxLeanR: 0, distKm: NaN } }).dist, '0.00 km');
+  assert.equal(m({}).dist, '0.00 km');
+
   r = m({ session: { maxLeanL: -41.6, maxLeanR: 0.8 } });
   assert.equal(r.peakL, 'rotate(-42)');
   assert.equal(r.maxL, '42°');
