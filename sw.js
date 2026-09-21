@@ -10,7 +10,7 @@
 
 'use strict';
 
-const CACHE_VERSION = 'v17';   // shell (codice app): alzare per forzare il rinnovo
+const CACHE_VERSION = 'v18';   // shell (codice app): alzare per forzare il rinnovo
 const MAP_VERSION  = 'v12';    // tile/liberty/satellite: indipendente dallo shell. Parte
                                // dallo stesso valore del vecchio schema (v12) così il primo
                                // deploy NON orfanizza le cache già scaricate; va alzato solo
@@ -162,12 +162,16 @@ async function cacheFirst(req, cacheName, opts) {
 
 /* fetch con timeout: su rete presente ma lentissima (galleria, zona rurale — il
    caso comune in moto, non l'offline netto) senza timeout l'app restava bloccata
-   a lungo prima di ripiegare sulla cache già disponibile. */
+   a lungo prima di ripiegare sulla cache già disponibile.
+   cache: 'no-cache' = rivalida sempre col server (ETag → 304, pochi byte): con il
+   default la HTTP cache del browser (GitHub Pages manda max-age=600) poteva dare
+   un js/*.js vecchio accanto a un index.html nuovo, e la pagina chiamava funzioni
+   che il modulo stantio non aveva ("updateMapHud is not defined"). */
 async function fetchWithTimeoutSW(req, ms) {
   const ctl = new AbortController();
   const t = setTimeout(() => ctl.abort(), ms);
   try {
-    return await fetch(req, { signal: ctl.signal });
+    return await fetch(req, { signal: ctl.signal, cache: 'no-cache' });
   } finally {
     clearTimeout(t);
   }

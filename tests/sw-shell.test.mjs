@@ -50,3 +50,11 @@ test('settingsPanel visibile (niente attributo hidden)', () => {
   assert.match(html, /<details id="settingsPanel">/);
   assert.doesNotMatch(html, /<details id="settingsPanel" hidden/);
 });
+
+test('sw.js: le fetch di rete rivalidano sempre (niente HTTP cache stantia)', () => {
+  // Senza no-cache la HTTP cache del browser serviva js/*.js vecchi accanto a un
+  // index.html nuovo: "updateMapHud is not defined" aprendo la mappa.
+  const m = sw.match(/async function fetchWithTimeoutSW[\s\S]*?\n}/);
+  assert.ok(m, 'fetchWithTimeoutSW non trovata');
+  assert.match(m[0], /cache:\s*'no-cache'/);
+});
