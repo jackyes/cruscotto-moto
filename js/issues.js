@@ -8,7 +8,7 @@
    leggono o copiano da Storico → Errori app. */
 
 // Uguale a CACHE_VERSION in sw.js (lo verifica tests/issues.test.mjs).
-const APP_VERSION = 'v39';
+const APP_VERSION = 'v40';
 
 const ISSUE_KEY = 'cruscotto.issues';
 const ISSUE_SEEN_KEY = 'cruscotto.issuesSeen';

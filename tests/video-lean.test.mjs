@@ -70,9 +70,10 @@ test('videoMapProj: una tantum, scala fit, formula X/Y', () => {
   const bb = { minLat: 44, maxLat: 45, minLon: 10, maxLon: 12 };
   const p = videoMapProj(bb, 0, 100, 400, 300, 40);
   assert.ok(p.scale > 0);
-  // spanLon=2 → (400-80)/2=160; spanLat=1 → (300-80)/1=220: vince 160.
-  assert.equal(p.scale, 160);
-  const X = lon => p.x + p.ox + (lon - p.minLon) * p.scale;
+  // spanLon=2° × cos(44,5°)=1,426 → (400-80)/1,426=224; spanLat=1 → (300-80)/1=220: vince 220.
+  assert.ok(Math.abs(p.kx - Math.cos(44.5 * Math.PI / 180)) < 1e-12);
+  assert.equal(p.scale, 220);
+  const X = lon => p.x + p.ox + (lon - p.minLon) * p.kx * p.scale;
   const Y = lat => p.y + p.oy + (p.maxLat - lat) * p.scale;
   assert.equal(X(10), p.x + p.ox);
   assert.equal(Y(45), p.y + p.oy);
@@ -93,4 +94,18 @@ test('videoMapBgKey: cambia con geometria o tema', () => {
   assert.equal(videoMapBgKey(bb, 0, 0, 400, 300, '#g', '#b'), a);
   assert.notEqual(videoMapBgKey(bb, 0, 0, 401, 300, '#g', '#b'), a);
   assert.notEqual(videoMapBgKey(bb, 0, 0, 400, 300, '#g2', '#b'), a);
+});
+
+test('videoMapProj: un cerchio a 45° N resta un cerchio (longitudine corretta con cos lat)', () => {
+  // Cerchio di ~1,1 km: in gradi la longitudine è 1/cos(45°) volte più ampia.
+  const pts = Array.from({ length: 72 }, (_, i) => {
+    const u = i / 72 * 2 * Math.PI;
+    return { lat: 45 + 0.01 * Math.sin(u), lon: 9 + 0.01 / Math.cos(45 * Math.PI / 180) * Math.cos(u) };
+  });
+  const bb = videoMapBounds(pts);
+  const p = videoMapProj(bb, 0, 0, 800, 800, 40);
+  const xs = pts.map(q => p.ox + (q.lon - p.minLon) * p.kx * p.scale);
+  const ys = pts.map(q => p.oy + (p.maxLat - q.lat) * p.scale);
+  const w = Math.max(...xs) - Math.min(...xs), h = Math.max(...ys) - Math.min(...ys);
+  assert.ok(Math.abs(w / h - 1) < 0.01, 'rapporto largo/alto: ' + (w / h).toFixed(3));
 });

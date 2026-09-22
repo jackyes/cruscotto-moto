@@ -651,12 +651,17 @@ function videoLeanBin(leanDeg, bins) {
 }
 
 /* Pura: proiezione traccia→pixel relativa al pannello (una tantum: dipende
-   solo da bbox e dimensioni, mai dal frame). X(lon)=x+ox+(lon-minLon)*scale. */
+   solo da bbox e dimensioni, mai dal frame).
+   X(lon)=x+ox+(lon-minLon)*kx*scale, Y(lat)=y+oy+(maxLat-lat)*scale.
+   kx = cos(latitudine media): un grado di longitudine è più corto di uno di
+   latitudine (0,71 a 45° N). Senza, la mappa del video usciva stirata in
+   orizzontale del ~40% in Italia, a differenza di card e replay. */
 function videoMapProj(bb, x, y, w, h, pad) {
   const p = isFinite(pad) ? pad : 40;
-  const spanLat = ((bb.maxLat - bb.minLat) || 0.0001), spanLon = ((bb.maxLon - bb.minLon) || 0.0001);
+  const kx = Math.max(0.15, Math.cos((bb.minLat + bb.maxLat) / 2 * Math.PI / 180));
+  const spanLat = ((bb.maxLat - bb.minLat) || 0.0001), spanLon = ((bb.maxLon - bb.minLon) || 0.0001) * kx;
   const scale = Math.min((w - 2 * p) / spanLon, (h - 2 * p) / spanLat);
-  return { scale, ox: (w - spanLon * scale) / 2, oy: (h - spanLat * scale) / 2, x, y,
+  return { scale, kx, ox: (w - spanLon * scale) / 2, oy: (h - spanLat * scale) / 2, x, y,
     minLon: bb.minLon, maxLat: bb.maxLat };
 }
 
@@ -686,7 +691,7 @@ function videoMapBgBuild(proj, pts, w, h, grid, bg, good, bad) {
   } catch (e) { return null; }
   const c = bgc.getContext ? bgc.getContext('2d') : null;
   if (!c) return null;
-  const X = lon => proj.ox + (lon - proj.minLon) * proj.scale;
+  const X = lon => proj.ox + (lon - proj.minLon) * proj.kx * proj.scale;
   const Y = lat => proj.oy + (proj.maxLat - lat) * proj.scale;
   c.fillStyle = bg; c.fillRect(0, 0, bgc.width, bgc.height);
   const n = pts.length;
@@ -716,7 +721,7 @@ function drawVideoMap(ctx, job, x, y, w, h, rowIdx, r, grid, axis, accent, good,
   if (!job._mapBounds) job._mapBounds = videoMapBounds(pts);
   const bb = job._mapBounds || { minLat: 0, maxLat: 0.0001, minLon: 0, maxLon: 0.0001 };
   const proj = videoMapProj(bb, x, y, w, h, 40);
-  const X = lon => proj.x + proj.ox + (lon - proj.minLon) * proj.scale;
+  const X = lon => proj.x + proj.ox + (lon - proj.minLon) * proj.kx * proj.scale;
   const Y = lat => proj.y + proj.oy + (proj.maxLat - lat) * proj.scale;
 
   const n = pts.length;
