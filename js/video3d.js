@@ -343,11 +343,18 @@ function loadVideo3DScript(url, onload, onerror, integrity) {
   document.head.appendChild(sc);
 }
 
+/* Metri per pixel a zoom 0 all'equatore in MapLibre, che lavora con tile da
+   512 px (40.075.016,686 m / 512). Prima c'era 156543,03, il valore delle tile
+   da 256 px (Leaflet, Google): altezze e commenti erano il doppio di quelle
+   reali. Corretto insieme ai bersagli di videoCamAltFor, dimezzati: lo zoom
+   risultante — e quindi il video — è identico a prima. */
+const MAPLIBRE_MPP_Z0 = 78271.517;
+
 /* Pura: altezza camera vera dal suolo (§6.5 doc replay). Dipende anche
    dall'altezza viewport: stesso zoom su telefono basso = più in alto. */
 function videoCamHeightFor(zoom, pitchDeg, latDeg, viewportHPx) {
   if (!isFinite(zoom) || !isFinite(pitchDeg) || !isFinite(latDeg) || !isFinite(viewportHPx)) return NaN;
-  const mpp = 156543.03 * Math.cos(latDeg * Math.PI / 180) / Math.pow(2, zoom);
+  const mpp = MAPLIBRE_MPP_Z0 * Math.cos(latDeg * Math.PI / 180) / Math.pow(2, zoom);
   const dPx = 1.5 * Math.max(1, viewportHPx);
   return dPx * mpp * Math.cos(pitchDeg * Math.PI / 180);
 }
@@ -359,7 +366,7 @@ function videoZoomForHeight(targetM, pitchDeg, latDeg, viewportHPx) {
   const cosP = Math.cos(pitchDeg * Math.PI / 180);
   if (cosP <= 0.05) return NaN;
   const mpp = targetM / (1.5 * Math.max(1, viewportHPx) * cosP);
-  const z = Math.log2(156543.03 * Math.cos(latDeg * Math.PI / 180) / mpp);
+  const z = Math.log2(MAPLIBRE_MPP_Z0 * Math.cos(latDeg * Math.PI / 180) / mpp);
   return Math.max(10, Math.min(18, z));
 }
 
@@ -1002,8 +1009,9 @@ function videoCamAltFor(speedKmh, leanDeg) {
   const v = isFinite(speedKmh) ? Math.max(0, speedKmh) : 0;
   const lean = isFinite(leanDeg) ? Math.min(60, Math.abs(leanDeg)) : 0;
   const t = Math.max(0, Math.min(1, v / 120)); // 0 km/h → 0, 120+ → 1
-  // 90 m fermo → 260 m veloce; piega abbassa (prospettiva radente).
-  return 90 + t * 170 - (lean / 60) * 15;
+  // Altezze vere (vedi MAPLIBRE_MPP_Z0): 45 m fermo → 130 m veloce; la piega
+  // abbassa fino a 7,5 m (prospettiva radente).
+  return 45 + t * 85 - (lean / 60) * 7.5;
 }
 
 /* Pura: camera mappa dinamica. Veloce → zoom out (più strada visibile),

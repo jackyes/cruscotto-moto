@@ -1,17 +1,20 @@
-// MapLibre 5 + init robusto: altezza camera vera, zoom da altezza, conf v5+fallback.
+// MapLibre 5 + init robusto: altezza camera vera (tile da 512 px), zoom da altezza, conf v5+fallback.
 import { test } from 'node:test';
 import assert from 'node:assert';
 import { api } from './harness.mjs';
 
 const { videoCamHeightFor, videoZoomForHeight, videoSatProbe, VIDEO3D_CONF } = api;
 
-test('videoCamHeightFor: formula doc §6.5, valori reali', () => {
-  // mpp=156543*cos44/2^17.4≈0.65, d=1.5*760=1140, h=1140*0.65*cos72≈230.
+test('videoCamHeightFor: formula doc §6.5 con le tile da 512 px di MapLibre', () => {
+  // mpp=78271,5*cos44/2^17,4≈0,33, d=1,5*760=1140, h=1140*0,33*cos72≈115.
   const h = videoCamHeightFor(17.4, 72, 44, 760);
-  assert.ok(h > 210 && h < 250, 'altezza: ' + h);
-  // Viewport dimezzata (padding/orientamento) → metà altezza: ~115 = chase.
+  assert.ok(h > 105 && h < 125, 'altezza: ' + h);
+  // Viewport dimezzata (padding/orientamento) → metà altezza.
   const h2 = videoCamHeightFor(17.4, 72, 44, 380);
-  assert.ok(h2 > 90 && h2 < 140, 'chase: ' + h2);
+  assert.ok(h2 > 50 && h2 < 65, 'chase: ' + h2);
+  // Metri per pixel di MapLibre: 40.075.016,686 m / (512 · 2^z) all'equatore.
+  const z = 12;
+  assert.ok(Math.abs(videoCamHeightFor(z, 0, 0, 1) - 1.5 * 40075016.686 / (512 * 2 ** z)) < 1e-6);
 });
 
 test('videoCamHeightFor: stesso zoom, viewport alta = più in alto', () => {
@@ -20,11 +23,24 @@ test('videoCamHeightFor: stesso zoom, viewport alta = più in alto', () => {
   assert.ok(b > a * 1.9 && b < a * 2.1, a + ' vs ' + b);
 });
 
-test('videoZoomForHeight: 230 m → zoom che ricade ≈ 230 m', () => {
-  const z = videoZoomForHeight(230, 72, 44, 760);
+test('videoZoomForHeight: 115 m → zoom che ricade ≈ 115 m', () => {
+  const z = videoZoomForHeight(115, 72, 44, 760);
   assert.ok(z > 16 && z <= 18, 'zoom: ' + z);
   const h = videoCamHeightFor(z, 72, 44, 760);
-  assert.ok(Math.abs(h - 230) < 15, 'roundtrip: ' + h);
+  assert.ok(Math.abs(h - 115) < 8, 'roundtrip: ' + h);
+});
+
+test('correzione tile 512 px: zoom della camera identico a prima (il video non cambia)', () => {
+  // Valori di videoCameraFor registrati PRIMA della correzione, su casi non al
+  // tetto di zoom 18: costante e bersagli dimezzati insieme lasciano lo zoom uguale.
+  const { videoCameraFor } = api;
+  for (const [v, l, lat, H, zoom] of [
+    [0, 60, 47, 380, 17.935797429247696], [60, 60, 47, 760, 17.842688024856216],
+    [120, 60, 47, 760, 17.227978180741008], [180, 60, 47, 380, 16.227978180741008],
+  ]) {
+    const c = videoCameraFor(v, l, false, lat, H);
+    assert.ok(Math.abs(c.zoom - zoom) < 1e-6, v + ' km/h: ' + c.zoom + ' vs ' + zoom);
+  }
 });
 
 test('videoZoomForHeight: clamp 18 (Esri sgrana oltre)', () => {
