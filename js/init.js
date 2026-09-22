@@ -61,6 +61,7 @@ const els = {
   gyroFusion: $('gyroFusion'), camAheadChk: $('camAhead'),
   gravityModeSel: $('gravityModeSel'), rectNull: $('rectNull'),
   guidaAlwaysChk: $('guidaAlways'),
+  autoLogChk: $('autoLog'),
   toasts: $('toasts'), secWarn: $('secWarn'), mapBox: document.querySelector('.map-box'),
   leanConf: $('leanConf'), leanConfFill: $('leanConfFill'), leanConfTxt: $('leanConfTxt'),
   diagVerdict: $('diagVerdict'),
@@ -816,6 +817,11 @@ function init() {
     state.guidaAlways = els.guidaAlwaysChk.checked;
     saveSettings();
     updateGuidaMode();
+  });
+  els.autoLogChk.addEventListener('change', () => {
+    state.autoLog = els.autoLogChk.checked;
+    state._autoFastSince = null;
+    saveSettings();
   });
   els.camDistSel.addEventListener('change', () => {
     /* camDistFrom e non parseInt crudo: le <option> possono divergere dalla lista

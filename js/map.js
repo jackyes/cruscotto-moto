@@ -187,6 +187,10 @@ function showSessionDetail(s) {
   const meta = s.meta || {};
   // Righe disegnabili (con t finito): calcolate una volta e riusate nel rAF.
   const chartRows = rowsForChart(s.rows);
+  // Media e tempo in marcia come la card PNG (rideMovingStats): le soste non
+  // abbassano la media. Soste = durata − marcia, mai negativa.
+  const mov = rideMovingStats(s.rows);
+  const stopS = Math.max(0, numOr0(meta.duration) - mov.movingS);
   const hasRows = chartRows.length > 1;
   const d = new Date(meta.startISO);
   const pad = n => String(n).padStart(2, '0');
@@ -203,6 +207,9 @@ function showSessionDetail(s) {
       '<div class="dstat"><div class="v">' + numOr0(meta.distKm).toFixed(2) + '</div><div class="k">km</div></div>' +
       '<div class="dstat"><div class="v">' + fmtDur(numOr0(meta.duration)) + '</div><div class="k">durata</div></div>' +
       '<div class="dstat"><div class="v">' + (s.rows ? s.rows.length : 0) + '</div><div class="k">campioni</div></div>' +
+      '<div class="dstat"><div class="v">' + Math.round(mov.vAvg) + '</div><div class="k">km/h media</div></div>' +
+      '<div class="dstat"><div class="v">' + fmtDur(mov.movingS) + '</div><div class="k">in marcia</div></div>' +
+      '<div class="dstat"><div class="v">' + fmtDur(stopS) + '</div><div class="k">soste</div></div>' +
     '</div>' +
     '<canvas id="replayCanvas" style="height:200px;"></canvas>' +
     (hasRows

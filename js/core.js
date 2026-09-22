@@ -160,6 +160,12 @@ const SPEED_HIST_S = 3;        // profondità della storia di v̂ (s)
 const SPEED_STALE_MS = 3000;   // oltre questo la velocità GPS non è più utilizzabile
 const GPS_LOST_MS = SPEED_STALE_MS; // senza fix da tanto: a schermo "GPS perso", velocità spenta
 const GPS_RESTART_MS = 30000;  // senza fix da tanto (app visibile): si riavvia watchPosition
+/* --- avvio automatico del log --- */
+const AUTO_LOG_KMH = 20;         // soglia di marcia (velocità GPS fresca)
+const AUTO_LOG_HOLD_MS = 10000;  // tenuta sopra soglia prima di partire
+const AUTO_STILL_KMH = 5;        // sotto questa si è fermi
+const AUTO_REARM_MS = 120000;    // dopo uno Stop, fermi così a lungo prima di riarmare
+const AUTO_STOP_HINT_MS = 600000; // fermi così a lungo col log attivo: si propone lo Stop
 const SPEED_MAX_DEV_MS = 2.5;    // scostamento massimo dalla velocità GPS con fix fresco
 /* --- stimatore del segno del giroscopio --- */
 const GSIGN_TAU_S = 4;         // memoria della correlazione rollio/derivata-accelerometro
@@ -244,6 +250,7 @@ const state = {
   camLastDist: {},           // distanza precedente per camera (rilevamento avvicinamento)
   camLegalOk: false,
   guidaAlways: false,
+  autoLog: false,            // avvio automatico del log in marcia (impostazione)
   speedLimit: null,
   speedLimitAt: 0,
   speedLimitPos: null,

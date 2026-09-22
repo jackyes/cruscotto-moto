@@ -202,13 +202,13 @@
             <button id="btnCenter" title="Centra sulla posizione" aria-label="Centra">
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="6.5"/><circle cx="12" cy="12" r="1.6" fill="currentColor" stroke="none"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></svg>
             </button>
-            <button id="btnFollow" title="Segui la posizione" aria-label="Segui">
+            <button id="btnFollow" aria-pressed="true" title="Segui la posizione" aria-label="Segui">
               <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" stroke="none"><path d="M12 2l7 20-7-4-7 4z"/></svg>
             </button>
-            <button id="btnTrackUp" title="Bussola (track-up)" aria-label="Bussola">
+            <button id="btnTrackUp" aria-pressed="false" title="Bussola (track-up)" aria-label="Bussola">
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20V5M12 5l-5 5M12 5l5 5"/></svg>
             </button>
-            <button id="btnNavMute" title="Indicazioni vocali" aria-label="Voce">
+            <button id="btnNavMute" aria-pressed="true" title="Indicazioni vocali" aria-label="Voce">
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                 <path d="M4 9.5v5h3.5L12 18V6L7.5 9.5H4z"/>
                 <path class="v-on" d="M15.5 9a4 4 0 0 1 0 6"/>
@@ -364,6 +364,10 @@
         <div class="set-row">
           <span>Guida sempre (tasti grandi)</span>
           <input type="checkbox" id="guidaAlways">
+        </div>
+        <div class="set-row">
+          <span>Avvia il log da solo (sopra 20 km/h)</span>
+          <input type="checkbox" id="autoLog">
         </div>
         <div class="set-row">
           <span>Distanza avviso autovelox</span>

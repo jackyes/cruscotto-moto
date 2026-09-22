@@ -6,6 +6,7 @@ function setNavVoice(on, opts) {
   if (els.btnNavMute) {
     els.btnNavMute.classList.toggle('on', state.navVoice);
     els.btnNavMute.classList.toggle('muted', !state.navVoice);
+    els.btnNavMute.setAttribute('aria-pressed', state.navVoice ? 'true' : 'false');
     els.btnNavMute.title = state.navVoice ? 'Indicazioni vocali attive — tocca per silenziare'
                                           : 'Indicazioni vocali silenziate — tocca per riattivare';
   }

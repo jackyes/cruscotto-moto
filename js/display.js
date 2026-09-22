@@ -277,6 +277,7 @@ function updateDisplay() {
   const nowP = performance.now();
   state.gpsLostS = gpsLostSeconds(state, nowP);
   gpsWatchdog(nowP);
+  autoLogTick(nowP);
   setTxt(els.speedVal, Math.round(state.speedKph));
   updateGuidaMode();
   if (els.clock) setTxt(els.clock, clockHm());

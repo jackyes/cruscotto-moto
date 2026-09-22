@@ -56,6 +56,9 @@ function startLog() {
 
 async function stopLog() {
   state.logging = false;
+  // Avvio automatico disarmato: fermare il log in marcia non deve farlo
+  // ripartire 10 s dopo. Si riarma dopo AUTO_REARM_MS da fermi (autoLogTick).
+  state._autoArmed = false;
   clearInterval(sampleTimer);
   sampleTimer = null;
   resetLogAcc();
@@ -100,4 +103,48 @@ function buildGpx(track) {
   }
   out += '    </trkseg>\n  </trk>\n</gpx>\n';
   return out;
+}
+
+/* Avvio automatico del log (impostazione, spenta di default): dimenticare Start
+   significava perdere il giro intero. Parte con la velocità GPS FRESCA sopra
+   AUTO_LOG_KMH per AUTO_LOG_HOLD_MS; mai in Demo né a GPS perso.
+   Niente stop automatico: un semaforo lungo o un rifornimento spezzerebbero il
+   giro in due. Da fermi per AUTO_STOP_HINT_MS si PROPONE lo Stop, una volta.
+   Dopo uno Stop resta disarmato finché non si è stati fermi AUTO_REARM_MS: chi
+   ferma il log in marcia non se lo vede ripartire, chi parcheggia sì.
+   Gira in updateDisplay, quindi solo a pagina visibile (come il GPS stesso). */
+/* Istanti null = "non iniziato": 0 è un performance.now() valido. */
+function autoLogTick(nowP) {
+  if (!state.autoLog || state.demo) { state._autoFastSince = null; return; }
+  const fresh = state.speedGpsT > 0 && nowP - state.speedGpsT < SPEED_STALE_MS && state.gpsLostS == null;
+  const kmh = fresh && state.speedGpsMs != null ? state.speedGpsMs * 3.6 : null;
+  // Senza velocità fresca lo stato fermo/in marcia resta quello di prima.
+  if (kmh != null && kmh < AUTO_STILL_KMH) {
+    if (state._autoStillSince == null) state._autoStillSince = nowP;
+  } else if (kmh != null) {
+    state._autoStillSince = null;
+    state._autoStopHinted = false;
+  }
+  if (state.logging) {
+    state._autoFastSince = null;
+    if (state._autoStillSince != null && nowP - state._autoStillSince >= AUTO_STOP_HINT_MS && !state._autoStopHinted) {
+      state._autoStopHinted = true;
+      confirmToast('Fermo da 10 minuti: fermare il log?').then(ok => { if (ok && state.logging) stopLog(); });
+    }
+    return;
+  }
+  if (state._autoArmed === false) {
+    if (!(state._autoStillSince != null && nowP - state._autoStillSince >= AUTO_REARM_MS)) return;
+    state._autoArmed = true;
+  }
+  if (kmh != null && kmh >= AUTO_LOG_KMH) {
+    if (state._autoFastSince == null) state._autoFastSince = nowP;
+    if (nowP - state._autoFastSince >= AUTO_LOG_HOLD_MS) {
+      state._autoFastSince = null;
+      startLog();
+      toast('Log avviato automaticamente.', 'ok', 4000);
+    }
+  } else {
+    state._autoFastSince = null;
+  }
 }

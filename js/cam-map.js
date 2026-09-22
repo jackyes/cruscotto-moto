@@ -148,6 +148,7 @@ function trackUpHeading() {
 function setFollow(on) {
   state.follow = on;
   els.btnFollow.classList.toggle('on', on);
+  els.btnFollow.setAttribute('aria-pressed', on ? 'true' : 'false');
   if (on) centerMap(); // recentra subito all'attivazione
 }
 
@@ -318,6 +319,7 @@ function applyMapRotation() {
 function setTrackUp(on) {
   state.trackUp = on;
   els.btnTrackUp.classList.toggle('on', on);
+  els.btnTrackUp.setAttribute('aria-pressed', on ? 'true' : 'false');
   if (state.mapType === 'leaflet' && state.map) {
     applyMapRotation();
     setTimeout(() => state.map.invalidateSize(), MAP_ROTATE_SETTLE_MS);

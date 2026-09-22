@@ -83,6 +83,24 @@ function leanHistogram(rows, binDeg) {
   return { binsR, binsL, max: Math.max(1, ...binsR, ...binsL) };
 }
 
+/* Pura: tempo in marcia e media in marcia, pesata sul tempo. In marcia = sopra
+   5 km/h, riga senza buco (gap) e con velocità GPS non congelata (speedStale:
+   in galleria la colonna resta all'ultimo Doppler). dt tetto 1 s come tLean20:
+   un buco non gonfia il tempo. Condivisa da card PNG e dettaglio del giro. */
+function rideMovingStats(rows) {
+  let movingS = 0, vSum = 0, prevT = null;
+  for (const r of rows || []) {
+    if (!r) continue;
+    const t = isFinite(r.t) ? r.t : null;
+    const dt = (prevT != null && t != null) ? Math.min(Math.max(0, t - prevT), 1) : 0;
+    if (t != null) prevT = t;
+    if (isFinite(r.speedKmh) && r.speedKmh >= 5 && !r.gap && !r.speedStale) {
+      movingS += dt; vSum += r.speedKmh * dt;
+    }
+  }
+  return { movingS, vAvg: movingS > 0 ? vSum / movingS : 0 };
+}
+
 /* Pura: statistiche poster in una passata. distKm da meta (haversine su rows a
    20 Hz gonfia col random-walk GPS); vmax da meta.maxSpeed (velocità fusa, come
    lo storico); decel da lonG (un gradino GPS 0→100 darebbe migliaia di m/s²). */
@@ -90,13 +108,11 @@ function posterStats(rows, track, meta) {
   const m = meta || {};
   const arr = rows || [];
   let vmaxRows = 0, leanR = 0, leanL = 0, gLat = 0, decel = 0, tLean20 = 0;
-  let vSum = 0, vN = 0, prevT = null;
+  let prevT = null;
   for (const r of arr) {
     if (!r) continue;
     if (isFinite(r.speedKmh)) {
       if (r.speedKmh > vmaxRows) vmaxRows = r.speedKmh;
-      // media in movimento: le soste non abbassano la media del giro
-      if (r.speedKmh >= 5 && !r.gap) { vSum += r.speedKmh; vN++; }
     }
     if (isFinite(r.lean)) {
       if (r.lean > leanR) leanR = r.lean;
@@ -118,7 +134,8 @@ function posterStats(rows, track, meta) {
     km: isFinite(m.distKm) ? m.distKm : 0,
     dur: fmtDurH(tEnd),
     vmax: Math.min(vmax, 399), // riga spuria a 400 km/h: mostra il meta, non il glitch
-    vAvg: vN ? vSum / vN : 0,
+    // media in movimento: le soste non abbassano la media del giro
+    vAvg: rideMovingStats(arr).vAvg,
     leanR: Math.round(Math.abs(leanR)), leanL: Math.round(Math.abs(leanL)),
     gLat: gLat, decel: decel,
     tLean20: tLean20,
@@ -250,7 +267,7 @@ function buildPosterModel(rows, track, meta) {
   const binsR = new Array(nb).fill(0), binsL = new Array(nb).fill(0);
   // stats (stessa semantica di posterStats)
   let vmaxRows = 0, leanR = 0, leanL = 0, gLat = 0, decel = 0, tLean20 = 0;
-  let vSum = 0, vN = 0, prevT = null;
+  let prevT = null;
   // moments (stessa semantica di posterMoments)
   let iV = -1, vB = -1, iL = -1, lB = -1, iG = -1, gB = -1;
   // climb (stessa semantica di climbMeters con thr 3)
@@ -267,7 +284,6 @@ function buildPosterModel(rows, track, meta) {
     const t = isFinite(r.t) ? r.t : i * 0.05;
     if (spd != null) {
       if (spd > vmaxRows) vmaxRows = spd;
-      if (spd >= 5 && !r.gap) { vSum += spd; vN++; }
       if (spd > vB) { vB = spd; iV = i; }
     }
     if (lean != null) {
@@ -328,7 +344,8 @@ function buildPosterModel(rows, track, meta) {
     km: isFinite(m.distKm) ? m.distKm : 0,
     dur: fmtDurH(tEnd),
     vmax: Math.min(vmax, 399), // riga spuria a 400 km/h: mostra il meta, non il glitch
-    vAvg: vN ? vSum / vN : 0,
+    // media in movimento: le soste non abbassano la media del giro
+    vAvg: rideMovingStats(arr).vAvg,
     leanR: Math.round(Math.abs(leanR)), leanL: Math.round(Math.abs(leanL)),
     gLat: gLat, decel: decel,
     tLean20: tLean20,

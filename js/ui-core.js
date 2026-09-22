@@ -228,6 +228,7 @@ function loadSettings() {
   state.camAhead = s.camAhead !== false;
   state.camLegalOk = !!s.camLegalOk;
   state.guidaAlways = !!s.guidaAlways;
+  state.autoLog = !!s.autoLog;
   state.theme = s.theme || 'dark';
   els.themeSel.value = state.theme;
   els.mountSel.value = state.mount;
@@ -253,6 +254,7 @@ function loadSettings() {
   els.rectNull.checked = state.rectNull;
   els.camAheadChk.checked = state.camAhead;
   if (els.guidaAlwaysChk) els.guidaAlwaysChk.checked = state.guidaAlways;
+  if (els.autoLogChk) els.autoLogChk.checked = state.autoLog;
   /* Le calibrazioni salvate prima della riscrittura dell'attitudine non sono piu'
      valide: leanFromUp usava la proiezione xy invece della base, quindi una base
      costruita allora e' consistente solo col vecchio estrattore. */
@@ -280,7 +282,7 @@ function saveSettings() {
     navBackroads: state.navBackroads, navNoFerry: state.navNoFerry,
     navGenKm: state.navGenKm, navGenLoop: state.navGenLoop, navGenCurves: state.navGenCurves,
     navGenType: state.navGenType, navGenDir: state.navGenDir,
-    camLegalOk: state.camLegalOk, guidaAlways: state.guidaAlways
+    camLegalOk: state.camLegalOk, guidaAlways: state.guidaAlways, autoLog: state.autoLog
   });
 }
 
