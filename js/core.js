@@ -256,6 +256,7 @@ const state = {
   speedLimitPos: null,
   speedLimitFetching: false,
   speedLimitRetryAfter: 0,
+  speedLimitWays: null,      // strade con maxspeed scaricate attorno a speedLimitPos (js/speed-limit.js)
   // navigazione: preferenze persistite + stato vivo (vedi navReset)
   navVoice: true, navNoHw: false, navNoToll: false, navBackroads: false, navNoFerry: false,
   nav: null,                 // null = nessun percorso caricato

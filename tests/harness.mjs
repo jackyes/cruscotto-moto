@@ -77,7 +77,7 @@ const exportLine = `
   benchPeek: () => bench, startBench, finishBench, BENCH_SEC,
   navPersistRoute, navRestore, fetchWithTimeout, navTick, navMaybeReroute, navTryOsrm,
   navSpeak, jsonUnderTimeout, onGeolocation,
-  parseMaxspeed, pickNearestMaxspeed, speedLimitDue, maybeLoadSpeedLimit, fetchSpeedLimit,
+  parseMaxspeed, parseSpeedWays, matchSpeedLimit, wayOneway, speedLimitDue, maybeLoadSpeedLimit, fetchSpeedLimit,
   guidaActive, updateGuidaMode, CAM_LEGAL_MSG,
   loadSettings, saveSettings, askCamLegal, maybeAskCamLegal,
   buildCameraKeyframes, disposeVideoMoto3D, videoWheelSpin, videoTrackIndexForRow,

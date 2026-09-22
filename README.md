@@ -59,7 +59,7 @@ L'app è organizzata in 5 schede (barra in basso): **Dashboard · Mappa · Grafi
 - **Stato GPS onesto**: se i fix smettono di arrivare per più di 3 s (galleria, segnale perso) l'header mostra `GPS perso · 12 s` col pallino giallo, e la velocità, ferma sull'ultimo valore, si spegne invece di sembrare vera; lo stesso nell'HUD della mappa (`PERSO 12s`). Col permesso della posizione negato compare `GPS negato` e un avviso che spiega dove riattivarlo. Se l'app è a schermo e non arrivano fix da 30 s dopo averne avuti, il GPS viene riavviato: su alcuni Android smette di consegnare posizioni dopo un lungo periodo in background.
 
 ### Dashboard
-- Oltre a velocità e piega: **orologio** in alto, **quota** sotto la velocità e **limite di velocità** (da OSM) che si colora in rosso se superato. Il limite si aggiorna con query Overpass throttled attorno alla posizione; è dato OSM, non ufficiale.
+- Oltre a velocità e piega: **orologio** in alto, **quota** sotto la velocità e **limite di velocità** (da OSM) che si colora in rosso se superato. Una query Overpass scarica le strade con limite entro 1 km, con la geometria, e si ripete solo dopo 500 m o 10 minuti (a 100 km/h circa 200 query l'ora invece di ~600); a ogni fix la strada si sceglie in locale per distanza dal tracciato (entro 25 m) e verso di marcia (±35°, rispettando i sensi unici). Così all'incrocio con una traversa a 30 il badge resta sul limite della strada che stai percorrendo. È dato OSM, non ufficiale; senza strada riconosciuta il badge sparisce.
 - **Modo Guida** (tasti grandi): si attiva durante il log, la navigazione attiva, la mappa fullscreen o sopra ~15 km/h; si può forzare sempre da Impostazioni.
 
 ### Mappa
