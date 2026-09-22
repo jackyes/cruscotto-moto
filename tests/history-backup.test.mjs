@@ -163,3 +163,46 @@ test('toast: remove() anticipato annulla il timer di scadenza', () => {
     assert.ok(!els.toasts.children.includes(t));
   } finally { vmSandbox.clearTimeout = origClear; }
 });
+
+test('backupSessions: una sessione alla volta, Blob intermedi, file che si rilegge intero', async () => {
+  await initDb();
+  // Righe abbastanza da superare la soglia del Blob intermedio (~8 MB di testo).
+  const big = (id, iso) => Object.assign(sess(id, iso), {
+    rows: Array.from({ length: 120000 }, (_, i) => ({ t: i * 0.05, speedKmh: 50, lean: 10 })),
+  });
+  await idb.put(big('a', '2024-05-01T10:00:00Z'));
+  await idb.put(big('b', '2024-05-02T10:00:00Z'));
+  await idb.put(sess('c', '2024-05-03T10:00:00Z'));
+
+  let got = null;
+  const loaded = [];
+  const orig = { dl: vmSandbox.downloadBlob, get: idb.get, blob: vmSandbox.Blob };
+  vmSandbox.Blob = Blob;
+  vmSandbox.downloadBlob = (name, parts) => { got = { name, parts }; };
+  // Letture singole per id, non getAll/loadAllSessions dell'intero storico.
+  idb.get = async id => { loaded.push(id); return orig.get(id); };
+  try {
+    await api.backupSessions();
+  } finally {
+    vmSandbox.downloadBlob = orig.dl; idb.get = orig.get; vmSandbox.Blob = orig.blob;
+  }
+  assert.ok(got, 'download non partito');
+  assert.match(got.name, /^cruscotto_backup_.*\.json$/);
+  assert.equal(loaded.length, 3, 'una lettura per sessione');
+  assert.ok(got.parts.length >= 2, 'atteso almeno un Blob intermedio: ' + got.parts.length);
+  assert.ok(got.parts.every(p => p instanceof Blob), 'al download arrivano solo Blob');
+  const back = parseBackup(await new Blob(got.parts).text());
+  assert.ok(back, 'il backup deve rileggersi');
+  assert.deepEqual(Array.from(back, s => s.id).sort(), ['a', 'b', 'c']);
+  assert.equal(back.find(s => s.id === 'a').rows.length, 120000);
+  for (const id of ['a', 'b', 'c']) await idb.del(id);
+});
+
+test('backupSessions: storico vuoto, nessun download', async () => {
+  await initDb();
+  let called = false;
+  const orig = vmSandbox.downloadBlob;
+  vmSandbox.downloadBlob = () => { called = true; };
+  try { await api.backupSessions(); } finally { vmSandbox.downloadBlob = orig; }
+  assert.equal(called, false);
+});

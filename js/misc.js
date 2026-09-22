@@ -285,36 +285,78 @@ async function loadAllSessions() {
   return out;
 }
 
+/* Il formato del backup a pezzi: intestazione, una voce per sessione, chiusura.
+   Si copiano solo i campi noti (id/meta/rows/track); null se la sessione non si
+   serializza, così una voce rotta non fa fallire tutto il file. */
+function backupHead(exportedISO) {
+  return '{"app":"cruscotto-moto","v":1,"exportedISO":' + JSON.stringify(exportedISO) + ',"sessions":[';
+}
+const BACKUP_TAIL = ']}';
+function backupEntry(s) {
+  try { return JSON.stringify({ id: s.id, meta: s.meta, rows: s.rows || [], track: s.track || [] }); } catch (e) { return null; }
+}
+
 /* Pura: il backup come parti di stringa, una per sessione. Il chiamante le passa
    a Blob senza concatenarle: su ore di log la stringa unica era il picco di
    memoria (stesso motivo dell'export CSV storico). */
 function buildBackupParts(sessions, exportedISO) {
-  const parts = ['{"app":"cruscotto-moto","v":1,"exportedISO":' + JSON.stringify(exportedISO) + ',"sessions":['];
+  const parts = [backupHead(exportedISO)];
   let n = 0;
   for (const s of sessions) {
-    let txt = '';
-    try { txt = JSON.stringify({ id: s.id, meta: s.meta, rows: s.rows || [], track: s.track || [] }); } catch (e) { continue; }
+    const txt = backupEntry(s);
+    if (txt == null) continue;
     parts.push((n ? ',' : '') + txt);
     n++;
   }
-  parts.push(']}');
+  parts.push(BACKUP_TAIL);
   return { parts, n };
 }
+
+// Testo accumulato oltre il quale le parti passano in un Blob intermedio.
+const BACKUP_BLOB_CHARS = 8 * 1024 * 1024;
 
 /* Backup di TUTTO lo storico in un file che si può rimettere dentro l'app.
    Serve perché i giri vivono in IndexedDB: "cancella dati del sito", un browser
    che sfratta lo storage o un telefono nuovo li perdono, e i CSV/GPX sono per
-   singolo giro e non si reimportano. */
+   singolo giro e non si reimportano.
+   Una sessione alla volta: si legge, si serializza e si lascia andare prima di
+   leggere la successiva. Prima caricava tutto lo storico (loadAllSessions) e poi
+   ne teneva anche il testo: due copie intere in RAM. Ogni ~8 MB di testo le
+   parti diventano un Blob, che il browser tiene fuori dall'heap JS: il picco
+   resta quello del giro più grande, non dell'intero storico. */
 async function backupSessions() {
-  const sessions = await loadAllSessions();
-  if (!sessions.length) { toast('Nessun giro da salvare.', 'err'); return; }
+  let ids = [];
+  try { ids = await idb.keys(); } catch (e) {}
+  if (!ids.length) { toast('Nessun giro da salvare.', 'err'); return; }
   const t = toast('Preparo il backup…', null, 60000);
-  const { parts, n } = buildBackupParts(sessions, new Date().toISOString());
+  const blobs = [];
+  let parts = [backupHead(new Date().toISOString())];
+  let pending = parts[0].length, bytes = 0, n = 0;
+  for (let i = 0; i < ids.length; i++) {
+    t.textContent = 'Preparo il backup… ' + (i + 1) + '/' + ids.length;
+    let s = null;
+    try { s = await idb.get(ids[i]); } catch (e) { continue; }
+    if (!s || !s.meta) continue;
+    const txt = backupEntry(s);
+    s = null;
+    if (txt == null) continue;
+    const part = (n ? ',' : '') + txt;
+    parts.push(part);
+    pending += part.length;
+    n++;
+    if (pending >= BACKUP_BLOB_CHARS) {
+      blobs.push(new Blob(parts));
+      bytes += pending;
+      parts = [];
+      pending = 0;
+    }
+  }
   t.remove();
   if (!n) { toast('Backup non riuscito: dati non serializzabili.', 'err', 6000); return; }
-  let bytes = 0;
-  for (const p of parts) bytes += p.length;
-  downloadBlob('cruscotto_backup_' + stamp() + '.json', parts, 'application/json');
+  parts.push(BACKUP_TAIL);
+  bytes += pending + BACKUP_TAIL.length;
+  blobs.push(new Blob(parts));
+  downloadBlob('cruscotto_backup_' + stamp() + '.json', blobs, 'application/json');
   // La dimensione in chiaro: su ore di log il file e' grosso, e chi lo salva
   // deve sapere quanto sta per scaricare.
   toast('Backup di ' + n + ' giri (' + (bytes / (1024 * 1024)).toFixed(1) + ' MB).', 'ok', 6000);
