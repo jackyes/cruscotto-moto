@@ -286,6 +286,16 @@ const canvasTheme = {
     const v = Number(s);
     return isFinite(v) ? v : null;
   }
+  /* lean_ref è l'unica colonna di testo: il riferimento del filtro della piega
+     (centrip, gyro, norm, none…). Passata da toNumOrNull diventava sempre null.
+     Solo parole brevi: un CSV di terzi con testo arbitrario (virgole, "=cmd")
+     non deve finire nel CSV filtrato che il viewer riesporta. */
+  const TEXT_COLS = new Set(['lean_ref']);
+  function toTextOrNull(raw) {
+    if (raw == null) return null;
+    const s = String(raw).trim();
+    return /^[A-Za-z_]{1,16}$/.test(s) ? s : null;
+  }
   function splitCsvLine(line) {
     const out = [];
     let cur = '', quoted = false;
@@ -325,7 +335,7 @@ const canvasTheme = {
       const r = {};
       for (const c of COLS) {
         const j = cols[c];
-        r[c] = (j == null) ? null : toNumOrNull(f[j]);
+        r[c] = (j == null) ? null : (TEXT_COLS.has(c) ? toTextOrNull(f[j]) : toNumOrNull(f[j]));
       }
       if (r.t == null || !isFinite(r.t)) { dropped++; continue; }
       rows.push(r);
@@ -599,13 +609,14 @@ const canvasTheme = {
         series: [{ key: 'speed_kmh', color: getCss('--accent') }],
         datasets: ovDs((r, k) => r.speed_kmh),
       });
-      // Riferimento piega cinematica (colonna lean_ref, default ricalcolo live:
-      // nei CSV veniva ignorata, ora la curva si confronta con la misura).
-      drawLine($('cLean'), rows, (r, k) => (k === 'lean_ref' ? r.lean_ref : r.lean_deg), {
+      // Piega cinematica (velocità × imbardata, colonna lean_kin_deg) tratteggiata
+      // sotto la misura, per confrontarle. Prima leggeva lean_ref, che è testo (il
+      // riferimento del filtro): la linea non veniva mai disegnata.
+      drawLine($('cLean'), rows, (r, k) => (k === 'lean_kin_deg' ? r.lean_kin_deg : r.lean_deg), {
         min: -60, max: 60, t0: speedT0, t1: speedT1,
         series: [
           { key: 'lean_deg', color: getCss('--good') },
-          { key: 'lean_ref', color: getCss('--c-axis'), dash: [5, 4] },
+          { key: 'lean_kin_deg', color: getCss('--c-axis'), dash: [5, 4] },
         ],
         datasets: ovDs((r, k) => r.lean_deg),
       });

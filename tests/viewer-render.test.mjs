@@ -143,3 +143,55 @@ test('viewer video: TAU definito senza core.js (draw.js lo porta)', () => {
     hudGdot(ctx, 50, 50, 20, 0.3, -0.2, '#fff', '#888', '#000');
   `, sandbox);
 });
+
+// ---- lean_ref è testo, la linea tratteggiata della piega è lean_kin_deg ----
+test('parseCsv: lean_ref resta testo (solo parole brevi), le altre colonne numeri', () => {
+  const { sandbox } = loadViewer();
+  const csv = 't,lean_deg,lean_kin_deg,lean_ref\n' +
+    '0,10,9.5,centrip\n1,12,11,gyro\n2,5,,=cmd|x\n3,4,3,"a,b"\n';
+  const rows = sandbox.__viewer.parseCsv(csv);
+  assert.equal(rows.length, 4);
+  assert.equal(rows[0].lean_ref, 'centrip');
+  assert.equal(rows[1].lean_ref, 'gyro');
+  assert.equal(rows[2].lean_ref, null, 'testo arbitrario scartato');
+  assert.equal(rows[3].lean_ref, null);
+  assert.equal(rows[0].lean_kin_deg, 9.5);
+  assert.equal(rows[2].lean_kin_deg, null);
+  // Il CSV filtrato riesportato lo riporta com'era.
+  const out = sandbox.__viewer.buildFilteredCsv(rows).split('\n');
+  const col = out[0].split(',').indexOf('lean_ref');
+  assert.equal(out[1].split(',')[col], 'centrip');
+  // E il video da CSV lo riceve.
+  assert.equal(sandbox.__viewer.viewerVideoRows(rows)[0].leanRef, 'centrip');
+});
+
+function recordingCanvas() {
+  const ops = [];
+  let dashed = false;
+  const ctx = new Proxy({}, {
+    get: (t, k) => {
+      if (k === 'measureText') return () => ({ width: 10 });
+      if (k === 'setLineDash') return d => { dashed = Array.isArray(d) && d.length > 0; };
+      if (k === 'lineTo') return () => { ops.push(dashed ? 'dash' : 'solid'); };
+      return () => {};
+    },
+    set: () => true,
+  });
+  return { canvas: { clientWidth: 600, clientHeight: 150, width: 0, height: 0, getContext: () => ctx }, ops };
+}
+
+test('grafico piega: la linea tratteggiata segue lean_kin_deg', () => {
+  const draw = kin => {
+    const { sandbox, ids } = loadViewer();
+    const rec = recordingCanvas();
+    ids.cLean = rec.canvas;
+    const rows = Array.from({ length: 50 }, (_, i) => ({
+      t: i, speed_kmh: 60, lean_deg: 20 * Math.sin(i / 5), lat: 45 + i * 1e-4, lon: 9,
+      lean_kin_deg: kin ? 19 * Math.sin(i / 5) : null, lean_ref: 'centrip',
+    }));
+    sandbox.__viewer.renderRows(rows);
+    return rec.ops.filter(o => o === 'dash').length;
+  };
+  const withKin = draw(true), without = draw(false);
+  assert.ok(withKin > without + 20, 'tratteggio disegnato: ' + withKin + ' vs ' + without);
+});
