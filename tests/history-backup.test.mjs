@@ -149,3 +149,17 @@ test('storico: loadAllSessions, riepilogo e ripristino su IndexedDB', async () =
   assert.equal((await idb.getMetas()).length, 2);
   resetState();
 });
+
+test('toast: remove() anticipato annulla il timer di scadenza', () => {
+  const { toast } = api;
+  const cleared = [];
+  const origClear = vmSandbox.clearTimeout;
+  vmSandbox.clearTimeout = id => { cleared.push(id); origClear(id); };
+  try {
+    const t = toast('Preparo il backup…', null, 60000);
+    assert.ok(els.toasts.children.includes(t));
+    t.remove();
+    assert.equal(cleared.length, 1, 'timer da 60 s ancora vivo');
+    assert.ok(!els.toasts.children.includes(t));
+  } finally { vmSandbox.clearTimeout = origClear; }
+});

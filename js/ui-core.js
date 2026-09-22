@@ -16,7 +16,11 @@ function toast(msg, kind, ms) {
   el.className = 'toast' + (kind ? ' ' + kind : '');
   el.textContent = msg;
   els.toasts.appendChild(el);
-  setTimeout(() => el.remove(), ms || 3500);
+  // remove() anticipato (toast di avanzamento, tetto qui sopra) annulla anche il
+  // timer: prima restava vivo fino alla scadenza, 60 s per backup/ripristino.
+  const timer = setTimeout(() => el.remove(), ms || 3500);
+  const detach = el.remove.bind(el);
+  el.remove = () => { clearTimeout(timer); detach(); };
   return el;
 }
 
