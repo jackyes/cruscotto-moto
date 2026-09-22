@@ -9,13 +9,6 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const root = join(__dirname, '..');
 const html = readFileSync(join(root, 'index.html'), 'utf8');
 
-function extractScript(html) {
-  const open = html.lastIndexOf('<script>');
-  const close = html.lastIndexOf('</script>');
-  if (open < 0 || close < 0 || close <= open) throw new Error('script non trovato');
-  return html.slice(open + '<script>'.length, close);
-}
-
 // File js/* caricati da index.html via <script src>, in ordine di inclusione.
 // Lo split è a step: ogni nuovo modulo va aggiunto sia qui (ordine uguale
 // all'HTML) sia nella lista SHELL di sw.js.
@@ -23,9 +16,11 @@ function extractJsSrcs(html) {
   return [...html.matchAll(/<script\s+src="([^"]+)"/g)].map(m => m[1]);
 }
 
-const jsParts = extractJsSrcs(html).map(s => readFileSync(join(root, s), 'utf8'));
+// js/init.js (l'ultimo) resta a parte: va privato della chiamata init().
+const INIT_JS = 'js/init.js';
+const jsParts = extractJsSrcs(html).filter(s => s !== INIT_JS).map(s => readFileSync(join(root, s), 'utf8'));
 
-let script = extractScript(html);
+let script = readFileSync(join(root, INIT_JS), 'utf8');
 // Rimuove l'unica esecuzione al boot: init() registra listener, apre IndexedDB,
 // avvia i sensori, ecc. Qui vogliamo solo le definizioni.
 script = script.replace(/\ninit\(\);\s*$/, '');

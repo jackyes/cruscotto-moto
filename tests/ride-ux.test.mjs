@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
 import { api, resetState, vmSandbox } from './harness.mjs';
+import { appSource } from './app-source.mjs';
 
 const { guidaActive, state, saveSettings, loadSettings, CAM_LEGAL_MSG } = api;
 
@@ -242,7 +242,7 @@ test('updateMapHud: a valori fermi zero scritture, mai className sui nodi SVG', 
 });
 
 test('HUD mappa: markup agganciato, tema chiaro leggibile, attributi SVG liberi dal CSS', () => {
-  const html = readFileSync(new URL('../index.html', import.meta.url), 'utf8');
+  const html = appSource();
   // Solo l'HTML prova che ogni $('mh…') di els aggancia un nodo vero.
   const ids = [...html.matchAll(/\$\('(mapHud|mh[A-Z]\w*)'\)/g)].map(x => x[1]);
   assert.ok(ids.length >= 11, 'chiavi HUD mancanti in els: ' + ids);
@@ -257,12 +257,13 @@ test('HUD mappa: markup agganciato, tema chiaro leggibile, attributi SVG liberi 
   assert.equal((html.match(/pathLength="60"/g) || []).length, 2);
   // Una regola CSS vince sull'attributo di presentazione e bloccherebbe arco e pallini.
   // Selettore su una sola riga ([^\n{}]*): niente backtracking su tutto il file.
-  for (const r of html.match(/\n  [^\n{}]*\.mh-(?:fill|peak)[^\n{}]*\{[^}]*\}/g) || []) {
+  // In css/app.css le regole di primo livello partono da colonna 0.
+  for (const r of html.match(/\n[^\n{}]*\.mh-(?:fill|peak)[^\n{}]*\{[^}]*\}/g) || []) {
     assert.doesNotMatch(r.slice(r.indexOf('{')), /stroke-dasharray|visibility|transform/, r.trim());
   }
   // Regressione del tema chiaro: fondo da token definito in entrambi i temi, niente rgba fissi.
   const rule = sel => {
-    const mm = html.match(new RegExp('\\n  ' + sel.replace(/[.[\]]/g, '\\$&') + ' \\{([^}]*)\\}'));
+    const mm = html.match(new RegExp('\\n' + sel.replace(/[.[\]]/g, '\\$&') + ' \\{([^}]*)\\}'));
     assert.ok(mm, 'regola assente: ' + sel);
     return mm[1];
   };

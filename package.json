@@ -1,0 +1,8 @@
+{
+  "name": "cruscotto-moto",
+  "private": true,
+  "description": "Nessuna build: questo file serve solo a lanciare i test.",
+  "scripts": {
+    "test": "node --test"
+  }
+}

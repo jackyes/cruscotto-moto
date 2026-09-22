@@ -1,13 +1,10 @@
 // Bug #888: i nomi colore video devono risolvere in var CSS reali, mai '#888'.
 import { test } from 'node:test';
 import assert from 'node:assert';
-import { readFileSync } from 'node:fs';
-import { fileURLToPath } from 'node:url';
-import { dirname, join } from 'node:path';
 import { api, vmSandbox } from './harness.mjs';
+import { appSource } from './app-source.mjs';
 
-const __dirname = dirname(fileURLToPath(import.meta.url));
-const html = readFileSync(join(__dirname, '..', 'index.html'), 'utf8');
+const html = appSource();
 
 function rootBlock(theme) {
   const start = theme === 'light' ? html.indexOf(':root[data-theme="light"]') : html.indexOf(':root {');

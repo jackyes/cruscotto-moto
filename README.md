@@ -6,7 +6,9 @@ Nessuna build. File principali:
 
 | file | ruolo |
 |---|---|
-| `index.html` | markup, CSS, `init()` |
+| `index.html` | markup e CSP |
+| `css/app.css` | stile (temi chiaro/scuro, layout) |
+| `js/init.js` | `els`, listener della UI e `init()`; caricato per ultimo |
 | `js/*.js` | logica (sensori, nav, log, mappa, video) |
 | `sw.js` | service worker: avvio offline, cache di Leaflet e delle tile già viste |
 | `manifest.webmanifest` | installazione come app (icona in home, standalone) |
@@ -530,17 +532,17 @@ Il file usa la virgola come separatore. Su Excel italiano potresti vedere tutto 
 - Le chiamate esterne sono le tile OpenStreetMap, Leaflet da unpkg, le query Overpass (autovelox), Valhalla e OSRM (routing) e Photon (geocoding). Origine e destinazione del navigatore sono inviate a un server terzo quando calcoli un percorso o generi un giro; il resto (traccia, autovelox, preferenze) resta in locale.
 - La pagina dichiara una **Content-Security-Policy** che limita gli host raggiungibili a quelli sopra.
 - Nomi e limiti degli autovelox (da OSM o da file importati) sono dati di terze parti e vengono inseriti nel DOM come **testo**, mai come HTML.
-- Leaflet (mappa live) è caricato da unpkg **con** `integrity` (SRI). MapLibre + Three.js per l'export video 3D restano CDN on-demand. Per chiudere del tutto il rischio catena di fornitura conviene vendorizzare Leaflet in repo e stringere la CSP a `script-src 'self'` (video 3D resterebbe da sbloccare a parte).
+- Leaflet (mappa live) è vendored in repo. `index.html` non contiene script né stili inline, quindi la CSP ha `script-src 'self' https://unpkg.com` senza `'unsafe-inline'`: uno script iniettato nella pagina non parte. unpkg resta solo per MapLibre + Three.js dell'export video 3D, caricati on-demand.
 
 ## Test
 
 I test girano col runner nativo di Node (nessun build, nessun framework):
 
 ```bash
-node --test
+npm test        # oppure: node --test
 ```
 
-Scopre da solo `tests/*.test.mjs`. **Non** usare `node --test tests/`: con un percorso esplicito
+I file girano in parallelo (~25 s). Scopre da solo `tests/*.test.mjs`. **Non** usare `node --test tests/`: con un percorso esplicito
 il runner lo interpreta come file di test e fallisce. Per verificare la sola sintassi dei moduli:
 
 ```bash

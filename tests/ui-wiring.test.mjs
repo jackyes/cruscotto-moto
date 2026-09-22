@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
 import { api, resetState, vmSandbox } from './harness.mjs';
+import { appSource } from './app-source.mjs';
 
 const { state, els, loadSettings, onGeolocation, processSample, renderNavPanel, MOUNT, NAV_ICON,
   calibBasis, calibOk } = api;
@@ -15,7 +15,7 @@ test('els: diagVerdict esiste (il verdetto sensori deve poter essere scritto)', 
   /* Il mock del harness restituisce makeEl() per QUALSIASI id, mai null: il solo
      assert.ok non distingue `$('diagVerdict')` da `$('diagVerdic')`. Che la chiave sia
      agganciata a un elemento vero si controlla sull'HTML, dove l'id sta. */
-  const html = readFileSync(new URL('../index.html', import.meta.url), 'utf8');
+  const html = appSource();
   assert.match(html, /id="diagVerdict"/, 'els.diagVerdict punta a un id assente da index.html');
 });
 
@@ -126,7 +126,7 @@ test('camDist: le <option> di index.html sono la lista validata', () => {
   // L'invariante che il bug violava: la lista validata e le option della select
   // devono essere lo stesso insieme. Il mock del DOM non riproduce la select
   // ("value fuori dalle option → stringa vuota"), quindi si controlla l'HTML.
-  const html = readFileSync(new URL('../index.html', import.meta.url), 'utf8');
+  const html = appSource();
   const block = html.match(/<select id="camDist">([\s\S]*?)<\/select>/);
   assert.ok(block, 'select #camDist non trovata in index.html');
   const values = [...block[1].matchAll(/<option value="(\d+)"/g)].map(m => Number(m[1]));
@@ -309,7 +309,7 @@ test('#13 updateDisplay: i valori lenti scritti solo se cambiano', () => {
 
 // ---- #14: .bar .fill transizionava solo width, setBar scrive anche left ----
 test('#14 .bar .fill: la transizione copre left, non solo width', () => {
-  const html = readFileSync(new URL('../index.html', import.meta.url), 'utf8');
+  const html = appSource();
   const rule = html.match(/\.bar \.fill \{([\s\S]*?)\}/);
   assert.ok(rule, 'regola .bar .fill assente da index.html');
   const tr = rule[1].match(/transition:\s*([^;]+);/);
@@ -368,7 +368,7 @@ test('finiteVec: un asse null non vale zero', () => {
    campione a passo d'uomo supera GSIGN_MIN_ENERGY, ribalta un verdetto PERSISTITO su
    localStorage e lo lascia scritto se l'app muore nei ~4 s del lock. */
 test('index.html: i due cambi di segno azzerano il learner del segno giroscopio', () => {
-  const html = readFileSync(new URL('../index.html', import.meta.url), 'utf8');
+  const html = appSource();
   const handlers = html.split('addEventListener');
   const withCall = handlers.filter(h => h.includes('resetGyroSignLearner()'));
   assert.ok(html.includes("els.invertLean.addEventListener('change'"), 'handler invertLean assente');

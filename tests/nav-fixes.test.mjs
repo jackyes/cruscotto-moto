@@ -2,8 +2,8 @@
 // Un test per finding, ognuno dei quali rosso se si disattiva la sua fix.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
 import { api, vmSandbox, resetState, tickIntervals, liveIntervals } from './harness.mjs';
+import { appSource } from './app-source.mjs';
 
 const {
   state, els, navBuild, navTick, navStart, navStop, navReset, navSetDest,
@@ -379,7 +379,7 @@ test('#15 ricerca: navSearchCancel invalida le risposte in volo', () => {
 test('#15 il wiring della ricerca annulla le risposte in volo', () => {
   // init() non gira nell'harness: i due handler che svuotano campo e lista a mano
   // vanno controllati sulla sorgente. Entrambi hanno un debounce Photon armato.
-  const html = readFileSync(new URL('../index.html', import.meta.url), 'utf8');
+  const html = appSource();
   assert.match(html, /navSearchCancel\(\);\s*\n\s*navRenderResults\(out\)/,
     'lista dai giri salvati: una ricerca in volo la sostituisce (o viene sostituita)');
   assert.match(html, /navSearchCancel\(\);[^\n]*\n\s*navClearResults\(\)/,
@@ -586,7 +586,7 @@ test('#21 il listener della tastiera è sul documento, non sul campo', () => {
   // init() non gira nell'harness, quindi il wiring non è osservabile a runtime: si
   // controlla la sorgente. Sul campo il listener non riceve nulla una volta che il
   // fuoco è entrato nei risultati.
-  const html = readFileSync(new URL('../index.html', import.meta.url), 'utf8');
+  const html = appSource();
   assert.ok(html.includes("document.addEventListener('keydown', navResultsKey)"),
     'keydown della ricerca non registrato sul documento');
   assert.ok(!/els\.navQuery\.addEventListener\('keydown'/.test(html),
