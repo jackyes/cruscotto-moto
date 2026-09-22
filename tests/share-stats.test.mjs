@@ -152,3 +152,47 @@ test('buildPosterModel: gLat/decel/tLean20 senza NaN anche su rows=[]', () => {
   assert.ok(isFinite(m.st.gLat) && isFinite(m.st.decel) && isFinite(m.st.tLean20));
   assert.ok(!JSON.stringify(m).includes('NaN'));
 });
+
+// ---- sagoma della traccia: proporzioni vere, non quelle del riquadro ----
+function fitted(track, box) {
+  const xy = api.posterTrackXY(track, 1080, 1350);
+  const px = api.posterFitXY(xy, box.x, box.y, box.w, box.h);
+  let mnx = Infinity, mxx = -Infinity, mny = Infinity, mxy = -Infinity;
+  for (let k = 0; k < px.length; k += 2) {
+    mnx = Math.min(mnx, px[k]); mxx = Math.max(mxx, px[k]);
+    mny = Math.min(mny, px[k + 1]); mxy = Math.max(mxy, px[k + 1]);
+  }
+  return { w: mxx - mnx, h: mxy - mny, cx: (mnx + mxx) / 2, cy: (mny + mxy) / 2 };
+}
+const BOX = { x: 40, y: 100, w: 1000, h: 600 };
+
+test('card: rettilineo nord-sud resta una linea sottile, non uno zig-zag largo quanto la card', () => {
+  const straight = Array.from({ length: 200 }, (_, i) => ({ lat: 45 + i * 0.0009, lon: 9 + (i % 2 ? 0.00003 : 0) }));
+  const f = fitted(straight, BOX);
+  assert.ok(Math.abs(f.h - BOX.h) < 1, 'occupa tutta l\'altezza: ' + f.h);
+  assert.ok(f.w < 2, 'il jitter di ~2 m resta di pochi pixel: ' + f.w.toFixed(1));
+  assert.ok(Math.abs(f.cx - (BOX.x + BOX.w / 2)) < 1, 'centrata');
+});
+
+test('card: giro 40×5 km conserva il rapporto 8:1', () => {
+  const wide = Array.from({ length: 400 }, (_, i) => {
+    const u = i / 399 * 2 * Math.PI;
+    return { lat: 45 + 0.0225 * Math.sin(u), lon: 9 + 0.254 * Math.cos(u) };
+  });
+  const f = fitted(wide, BOX);
+  assert.ok(Math.abs(f.w - BOX.w) < 1, 'occupa tutta la larghezza');
+  assert.ok(Math.abs(f.w / f.h - 8) < 0.3, 'rapporto: ' + (f.w / f.h).toFixed(2));
+  assert.ok(Math.abs(f.cy - (BOX.y + BOX.h / 2)) < 1, 'centrata in verticale');
+});
+
+test('card: giro quasi quadrato riempie il lato corto del riquadro; un punto solo non esplode', () => {
+  const sq = Array.from({ length: 100 }, (_, i) => {
+    const u = i / 99 * 2 * Math.PI;
+    return { lat: 45 + 0.01 * Math.sin(u), lon: 9 + 0.01 / Math.cos(45 * Math.PI / 180) * Math.cos(u) };
+  });
+  const f = fitted(sq, BOX);
+  assert.ok(Math.abs(f.h - BOX.h) < 1);
+  assert.ok(Math.abs(f.w / f.h - 1) < 0.05, 'rapporto: ' + (f.w / f.h).toFixed(3));
+  const px = api.posterFitXY([0, 0, 0, 0], 0, 0, 100, 50);
+  assert.ok(px.every(v => isFinite(v)), 'coordinate finite');
+});

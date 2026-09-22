@@ -102,7 +102,7 @@ const exportLine = `
   hudGdot, rectsOverlap, hudMotoBox, hudLayout, hudPanel, hudText,
   fmtDurH, climbMeters, countCurves, leanHistogram, posterStats, projectTrackXY,
   posterMoments, posterLayout, posterLayoutFor, posterSizeFor, posterTitle, POSTER_FORMATS,
-  buildPosterModel, posterTrackXY,
+  buildPosterModel, posterTrackXY, posterFitXY,
   pickOr, NAVGEN_KM_CHOICES, NAVGEN_KM_DEFAULT, NAVGEN_CURVE_CHOICES, NAVGEN_TYPE_CHOICES, NAVGEN_DIR_CHOICES,
   geoDest, geoProject, resampleXY, curveStats, curveScore, curveFit, routeOverlapPct, CURVE_TARGETS,
   CURVE_STEP_M, CURVE_R_MAX, CURVE_TIGHT_R,

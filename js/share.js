@@ -381,13 +381,10 @@ function drawSharePoster(ctx, model, layout, W, H, C) {
   // (nessuna tile: niente rete, niente attribuzione, iOS-safe).
   if (model._xy && model._xy.length >= 4 && layout.map.h > 0) {
     const L = layout.map, p2 = Math.max(8, L.w * 0.06);
+    const px = posterFitXY(model._xy, L.x + p2, L.y + p2, L.w - 2 * p2, L.h - 2 * p2);
     const trace = () => {
       ctx.beginPath();
-      for (let k = 0; k < model._xy.length; k += 2) {
-        const x = L.x + p2 + model._xy[k] * (L.w - 2 * p2);
-        const y = L.y + p2 + model._xy[k + 1] * (L.h - 2 * p2);
-        k ? ctx.lineTo(x, y) : ctx.moveTo(x, y);
-      }
+      for (let k = 0; k < px.length; k += 2) k ? ctx.lineTo(px[k], px[k + 1]) : ctx.moveTo(px[k], px[k + 1]);
     };
     ctx.save();
     ctx.beginPath(); ctx.rect(L.x, L.y, L.w, L.h); ctx.clip();
@@ -541,7 +538,11 @@ function posterToBlob(canvas, cb) {
   else if (cb) cb(null);
 }
 
-/* Thin wrapper: proiezione normalizzata 0..1 della traccia per il modello. */
+/* Thin wrapper: proiezione della traccia per il modello, con la STESSA scala
+   sui due assi: il lato più lungo va da 0 a 1, l'altro da 0 a (sua lunghezza /
+   lato lungo). Prima ogni asse era normalizzato per conto suo e il disegno lo
+   stirava sul riquadro: un giro 40×5 km diventava quadrato, e il jitter GPS di
+   un rettilineo nord-sud veniva allargato a tutta la card (zig-zag). */
 function posterTrackXY(track, W, H) {
   const pts = (track || []).filter(p => p.lat != null && p.lon != null);
   if (pts.length < 2) return [];
@@ -552,8 +553,23 @@ function posterTrackXY(track, W, H) {
     if (px[k] < mnx) mnx = px[k]; if (px[k] > mxx) mxx = px[k];
     if (px[k + 1] < mny) mny = px[k + 1]; if (px[k + 1] > mxy) mxy = px[k + 1];
   }
-  const sx = Math.max(1e-9, mxx - mnx), sy = Math.max(1e-9, mxy - mny);
+  const m = Math.max(1e-9, mxx - mnx, mxy - mny);
   const out = [];
-  for (let k = 0; k < px.length; k += 2) out.push((px[k] - mnx) / sx, (px[k + 1] - mny) / sy);
+  for (let k = 0; k < px.length; k += 2) out.push((px[k] - mnx) / m, (px[k + 1] - mny) / m);
+  return out;
+}
+
+/* Pura: coordinate di posterTrackXY → pixel nel riquadro (bx, by, bw, bh),
+   con una scala sola e centrate: la sagoma conserva le proporzioni vere. */
+function posterFitXY(xy, bx, by, bw, bh) {
+  let ex = 0, ey = 0;
+  for (let k = 0; k < xy.length; k += 2) {
+    if (xy[k] > ex) ex = xy[k];
+    if (xy[k + 1] > ey) ey = xy[k + 1];
+  }
+  const sc = Math.min(bw / Math.max(ex, 1e-9), bh / Math.max(ey, 1e-9));
+  const ox = bx + (bw - ex * sc) / 2, oy = by + (bh - ey * sc) / 2;
+  const out = new Array(xy.length);
+  for (let k = 0; k < xy.length; k += 2) { out[k] = ox + xy[k] * sc; out[k + 1] = oy + xy[k + 1] * sc; }
   return out;
 }
