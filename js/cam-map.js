@@ -401,7 +401,15 @@ document.addEventListener('pointerdown', ensureAudio, { once: true });
 
 /* js/parse.js: parseCamerasFile */
 
+/* Come il viewer CSV: un file enorme letto come testo in un colpo solo manda in
+   OOM il tab del telefono prima ancora del parsing. Un DB nazionale pesa ~1,5 MB. */
+const CAM_IMPORT_MAX_BYTES = 50 * 1024 * 1024;
+
 function importCamerasFile(file) {
+  if (file && file.size > CAM_IMPORT_MAX_BYTES) {
+    toast('File troppo grande (max 50 MB).', 'err', 5000);
+    return;
+  }
   const reader = new FileReader();
   reader.onload = async () => {
     // FileReader.onerror (o un file letto a vuoto) passa di qui con result null:

@@ -1,5 +1,5 @@
 'use strict';
-/* js/misc.js (step 29): wakeLock request/release, renderHistory/renderHistTotals, sessionTotals/sessKey/planRestore/parseBackup, backupSessions/restoreSessions/buildBackupParts, openSessionDetail, loadImportedCameras, navBuild. Ordine: dopo js/ui-core.js. */
+/* js/misc.js (step 29): wakeLock request/release, renderHistory/renderHistTotals, sessionTotals/sessKey/planRestore/parseBackup, backupSessions/restoreSessions/restoreCameras/buildBackupParts, parseBackupFile/sanitizeCameras, openSessionDetail, loadImportedCameras, navBuild. Ordine: dopo js/ui-core.js. */
 async function loadImportedCameras() {
   let cams = null;
   try { cams = await idb.kvGet('importedCameras'); } catch (e) {}
@@ -178,10 +178,40 @@ function planRestore(existingMetas, incoming) {
 /* Pura: legge il file di backup. Non si fida di niente: il file può essere
    troncato, di un'altra app o scritto a mano. Ritorna null se non è un backup. */
 function parseBackup(text) {
+  const b = parseBackupFile(text);
+  return b ? b.sessions : null;
+}
+
+/* Il backup intero: giri più, opzionale, il DB autovelox importato. Un solo
+   JSON.parse (il file può pesare centinaia di MB). I backup senza "cameras"
+   (versioni precedenti) restano validi. */
+function parseBackupFile(text) {
   let obj = null;
   try { obj = JSON.parse(text); } catch (e) { return null; }
   if (!obj || typeof obj !== 'object' || !Array.isArray(obj.sessions)) return null;
-  return obj.sessions;
+  return { sessions: obj.sessions, cameras: sanitizeCameras(obj.cameras) };
+}
+
+/* Pura: autovelox da una fonte non fidata (file di backup), stessa forma di
+   parseCamerasFile. Solo i campi noti, coordinate valide, testi accorciati; il
+   tetto sul numero protegge griglia e memoria da un file gonfiato. */
+const CAM_RESTORE_MAX = 200000;
+function sanitizeCameras(arr) {
+  if (!Array.isArray(arr)) return [];
+  const out = [];
+  for (const c of arr) {
+    if (out.length >= CAM_RESTORE_MAX) break;
+    if (!c || typeof c !== 'object') continue;
+    const lat = Number(c.lat), lon = Number(c.lon);
+    if (!isFinite(lat) || !isFinite(lon) || Math.abs(lat) > 90 || Math.abs(lon) > 180) continue;
+    const ms = c.maxspeed;
+    out.push({
+      lat, lon,
+      maxspeed: (typeof ms === 'number' && isFinite(ms)) ? ms : (typeof ms === 'string' ? ms.slice(0, 16) : ''),
+      name: typeof c.name === 'string' ? c.name.slice(0, 200) : '',
+    });
+  }
+  return out;
 }
 
 async function renderHistory() {
@@ -274,8 +304,9 @@ async function renderStorageInfo() {
 /* Il formato del backup a pezzi: intestazione, una voce per sessione, chiusura.
    Si copiano solo i campi noti (id/meta/rows/track); null se la sessione non si
    serializza, così una voce rotta non fa fallire tutto il file. */
-function backupHead(exportedISO) {
-  return '{"app":"cruscotto-moto","v":1,"exportedISO":' + JSON.stringify(exportedISO) + ',"sessions":[';
+function backupHead(exportedISO, cameras) {
+  return '{"app":"cruscotto-moto","v":1,"exportedISO":' + JSON.stringify(exportedISO) +
+    (cameras && cameras.length ? ',"cameras":' + JSON.stringify(cameras) : '') + ',"sessions":[';
 }
 const BACKUP_TAIL = ']}';
 function backupEntry(s) {
@@ -313,10 +344,16 @@ const BACKUP_BLOB_CHARS = 8 * 1024 * 1024;
 async function backupSessions() {
   let ids = [];
   try { ids = await idb.keys(); } catch (e) {}
-  if (!ids.length) { toast('Nessun giro da salvare.', 'err'); return; }
+  // Il DB autovelox importato va nel backup: su un telefono nuovo si perdeva, e
+  // il file originale spesso non c'è più. Dallo storage, non da state: è la
+  // copia che l'app rilegge al boot.
+  let cams = null;
+  try { cams = await idb.kvGet('importedCameras'); } catch (e) {}
+  if (!Array.isArray(cams)) cams = state.importedCameras || [];
+  if (!ids.length && !cams.length) { toast('Nessun giro da salvare.', 'err'); return; }
   const t = toast('Preparo il backup…', null, 60000);
   const blobs = [];
-  let parts = [backupHead(new Date().toISOString())];
+  let parts = [backupHead(new Date().toISOString(), cams)];
   let pending = parts[0].length, bytes = 0, n = 0;
   for (let i = 0; i < ids.length; i++) {
     t.textContent = 'Preparo il backup… ' + (i + 1) + '/' + ids.length;
@@ -338,14 +375,15 @@ async function backupSessions() {
     }
   }
   t.remove();
-  if (!n) { toast('Backup non riuscito: dati non serializzabili.', 'err', 6000); return; }
+  if (!n && !cams.length) { toast('Backup non riuscito: dati non serializzabili.', 'err', 6000); return; }
   parts.push(BACKUP_TAIL);
   bytes += pending + BACKUP_TAIL.length;
   blobs.push(new Blob(parts));
   downloadBlob('cruscotto_backup_' + stamp() + '.json', blobs, 'application/json');
   // La dimensione in chiaro: su ore di log il file e' grosso, e chi lo salva
   // deve sapere quanto sta per scaricare.
-  toast('Backup di ' + n + ' giri (' + (bytes / (1024 * 1024)).toFixed(1) + ' MB).', 'ok', 6000);
+  toast('Backup di ' + n + ' giri' + (cams.length ? ' e ' + cams.length + ' autovelox' : '') +
+    ' (' + (bytes / (1024 * 1024)).toFixed(1) + ' MB).', 'ok', 6000);
 }
 
 /* Ripristino dal file di backup: aggiunge i giri che mancano e salta i doppioni
@@ -354,8 +392,10 @@ async function backupSessions() {
 async function restoreSessions(file) {
   let text = '';
   try { text = await file.text(); } catch (e) { toast('File non leggibile.', 'err'); return; }
-  const incoming = parseBackup(text);
-  if (!incoming) { toast('Non è un backup di Cruscotto Moto.', 'err', 6000); return; }
+  const backup = parseBackupFile(text);
+  if (!backup) { toast('Non è un backup di Cruscotto Moto.', 'err', 6000); return; }
+  const incoming = backup.sessions;
+  const camsMsg = await restoreCameras(backup.cameras);
   let existing = [];
   try { existing = await idb.getMetas(); } catch (e) {}
   const { add, skip } = planRestore(existing, incoming);
@@ -369,8 +409,24 @@ async function restoreSessions(file) {
   }
   t.remove();
   renderHistory();
-  if (!done) { toast('Nessun giro ripristinato (' + skip.length + ' saltati).', 'err', 6000); return; }
-  toast('Ripristinati ' + done + ' giri' + (skip.length ? ', ' + skip.length + ' saltati' : '') + '.', 'ok', 6000);
+  if (!done) { toast('Nessun giro ripristinato (' + skip.length + ' saltati)' + camsMsg + '.', camsMsg ? 'ok' : 'err', 6000); return; }
+  toast('Ripristinati ' + done + ' giri' + (skip.length ? ', ' + skip.length + ' saltati' : '') + camsMsg + '.', 'ok', 6000);
+}
+
+/* Autovelox dal backup. Senza DB importato si caricano e basta; se ce n'è già
+   uno si chiede prima di sostituirlo (può essere più recente del backup).
+   Ritorna il pezzo di messaggio per il toast finale ('' se nulla è cambiato). */
+async function restoreCameras(cams) {
+  if (!cams || !cams.length) return '';
+  const cur = state.importedCameras || [];
+  if (cur.length && !await confirmToast('Il backup contiene ' + cams.length + ' autovelox importati: sostituire i ' + cur.length + ' attuali?')) return '';
+  state.importedCameras = cams;
+  try { await idb.kvPut('importedCameras', cams); } catch (e) {
+    toast('Autovelox caricati ma non salvati (spazio esaurito).', 'err', 5000);
+  }
+  rebuildCamGrid();
+  renderCameras();
+  return ' e ' + cams.length + ' autovelox';
 }
 
 async function openSessionDetail(id) {

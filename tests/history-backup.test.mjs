@@ -205,3 +205,96 @@ test('backupSessions: storico vuoto, nessun download', async () => {
   try { await api.backupSessions(); } finally { vmSandbox.downloadBlob = orig; }
   assert.equal(called, false);
 });
+
+// ---- DB autovelox importato: nel backup e nel ripristino ----
+const CAMS = [{ lat: 45.1, lon: 9.2, maxspeed: '50', name: 'Via Roma' }, { lat: 45.2, lon: 9.3, maxspeed: 70, name: '' }];
+
+async function runBackup() {
+  let got = null;
+  const orig = { dl: vmSandbox.downloadBlob, blob: vmSandbox.Blob };
+  vmSandbox.Blob = Blob;
+  vmSandbox.downloadBlob = (name, parts) => { got = parts; };
+  try { await api.backupSessions(); } finally { vmSandbox.downloadBlob = orig.dl; vmSandbox.Blob = orig.blob; }
+  return got ? new Blob(got).text() : null;
+}
+
+test('sanitizeCameras: solo campi noti, coordinate valide, testi accorciati', () => {
+  const { sanitizeCameras } = api;
+  const out = sanitizeCameras([
+    { lat: '45.5', lon: 9, maxspeed: 50, name: 'x'.repeat(500), evil: '<img onerror=1>' },
+    { lat: 91, lon: 9 }, { lat: 45, lon: 'no' }, null, 'x',
+    { lat: 45, lon: 9, maxspeed: { a: 1 }, name: 3 },
+  ]);
+  assert.equal(out.length, 2);
+  assert.deepEqual(Object.keys(out[0]).sort(), ['lat', 'lon', 'maxspeed', 'name']);
+  assert.equal(out[0].lat, 45.5);
+  assert.equal(out[0].name.length, 200);
+  assert.equal(out[1].maxspeed, '');
+  assert.equal(out[1].name, '');
+  assert.equal(sanitizeCameras(undefined).length, 0);
+});
+
+test('backup: include gli autovelox importati; si fa anche senza giri', async () => {
+  await initDb();
+  await idb.kvPut('importedCameras', CAMS);
+  const text = await runBackup();
+  assert.ok(text, 'backup non partito con soli autovelox');
+  const b = api.parseBackupFile(text);
+  assert.equal(b.sessions.length, 0);
+  assert.equal(b.cameras.length, 2);
+  assert.equal(b.cameras[0].name, 'Via Roma');
+  await idb.kvDel('importedCameras');
+  api.state.importedCameras = [];
+  assert.equal(await runBackup(), null, 'né giri né autovelox: nessun file');
+});
+
+test('backup vecchio senza "cameras": resta valido', () => {
+  const b = api.parseBackupFile('{"sessions":[]}');
+  assert.equal(b.cameras.length, 0);
+  assert.equal(parseBackup('{"sessions":[]}').length, 0);
+});
+
+test('ripristino autovelox: caricati se assenti, sostituiti solo con conferma', async () => {
+  await initDb();
+  const st = api.state;
+  const orig = { confirm: vmSandbox.confirmToast, rebuild: vmSandbox.rebuildCamGrid, render: vmSandbox.renderCameras };
+  let asked = 0, answer = false;
+  vmSandbox.confirmToast = async () => { asked++; return answer; };
+  vmSandbox.rebuildCamGrid = () => {};
+  vmSandbox.renderCameras = () => {};
+  const file = { text: async () => JSON.stringify({ sessions: [], cameras: CAMS }) };
+  try {
+    st.importedCameras = [];
+    await restoreSessions(file);
+    assert.equal(asked, 0, 'nessuna domanda senza DB esistente');
+    assert.equal(st.importedCameras.length, 2);
+    assert.equal((await idb.kvGet('importedCameras')).length, 2);
+
+    st.importedCameras = [{ lat: 1, lon: 1, maxspeed: '', name: '' }];
+    answer = false;
+    await restoreSessions(file);
+    assert.equal(asked, 1);
+    assert.equal(st.importedCameras.length, 1, 'sostituito senza conferma');
+    answer = true;
+    await restoreSessions(file);
+    assert.equal(st.importedCameras.length, 2);
+  } finally {
+    Object.assign(vmSandbox, { confirmToast: orig.confirm, rebuildCamGrid: orig.rebuild, renderCameras: orig.render });
+    st.importedCameras = [];
+  }
+});
+
+test('import autovelox: file oltre 50 MB rifiutato prima di leggerlo', () => {
+  const toasts = [];
+  const orig = { toast: vmSandbox.toast, fr: vmSandbox.FileReader };
+  let read = false;
+  vmSandbox.toast = m => { toasts.push(m); return { remove() {} }; };
+  vmSandbox.FileReader = function () { this.readAsText = () => { read = true; }; };
+  try {
+    vmSandbox.importCamerasFile({ size: 51 * 1024 * 1024 });
+    assert.equal(read, false);
+    assert.ok(toasts.some(m => /troppo grande/.test(m)));
+    vmSandbox.importCamerasFile({ size: 1024 });
+    assert.equal(read, true, 'un file piccolo deve essere letto');
+  } finally { vmSandbox.toast = orig.toast; vmSandbox.FileReader = orig.fr; }
+});

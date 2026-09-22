@@ -71,7 +71,7 @@ const exportLine = `
   startCalibration, collectCalib, finishCalibration, startAccBiasCapture, collectAccBias, sampleTick, flushLog, tickDemo,
   switchTab, updateDisplay, setTxt, setBar, startLog, updateLeaflet, updateMap, drawCanvasMap,
   updateMapHud, mapHudModel,
-  sessionTotals, sessKey, planRestore, parseBackup, buildBackupParts,
+  sessionTotals, sessKey, planRestore, parseBackup, parseBackupFile, sanitizeCameras, buildBackupParts,
   backupSessions, restoreSessions, rowsForChart,
   // bench e' un let di script: la closure lo legge per i test di #31.
   benchPeek: () => bench, startBench, finishBench, BENCH_SEC,
