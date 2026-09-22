@@ -148,7 +148,7 @@ async function startVideoRenderWebmOfflineInner(pre, mode, Muxer, picked) {
   const ctx = canvas ? canvas.getContext('2d') : null;
   const job = {
     mode: mode, running: true, cancelled: false, canvas, ctx,
-    rows: pre.rows, track: pre.track, mapPts: pre.mapPts, spark: pre.spark,
+    rows: pre.rows, track: pre.track, mapPts: pre.mapPts, mapT: pre.mapT, spark: pre.spark,
     dist: pre.dist, tEnd: pre.tEnd, mult: pre.mult, speedMax: pre.speedMax,
     slow: pre.slow, tSim: pre.rows.length ? pre.rows[0].t : 0,
     webm: { enc, muxer, frame: 0 },

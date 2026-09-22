@@ -341,7 +341,7 @@ async function startVideoRenderMp4Inner(pre, mode, Muxer, cfg) {
   // l'audio si sintetizza dopo in videoMp4MuxAudio. ag resta per compat.
   const job = {
     mode: mode, running: true, cancelled: false, canvas, ctx,
-    rows: pre.rows, track: pre.track, mapPts: pre.mapPts, spark: pre.spark,
+    rows: pre.rows, track: pre.track, mapPts: pre.mapPts, mapT: pre.mapT, spark: pre.spark,
     dist: pre.dist, tEnd: pre.tEnd, mult: pre.mult, speedMax: pre.speedMax,
     slow: pre.slow, tSim: pre.rows.length ? pre.rows[0].t : 0,
     mp4: { enc, muxer, ag: null, frame: 0, _lastV: null, fps: cfg.framerate || 30 },

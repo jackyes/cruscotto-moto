@@ -191,6 +191,7 @@ tutti tornanti, e voglio tornare a casa"*. Questa scheda parte da lì.
 - Il percorso GPS si esporta in `.gpx` (compatibile Strava / Google Maps / Relive).
 
 ### Export video
+- **Mappa e dati allineati nel tempo**: la mappa del video (2D e 3D, scia e colore per piega compresi) si aggancia alle righe del log per **tempo**. Prima l'aggancio era per proporzione di indice, ma le righe arrivano a 20 Hz anche da fermi mentre la traccia prende punti solo in marcia: su un'ora con 10 minuti di sosta la mappa finiva 3 km indietro, avanzava di 8 km a moto ferma (con la velocità a 0) e ripartiva 5 km avanti. Giri vecchi senza orari nella traccia usano ancora l'aggancio proporzionale.
 - Dal dettaglio di una sessione (Storico → tap) c'è **Export video**.
 - Render **postumo**, tutto lato client, catturato da canvas → **WebM** via MediaRecorder. Nessun server, nessun ffmpeg.
 - Opzioni: risoluzione (720p / 1080p), velocità (1× / 2× / 4× / 12×) e tipo:

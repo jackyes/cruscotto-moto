@@ -296,6 +296,10 @@ function startVideoRender(s) {
   for (const p of src) {
     if (p.lat != null && p.lon != null && isFinite(p.lat) && isFinite(p.lon)) mapPts.push(p);
   }
+  // Tempo di ogni punto mappa nella scala delle righe: la mappa si aggancia per
+  // tempo, non per proporzione di indice (vedi videoMapTimes).
+  const startMs = s.meta && s.meta.startISO ? Date.parse(s.meta.startISO) : NaN;
+  const mapT = videoMapTimes(mapPts, src === track, startMs);
 
   // Sparkline velocità: downsampling a ~400 punti, min/max precalcolati.
   const spark = { pts: [], min: Infinity, max: -Infinity };
@@ -326,7 +330,7 @@ function startVideoRender(s) {
   const wantSat = !!(els.videoStyle && els.videoStyle.value === 'sat');
   // Palazzi 3D: acceso di default (select assente = vecchia UI = acceso).
   const buildings = !(els.videoBuildings && els.videoBuildings.value === 'off');
-  const pre = { mime, res, mult, rows, track, mapPts, spark, dist, tEnd, speedMax,
+  const pre = { mime, res, mult, rows, track, mapPts, mapT, spark, dist, tEnd, speedMax,
     slow: buildSlowZones(rows, mult), sat: false, buildings };
   // Giro senza GPS (solo IMU, es. rulli): la mappa 3D centrerebbe l'Italia
   // di default e centrerebbe il nulla. Forza il 2D SOLO per questo render —
@@ -425,7 +429,7 @@ function startVideoRender2D(pre) {
   const ctx = canvas.getContext('2d');
   const job = {
     mode: '2d', running: true, cancelled: false, canvas, ctx,
-    rows: pre.rows, track: pre.track, mapPts: pre.mapPts, spark: pre.spark,
+    rows: pre.rows, track: pre.track, mapPts: pre.mapPts, mapT: pre.mapT, spark: pre.spark,
     dist: pre.dist, tEnd: pre.tEnd, mult: pre.mult, speedMax: pre.speedMax,
     slow: pre.slow,
     tSim: pre.rows.length ? pre.rows[0].t : 0, lastRaf: 0,
@@ -665,12 +669,63 @@ function videoMapProj(bb, x, y, w, h, pad) {
     minLon: bb.minLon, maxLat: bb.maxLat };
 }
 
-/* Pura: lean della riga corrispondente al punto percorso k (stesso mapping
-   proporzionale del resto del modulo). */
+/* ---- Aggancio righe ↔ punti mappa per TEMPO ----
+   Le righe arrivano a 20 Hz anche da fermi; i punti della traccia solo dopo
+   TRACK_MIN_M di spostamento. L'accoppiamento per proporzione di indice valeva
+   solo se entrambe fossero uniformi nel tempo: a ogni sosta si sbilanciava, e
+   su un'ora con 10 minuti di fermo la mappa del video finiva 3 km indietro
+   prima della sosta, avanzava di 8 km a moto ferma e usciva 5 km avanti. */
+
+/* Pura: tempo di ogni punto mappa in secondi dall'inizio (la scala di rows[].t),
+   o null se non ricavabile — allora si torna all'accoppiamento proporzionale.
+   Punti della traccia: ts (epoch ms) − inizio. Righe usate come punti: il loro t.
+   (Il t dei punti traccia è performance.now(), non confrontabile.) */
+function videoMapTimes(pts, fromTrack, startMs) {
+  const n = pts ? pts.length : 0;
+  if (n < 2) return null;
+  if (fromTrack && !isFinite(startMs)) return null;
+  const out = new Float64Array(n);
+  let prev = -Infinity;
+  for (let i = 0; i < n; i++) {
+    const p = pts[i];
+    const t = fromTrack ? (isFinite(p.ts) ? (p.ts - startMs) / 1000 : NaN) : p.t;
+    if (!isFinite(t) || t < prev - 1e-3) return null;   // buco o disordine: niente tempi
+    out[i] = prev = t;
+  }
+  return out;
+}
+
+/* Pura: posizione frazionaria sui punti mappa al tempo t. */
+function videoMapPosAtTime(mapT, t) {
+  const n = mapT.length;
+  if (!(t > mapT[0])) return 0;
+  if (t >= mapT[n - 1]) return n - 1;
+  let lo = 0, hi = n - 1;
+  while (hi - lo > 1) { const mid = (lo + hi) >> 1; if (mapT[mid] <= t) lo = mid; else hi = mid; }
+  const span = mapT[hi] - mapT[lo];
+  return lo + (span > 0 ? (t - mapT[lo]) / span : 0);
+}
+
+/* Riga i → posizione frazionaria su `len` punti (mapPts o keyframes, stessa
+   lunghezza). Per tempo quando c'è job.mapT, altrimenti come prima. */
+function videoMapPosForRow(job, rowIdx, len) {
+  const r = job.rows && job.rows[rowIdx];
+  if (job.mapT && job.mapT.length === len && r && isFinite(r.t)) return videoMapPosAtTime(job.mapT, r.t);
+  return videoTrackPosForRow(rowIdx, job.rows ? job.rows.length : 0, len);
+}
+
+/* Punto mappa k → indice della riga di quel momento. */
+function videoRowForMapPoint(rows, mapT, k, n) {
+  const nr = rows ? rows.length : 0;
+  if (!nr) return -1;
+  if (mapT && mapT.length === n) return findRowAt(rows, mapT[k]);
+  return Math.max(0, Math.min(nr - 1, Math.round((k / Math.max(1, n - 1)) * (nr - 1))));
+}
+
+/* Pura: lean della riga corrispondente al punto percorso k. */
 function videoLeanAtPoint(job, k, n) {
   if (!job.rows || !job.rows.length) return 0;
-  const nr = job.rows.length;
-  const ri = Math.max(0, Math.min(nr - 1, Math.round((k / Math.max(1, n - 1)) * (nr - 1))));
+  const ri = videoRowForMapPoint(job.rows, job.mapT, k, n);
   const l = (job.rows[ri] || {}).lean;
   return isFinite(l) ? l : 0;
 }
@@ -725,7 +780,7 @@ function drawVideoMap(ctx, job, x, y, w, h, rowIdx, r, grid, axis, accent, good,
   const Y = lat => proj.y + proj.oy + (proj.maxLat - lat) * proj.scale;
 
   const n = pts.length;
-  const ridden = Math.max(0, Math.min(n - 1, Math.round((rowIdx / Math.max(1, job.rows.length - 1)) * (n - 1))));
+  const ridden = Math.max(0, Math.min(n - 1, Math.round(videoMapPosForRow(job, rowIdx, n))));
 
   // Fondo: rebuild solo se cambia la chiave (geometria o tema), altrimenti blit.
   const key = videoMapBgKey(bb, x, y, w, h, grid, bgCol);

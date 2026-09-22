@@ -123,14 +123,14 @@ function videoSkyVisible(pitchDeg) {
   return h < 1;
 }
 
-/* Pura: lean per segmento 3D dalla riga corrispondente (stesso mapping
-   proporzionale di videoTrackIndexForRow: mapPts può essere track o rows). */
-function videoSegLeansFor(mapPts, rows) {
+/* Pura: lean per segmento 3D dalla riga di quel momento (per tempo con mapT,
+   vedi videoMapTimes; senza, per proporzione di indice). */
+function videoSegLeansFor(mapPts, rows, mapT) {
   const n = mapPts ? mapPts.length : 0, nr = rows ? rows.length : 0;
   if (!n || !nr) return new Array(n).fill(0);
   const out = new Array(n);
   for (let k = 0; k < n; k++) {
-    const ri = Math.max(0, Math.min(nr - 1, Math.round((k / Math.max(1, n - 1)) * (nr - 1))));
+    const ri = videoRowForMapPoint(rows, mapT, k, n);
     const l = rows[ri] ? rows[ri].lean : 0;
     out[k] = isFinite(l) ? Math.abs(l) : 0;
   }
@@ -510,13 +510,13 @@ function video3DBuildJob(pre, canvas, ctx) {
   return {
     mode: '3d', running: true, cancelled: false, canvas, ctx,
     map, container, mapReady: false, moto,
-    rows: pre.rows, track: pre.track, mapPts: pre.mapPts, spark: pre.spark,
+    rows: pre.rows, track: pre.track, mapPts: pre.mapPts, mapT: pre.mapT, spark: pre.spark,
     dist: pre.dist, tEnd: pre.tEnd, mult: pre.mult, speedMax: pre.speedMax,
     slow: pre.slow,
     tSim: pre.rows.length ? pre.rows[0].t : 0, lastRaf: 0,
     chunks: [], rec: null, stream: null, raf: 0, recErr: false,
     keyframes: buildCameraKeyframes(pre.mapPts),
-    segLeans: videoSegLeansFor(pre.mapPts, pre.rows),
+    segLeans: videoSegLeansFor(pre.mapPts, pre.rows, pre.mapT),
     _trailIdx: -1, _trailQuant: -1,
     extremes: videoExtremesForJob(pre.rows),
     hud: hudLayout(pre.res[0], pre.res[1]),
@@ -1038,14 +1038,19 @@ function drawVideoFrame3D(job, dt) {
 
   // Camera mappa: scorre continua sul tracciato (niente scatti a 1 Hz),
   // guarda ~2 s avanti sul percorso, zoom/pitch smorzati (niente pompaggio GPS).
-  const u = videoTrackPosForRow(i, rows.length, keyframes.length);
+  const u = videoMapPosForRow(job, i, keyframes.length);
   const p = videoPathSampleAt(keyframes, u);
   if (p && job.mapReady) {
     // Altezza vera da lat/viewport (§6.5) + padding top (§6.6: punto in quota
     // si proietta alto con terrain, la moto finirebbe sotto l'HUD).
     const cam = videoCameraFor(r.speedKmh || 0, r.lean || 0, W < H, p.lat, H);
     const dtSim = (dt == null ? 1 / 30 : Math.max(0, dt)) * (job.mult || 1);
-    const ahead = videoPathSampleAt(keyframes, Math.min(keyframes.length - 1, u + 2 * keyframes.length / Math.max(1, job.tEnd - (rows[0] ? rows[0].t : 0))));
+    // ~2 s più avanti sul percorso: per tempo quando c'è mapT (da fermi la
+    // camera non deve guardare avanti come se si andasse), altrimenti come prima.
+    const uAhead = (job.mapT && job.mapT.length === keyframes.length && isFinite(r.t))
+      ? videoMapPosAtTime(job.mapT, r.t + 2)
+      : u + 2 * keyframes.length / Math.max(1, job.tEnd - (rows[0] ? rows[0].t : 0));
+    const ahead = videoPathSampleAt(keyframes, Math.min(keyframes.length - 1, uAhead));
     const brgT = ahead ? ahead.brg : p.brg;
     const c = job._cam || { lat: p.lat, lon: p.lon, brg: brgT, zoom: cam.zoom, pitch: cam.pitch };
     // Soglie anti-deriva: a regime il centro resta sul GPS (niente moto fuori strada).
@@ -1061,7 +1066,7 @@ function drawVideoFrame3D(job, dt) {
       padding: { top: 150, bottom: 0, left: 0, right: 0 } });
     if (typeof map.redraw === 'function') map.redraw(); else if (typeof map.triggerRepaint === 'function') map.triggerRepaint();
     // Scia: kIdx intero già calcolato? qui serve l'indice traccia, non keyframe.
-    videoTrackAdvance(map, job, videoTrackIndexForRow(i, rows.length, mapPts.length));
+    videoTrackAdvance(map, job, Math.round(videoMapPosForRow(job, i, mapPts.length)));
   }
 
   // Moto: piega + rotolamento ruote (dt reale, non per-frame).
