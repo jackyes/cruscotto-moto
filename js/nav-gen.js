@@ -73,6 +73,9 @@ function navGenSectors(km) { return km < 60 ? 3 : (km <= 150 ? 4 : 5); }
 function navGenSeedLoop(from, opts, seedIdx, shrink, withMid) {
   const K = navGenSectors(opts.km);
   const r = (opts.km * 1000) / (2 * Math.PI) * shrink;
+  if (opts.dir !== 'auto' && NAVGEN_DIR_DEG[opts.dir] != null) {
+    return navGenSeedLoopDir(from, NAVGEN_DIR_DEG[opts.dir], K, r, seedIdx, withMid);
+  }
   const base = (opts.dir === 'auto' ? 0 : (NAVGEN_DIR_DEG[opts.dir] || 0)) + seedIdx * 37;
   const sector = 360 / K;
   const vias = [];
@@ -90,6 +93,27 @@ function navGenSeedLoop(from, opts, seedIdx, shrink, withMid) {
        dover scegliere. Vedi l'alternanza dei semi in navGenRun. */
     if (withMid) vias.push(geoDest(from.lat, from.lon, ((b + sector / 2) % 360 + 360) % 360, r));
   }
+  return vias;
+}
+
+/* Anello con direzione scelta. Col cerchio centrato sulla partenza la direzione
+   orientava solo la prima tappa: con "Est" e 4 tappe si andava a est, sud, ovest
+   e nord, cioè attorno a casa, e chi sceglieva Est per evitare il lago a ovest ci
+   passava comunque. Qui il cerchio TOCCA la partenza: centro a distanza r nella
+   direzione scelta, tappe equispaziate sul cerchio saltando il punto di casa. Il
+   giro sta tutto dalla parte scelta, e la sua lunghezza resta ~2πr come prima,
+   quindi shrink e raffinamento valgono uguale.
+   I semi variano il centro di ±25° attorno alla direzione (0, +25, −25, 0) e,
+   come sull'anello automatico, i dispari aggiungono le tappe di mezzo. */
+const NAVGEN_DIR_JITTER = [0, 25, -25, 0];
+function navGenSeedLoopDir(from, dirDeg, K, r, seedIdx, withMid) {
+  const d = dirDeg + NAVGEN_DIR_JITTER[((seedIdx % 4) + 4) % 4];
+  const c = geoDest(from.lat, from.lon, d, r);
+  const home = d + 180;                 // dal centro, la partenza sta in questa direzione
+  const n = withMid ? 2 * K : K;
+  const step = 360 / (n + 1);
+  const vias = [];
+  for (let j = 1; j <= n; j++) vias.push(geoDest(c.lat, c.lon, ((home + j * step) % 360 + 360) % 360, r));
   return vias;
 }
 

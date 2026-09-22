@@ -158,8 +158,30 @@ test('navGenSeedLoop: semi diversi danno giri diversi, la direzione orienta il p
   const a = navGenSeedLoop(HOME, opts, 0, 0.85);
   const b = navGenSeedLoop(HOME, opts, 1, 0.85);
   assert.ok(angleDiff(bearing(HOME, a[0]), bearing(HOME, b[0])) > 5, 'semi identici');
-  const est = navGenSeedLoop(HOME, { ...opts, dir: 'E' }, 0, 0.85);
-  assert.ok(angleDiff(bearing(HOME, est[0]), NAVGEN_DIR_DEG.E) < 5, 'direzione ignorata');
+});
+
+test('navGenSeedLoop con direzione: tutte le tappe dalla parte scelta, non attorno a casa', () => {
+  // Prima il cerchio era centrato sulla partenza e con "Est" le 4 tappe andavano
+  // a est, sud, ovest e nord. Ora il cerchio tocca la partenza.
+  const opts = { km: 100, loop: true, curves: 'tante', type: 'misto', dir: 'E' };
+  for (let seed = 0; seed < 4; seed++) {
+    for (const mid of [false, true]) {
+      const v = navGenSeedLoop(HOME, opts, seed, 0.85, mid);
+      // Seme 0 esatto (±90°); gli altri spostano il centro di ±25°.
+      const tol = seed === 0 || seed === 3 ? 90 : 115;
+      for (const p of v) {
+        assert.ok(angleDiff(bearing(HOME, p), NAVGEN_DIR_DEG.E) < tol,
+          'seme ' + seed + (mid ? '+mezzo' : '') + ': tappa a ' + Math.round(bearing(HOME, p)) + '°');
+      }
+      assert.equal(v.length, mid ? 8 : 4);
+    }
+  }
+  // Semi diversi, giri diversi; e il giro resta ~2πr: tappa più lontana ≈ diametro.
+  const a = navGenSeedLoop(HOME, opts, 1, 0.85), b = navGenSeedLoop(HOME, opts, 2, 0.85);
+  assert.ok(angleDiff(bearing(HOME, a[0]), bearing(HOME, b[0])) > 5, 'semi identici');
+  const r = 100000 / (2 * Math.PI) * 0.85;
+  const far = Math.max(...navGenSeedLoop(HOME, opts, 0, 0.85, true).map(p => haversineM(HOME.lat, HOME.lon, p.lat, p.lon)));
+  assert.ok(Math.abs(far - 2 * r) / (2 * r) < 0.02, 'diametro: ' + Math.round(far) + ' m');
 });
 
 test('navGenSeedLoop: lo shrink comanda il raggio', () => {

@@ -107,6 +107,12 @@ tutti tornanti, e voglio tornare a casa"*. Questa scheda parte da lì.
 - Scegli **quanti km** (~30 → ~300), **ad anello o sola andata**, **quante curve**
   (poche / medie / tante) e **che tipo** (veloci e larghe / strette e tornanti / misto),
   più una **direzione** se vuoi decidere tu da che parte andare.
+- **Anello con direzione scelta**: il cerchio delle tappe *tocca* la partenza e sta tutto
+  dalla parte scelta. Prima era centrato sulla partenza e la direzione orientava solo la
+  prima tappa: con "Est" le quattro tappe andavano a est, sud, ovest e nord. Misurato su
+  Valhalla, stesso codice prima e dopo: Lecco 100 km Est, percorso dalla parte scelta
+  71% → 95%, ripasso 56% → 17%, 95 → 107 km; Piacenza 75 km Sud, 64% → 100%, ripasso
+  30% → 6%, 79 → 82 km. Con **direzione automatica** l'anello resta attorno alla partenza.
 - In sola andata, se hai già impostato una destinazione il giro finisce lì; altrimenti
   se la inventa a metà dei chilometri chiesti in linea d'aria, così resta spazio per le
   curve invece di uscire un trasferimento diretto. Con **direzione automatica** le
