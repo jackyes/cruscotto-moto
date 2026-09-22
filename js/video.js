@@ -23,6 +23,20 @@ function exportCsv(rows, meta, nameSuffix) {
   downloadBlob('cruscotto' + (nameSuffix ? '_' + nameSuffix : '') + '_' + stamp() + '.csv', parts, 'text/csv;charset=utf-8');
 }
 
+/* "CSV (sessione)": il giro corrente intero, anche oltre MAX_ROWS (prima si
+   esportava state.rows, cioè solo le ultime ~2,5 h). */
+async function exportSessionCsv() {
+  if (!state.rows.length) { toast('Nessun dato. Avvia un log.', 'err'); return; }
+  const meta = { startISO: new Date(state.session.startWall || Date.now()).toISOString(), maxSpeed: state.session.maxSpeed, maxLeanR: state.session.maxLeanR, maxLeanL: state.session.maxLeanL, distKm: state.session.distKm };
+  let rows = null;
+  try { rows = await currentSessionRows(); } catch (e) {}
+  if (!rows) {
+    rows = state.rows.slice();
+    toast('Inizio del giro non leggibile: il CSV contiene solo la parte recente.', 'err', 6000);
+  }
+  exportCsv(rows, meta, 'sessione');
+}
+
 function exportGpx(track, nameSuffix) {
   if (!track || !track.length) { toast('Nessun percorso da esportare.', 'err'); return; }
   downloadBlob('cruscotto' + (nameSuffix ? '_' + nameSuffix : '') + '_' + stamp() + '.gpx', buildGpx(track), 'application/gpx+xml');

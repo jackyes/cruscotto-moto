@@ -55,6 +55,7 @@ Alternative (entrambe HTTPS automatico):
 L'app è organizzata in 5 schede (barra in basso): **Dashboard · Mappa · Grafici · Naviga · Storico**.
 
 - **Cambiare scheda NON interrompe il log**: la registrazione gira in un loop indipendente dalla vista. Il pulsante **Start/Stop** resta sempre nella barra in alto, insieme allo stato GPS, al badge ●REC, all'orologio e alla durata.
+- **Stato GPS onesto**: se i fix smettono di arrivare per più di 3 s (galleria, segnale perso) l'header mostra `GPS perso · 12 s` col pallino giallo, e la velocità, ferma sull'ultimo valore, si spegne invece di sembrare vera; lo stesso nell'HUD della mappa (`PERSO 12s`). Col permesso della posizione negato compare `GPS negato` e un avviso che spiega dove riattivarlo. Se l'app è a schermo e non arrivano fix da 30 s dopo averne avuti, il GPS viene riavviato: su alcuni Android smette di consegnare posizioni dopo un lungo periodo in background.
 
 ### Dashboard
 - Oltre a velocità e piega: **orologio** in alto, **quota** sotto la velocità e **limite di velocità** (da OSM) che si colora in rosso se superato. Il limite si aggiorna con query Overpass throttled attorno alla posizione; è dato OSM, non ufficiale.
@@ -163,6 +164,7 @@ tutti tornanti, e voglio tornare a casa"*. Questa scheda parte da lì.
 ### Storico sessioni
 - A ogni **Stop Log** la sessione viene salvata in **IndexedDB** (dati 20 Hz + traccia GPS).
   I giri oltre ~2,5 h si salvano **interi**: in memoria resta solo la coda recente, e al salvataggio le righe più vecchie si rileggono dai blocchi già scritti su disco. Prima di questa correzione l'inizio di un giro lungo andava perso.
+- **CSV (sessione)** e **GPX (sessione)** esportano il giro corrente intero anche oltre le ~2,5 h: le righe più vecchie si rileggono dal disco, e la traccia è quella completa, non quella cappata della mappa live.
 - **Formato compatto**: le righe si salvano in colonne (array tipizzati, `js/rows-codec.js`) e non come un oggetto per campione, e occupano circa 3 volte meno spazio (un'ora di log: 31,8 → 9,6 MB prima della compressione di IndexedDB). Tempo, posizione e velocità sono esatti; i sensori sono in Float32, quindi nel CSV circa una cella su 5000 cambia di 1 sull'ultima cifra. I giri salvati prima vengono convertiti in sottofondo, uno alla volta, qualche secondo dopo l'avvio e mai durante un log. Il formato del backup non cambia.
 - **Spazio protetto**: al primo Start Log l'app chiede al browser lo storage persistente, così lo storico non viene cancellato quando il telefono ha poco spazio (Chrome lo concede da solo, di solito se l'app è installata). Sotto il riepilogo c'è lo spazio usato; se la protezione è negata compare un avviso che invita a fare il backup.
 - Elenco giri passati con **riepilogo in testa**: quanti giri, quanti km e quanto tempo in sella in tutto.

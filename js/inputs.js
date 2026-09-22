@@ -111,6 +111,8 @@ function onGeolocation(pos) {
   }
   state.gps.alt = c.altitude; state.gps.heading = c.heading; state.gps.acc = c.accuracy;
   state.gpsStatus = 'ok';
+  state.gpsFixT = nowP;
+  state.gpsDenied = false;
   updateGpsAccel(c, pos.timestamp || Date.now());
   updateGpsStatus();
 
@@ -156,8 +158,23 @@ function onGeolocation(pos) {
   }
 }
 
-function onGeolocationErr() {
+/* Gli errori non sono tutti uguali:
+   - 1 PERMISSION_DENIED: il watch è morto per sempre e l'app non può rimediare.
+     Serve dire all'utente dove riattivare la posizione, una volta sola.
+   - 3 TIMEOUT: nessun fix entro 10 s (galleria), ma il watch continua. Non è un
+     errore: con un fix già avuto lo mostra "GPS perso", senza resta "attesa".
+   - 2 POSITION_UNAVAILABLE e il resto: errore, come prima. */
+function onGeolocationErr(err) {
   if (state.demo) return;
+  const code = err && err.code;
+  if (code === 3) return;
   state.gpsStatus = 'err';
+  if (code === 1) {
+    state.gpsDenied = true;
+    if (!state._gpsDeniedWarned) {
+      state._gpsDeniedWarned = true;
+      toast('Posizione negata: senza GPS niente velocità né traccia. Consentila dalle impostazioni del sito (icona a sinistra dell\'indirizzo) e ricarica.', 'err', 10000);
+    }
+  }
   updateGpsStatus();
 }

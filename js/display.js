@@ -177,9 +177,12 @@ function mapHudModel(st, prev) {
   // Stato GPS: in fullscreen gpsDot/gpsTxt dell'header sono nascosti, e se il
   // fix cade l'unico sintomo e' che velocita' e piega si fermano (la fusione
   // inerziale manda avanti la velocita' per un po', quindi non si nota subito).
-  const gs = (st.demo || st.gpsStatus === 'ok') ? 'ok' : (st.gpsStatus === 'err' ? 'err' : 'wait');
+  // 'lost': c'era un fix e da GPS_LOST_MS non ne arrivano (velocità congelata).
+  const gs = (st.demo || st.gpsStatus === 'ok') ? (!st.demo && st.gpsLostS != null ? 'lost' : 'ok')
+    : (st.gpsStatus === 'err' ? 'err' : 'wait');
   const gps = st.demo ? 'DEMO'
-    : gs === 'err' ? 'NO GPS'
+    : gs === 'err' ? (st.gpsDenied ? 'GPS NEGATO' : 'NO GPS')
+      : gs === 'lost' ? 'PERSO ' + (st.gpsLostS < 60 ? st.gpsLostS + 's' : Math.floor(st.gpsLostS / 60) + 'min')
       : gs === 'ok' ? (num(st.gps && st.gps.acc) ? '±' + Math.round(st.gps.acc) + 'm' : 'GPS OK')
         : 'GPS…';
   // Beccheggio: positivo = muso in su. Sotto 1° e' rumore, e senza calibrazione
@@ -269,6 +272,11 @@ function updateMapHud() {
 }
 
 function updateDisplay() {
+  // Prima dell'HUD: gpsLostS serve a mapHudModel. Solo con pagina visibile
+  // (mainLoop salta updateDisplay a documento nascosto), come vuole il watchdog.
+  const nowP = performance.now();
+  state.gpsLostS = gpsLostSeconds(state, nowP);
+  gpsWatchdog(nowP);
   setTxt(els.speedVal, Math.round(state.speedKph));
   updateGuidaMode();
   if (els.clock) setTxt(els.clock, clockHm());

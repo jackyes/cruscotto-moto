@@ -78,6 +78,25 @@ function stopGenericSensors() {
    devicemotion/orientation e il watchPosition del GPS. Senza, sensori e GPS
    restavano vivi anche quando nessuno li consuma (demo accesa, permesso revocato). */
 let watchId = null;
+const GPS_WATCH_OPTS = { enableHighAccuracy: true, maximumAge: 0, timeout: 10000 };
+
+/* Su alcuni Android watchPosition smette di consegnare fix dopo un lungo
+   periodo in background, senza errori: il GPS resta "perso" anche all'aperto.
+   Se l'app è visibile (lo chiama updateDisplay, che non gira a pagina nascosta)
+   e dall'ultimo fix sono passati GPS_RESTART_MS, il watch si ricrea. Solo dopo
+   un primo fix: un avvio a freddo può impiegare più di 30 s, e non va disturbato.
+   Al massimo un riavvio ogni GPS_RESTART_MS. */
+function gpsWatchdog(nowP) {
+  if (state.demo || state.gpsDenied || watchId == null || !state.gpsFixT) return false;
+  if (nowP - state.gpsFixT < GPS_RESTART_MS) return false;
+  if (nowP - (state._gpsRestartT || 0) < GPS_RESTART_MS) return false;
+  state._gpsRestartT = nowP;
+  try { navigator.geolocation.clearWatch(watchId); } catch (e) {}
+  try {
+    watchId = navigator.geolocation.watchPosition(onGeolocation, onGeolocationErr, GPS_WATCH_OPTS);
+  } catch (e) { watchId = null; return false; }
+  return true;
+}
 function onVisChange() {
   if (document.visibilityState === 'visible') {
     lastMotionT = 0;
@@ -205,9 +224,7 @@ function addListeners() {
   if (navigator.geolocation) {
     // id salvato: senza, clearWatch era impossibile e il GPS restava acceso
     // anche quando nessuno consumava i fix (es. Demo).
-    watchId = navigator.geolocation.watchPosition(onGeolocation, onGeolocationErr, {
-      enableHighAccuracy: true, maximumAge: 0, timeout: 10000
-    });
+    watchId = navigator.geolocation.watchPosition(onGeolocation, onGeolocationErr, GPS_WATCH_OPTS);
   } else {
     state.gpsStatus = 'err'; updateGpsStatus();
   }

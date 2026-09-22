@@ -5,6 +5,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { api, resetState, vmSandbox } from './harness.mjs';
 import { createFakeIndexedDB } from './fake-indexeddb.mjs';
+import { readFileSync } from 'node:fs';
 
 const { state, idb, els, MAX_ROWS, saveSession } = api;
 const s = vmSandbox;
@@ -146,4 +147,57 @@ test('renderStorageInfo: spazio usato e avviso se non protetto', async () => {
   s.navigator = {};
   await s.renderStorageInfo();
   assert.equal(els.histStorage.hidden, true, 'senza API la riga sparisce');
+});
+
+// ---- export "CSV (sessione)" / "GPX (sessione)" ----
+async function captureExport(fn) {
+  let got = null;
+  const orig = s.exportCsv;
+  s.exportCsv = rows => { got = rows; };
+  try { await fn(); } finally { s.exportCsv = orig; }
+  return got;
+}
+
+test('CSV sessione durante un log lungo: tutte le righe, non solo la coda', async () => {
+  await initDb();
+  startSession('s_exp_live');
+  const n = MAX_ROWS + 5000;
+  await ride(n);
+  assert.ok(state.rows.length < n);
+  const rows = await captureExport(() => s.exportSessionCsv());
+  assert.equal(rows.length, n);
+  assert.equal(rows[0].t, 0);
+});
+
+test('CSV sessione a log fermo: il giro intero dallo storico (i chunk sono già cancellati)', async () => {
+  await initDb();
+  startSession('s_exp_stop');
+  const n = MAX_ROWS + 5000;
+  await ride(n);
+  state.logging = false;
+  await s.flushLog();
+  await saveSession();
+  assert.equal((await idb.getChunks()).length, 0);
+  const rows = await captureExport(() => s.exportSessionCsv());
+  assert.equal(rows.length, n);
+});
+
+test('CSV sessione: giro non ricomponibile → esporta la coda e avvisa', async () => {
+  await initDb();
+  startSession('s_exp_err');
+  await ride(MAX_ROWS + 5000);
+  const toasts = [];
+  const origToast = s.toast, origGet = idb.getChunks;
+  s.toast = m => { toasts.push(m); return { remove() {} }; };
+  idb.getChunks = async () => { throw new Error('idb rotto'); };
+  let rows;
+  try { rows = await captureExport(() => s.exportSessionCsv()); }
+  finally { s.toast = origToast; idb.getChunks = origGet; }
+  assert.equal(rows.length, state.rows.length);
+  assert.ok(toasts.some(m => /solo la parte recente/.test(m)), 'nessun avviso di CSV parziale');
+});
+
+test('GPX sessione: traccia completa (trackFull), non quella cappata della mappa', () => {
+  const src = readFileSync(new URL('../js/init.js', import.meta.url), 'utf8');
+  assert.match(src, /btnExportGpx\.addEventListener\('click', \(\) => exportGpx\(state\.trackFull\.length \? state\.trackFull : state\.track/);
 });

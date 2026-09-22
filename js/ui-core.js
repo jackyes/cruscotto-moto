@@ -357,20 +357,35 @@ function updateCamStatus() {
   els.camTxt.textContent = txt;
 }
 
+/* Secondi senza fix, solo quando il GPS aveva un fix e poi ha smesso (galleria,
+   segnale perso): null altrimenti. Pura, per display e HUD. */
+function gpsLostSeconds(st, nowP) {
+  if (st.demo || st.gpsStatus !== 'ok' || !st.gpsFixT) return null;
+  const d = nowP - st.gpsFixT;
+  return d >= GPS_LOST_MS ? Math.floor(d / 1000) : null;
+}
+const fmtLost = s => s < 60 ? s + ' s' : Math.floor(s / 60) + ' min';
+
+/* Pura: pallino e testo dello stato GPS nell'header. Prima "GPS ok (±3m)"
+   restava anche a fix spariti da minuti. */
+function gpsStatusView(st) {
+  if (st.demo) return { cls: 'ok', txt: 'GPS demo' };
+  if (st.gpsDenied) return { cls: 'err', txt: 'GPS negato' };
+  if (st.gpsStatus === 'ok') {
+    if (st.gpsLostS != null) return { cls: 'wait', txt: 'GPS perso · ' + fmtLost(st.gpsLostS) };
+    return { cls: 'ok', txt: 'GPS ok' + (st.gps.acc != null ? ' (±' + Math.round(st.gps.acc) + 'm)' : '') };
+  }
+  if (st.gpsStatus === 'err') return { cls: 'err', txt: 'GPS errore' };
+  return { cls: 'wait', txt: 'GPS attesa' };
+}
+
 function updateGpsStatus() {
-  if (state.demo) {
-    els.gpsDot.className = 'status-dot ok';
-    els.gpsTxt.textContent = 'GPS demo';
-    return;
-  }
-  if (state.gpsStatus === 'ok') {
-    els.gpsDot.className = 'status-dot ok';
-    els.gpsTxt.textContent = 'GPS ok' + (state.gps.acc != null ? ' (±' + Math.round(state.gps.acc) + 'm)' : '');
-  } else if (state.gpsStatus === 'err') {
-    els.gpsDot.className = 'status-dot err';
-    els.gpsTxt.textContent = 'GPS errore';
-  } else {
-    els.gpsDot.className = 'status-dot wait';
-    els.gpsTxt.textContent = 'GPS attesa';
-  }
+  state.gpsLostS = gpsLostSeconds(state, performance.now());
+  const v = gpsStatusView(state);
+  const cls = 'status-dot ' + v.cls;
+  // Gira a DISPLAY_HZ: si scrive solo quando cambia.
+  if (els.gpsDot.className !== cls) els.gpsDot.className = cls;
+  if (els.gpsTxt.textContent !== v.txt) els.gpsTxt.textContent = v.txt;
+  // Velocità congelata sull'ultimo fix: si spegne invece di sembrare vera.
+  if (els.speedVal) els.speedVal.classList.toggle('stale', state.gpsLostS != null);
 }

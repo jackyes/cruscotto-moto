@@ -610,12 +610,9 @@ function init() {
   });
 
   els.btnLogTop.addEventListener('click', () => state.logging ? stopLog() : startLog());
-  els.btnExportCsv.addEventListener('click', () => {
-    if (!state.rows.length) { toast('Nessun dato. Avvia un log.', 'err'); return; }
-    const meta = { startISO: new Date(state.session.startWall || Date.now()).toISOString(), maxSpeed: state.session.maxSpeed, maxLeanR: state.session.maxLeanR, maxLeanL: state.session.maxLeanL, distKm: state.session.distKm };
-    exportCsv(state.rows, meta, 'sessione');
-  });
-  els.btnExportGpx.addEventListener('click', () => exportGpx(state.track, 'sessione'));
+  els.btnExportCsv.addEventListener('click', exportSessionCsv);
+  // trackFull e non track: la traccia live è cappata a TRACK_MAX (~2,8 h a 1 Hz).
+  els.btnExportGpx.addEventListener('click', () => exportGpx(state.trackFull.length ? state.trackFull : state.track, 'sessione'));
   els.btnExportCsvHist.addEventListener('click', async () => {
     /* Export storico in streaming: una sessione per volta, parti di stringa passate
        a Blob. Prima un flatMap caricava tutte le righe di tutte le sessioni in RAM

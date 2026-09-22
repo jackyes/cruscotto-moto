@@ -132,6 +132,8 @@ header h1 .dot { color: var(--accent); }
 .status-dot.ok { background: var(--good); box-shadow: 0 0 10px var(--good); }
 .status-dot.err { background: var(--bad); box-shadow: 0 0 8px var(--bad); }
 .status-dot.wait { background: var(--warn); }
+/* Velocità ferma sull'ultimo fix (GPS perso): spenta, non spacciata per vera. */
+.speed-val.stale { opacity: .35; }
 @media (max-width: 599px) { header h1 { display: none; } }
 @media (max-width: 400px) {
   header { gap: 6px; }
@@ -599,6 +601,9 @@ body.map-fullscreen .map-hud { display: flex; }
 .map-hud.gps-ok .mh-gps-dot { background: var(--good); }
 .map-hud.gps-err .mh-gps-dot { background: var(--bad); }
 .map-hud.gps-err .mh-gps { color: var(--bad); }
+.map-hud.gps-lost .mh-gps-dot { background: var(--warn); }
+.map-hud.gps-lost .mh-gps { color: var(--warn); }
+.map-hud.gps-lost .mh-speed { opacity: .4; }
 /* Affidabilita' della piega: tre tacche come le barre di segnale. Prima l'HUD
    si limitava ad attenuare il numero, senza dire perche': chi guida vedeva la
    piega sbiadire e non sapeva se era colpa sua o del telefono. */

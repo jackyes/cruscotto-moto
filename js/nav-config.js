@@ -256,6 +256,7 @@ function navSimStep() {
   state.gps.lat = la; state.gps.lon = lo;
   state.gps.heading = nv.brg[i]; state.gps.acc = 6;
   state.speedMs = v; state.speedKph = v * 3.6; state.gpsStatus = 'ok';
+  state.gpsFixT = performance.now();   // fix simulato: niente "GPS perso" né riavvio del watch
   updateGpsStatus();
   navTick(la, lo, 6);
   updateMap();

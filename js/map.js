@@ -22,6 +22,22 @@ async function sessionRowsForSave() {
   return out;
 }
 
+/* Righe complete della sessione corrente per l'export "CSV (sessione)". Stesso
+   problema del salvataggio: oltre MAX_ROWS state.rows ha solo la coda.
+   - durante il log: chunk + coda in memoria (sessionRowsForSave);
+   - a log fermo i chunk sono già stati cancellati da saveSession: il giro
+     completo è quello salvato nello storico.
+   null se non si riesce a ricomporlo: il chiamante esporta la coda e avvisa. */
+async function currentSessionRows() {
+  if (!(state._rowsTrimmed > 0)) return state.rows.slice();
+  if (!state.logging && state.sessionId) {
+    let saved = null;
+    try { saved = await idb.get(state.sessionId); } catch (e) {}
+    if (saved && Array.isArray(saved.rows) && saved.rows.length > state.rows.length) return saved.rows;
+  }
+  return sessionRowsForSave();
+}
+
 async function saveSession() {
   if (!state.session.startWall) return;
   const endWall = state.session.endWall || Date.now();

@@ -158,6 +158,8 @@ const RECT_NULL_MAX_G = 0.05;    // tetto della correzione applicata
 const GPS_LAG_S = 0.6;         // ritardo tipico della velocità Doppler; compensato via storia di v̂
 const SPEED_HIST_S = 3;        // profondità della storia di v̂ (s)
 const SPEED_STALE_MS = 3000;   // oltre questo la velocità GPS non è più utilizzabile
+const GPS_LOST_MS = SPEED_STALE_MS; // senza fix da tanto: a schermo "GPS perso", velocità spenta
+const GPS_RESTART_MS = 30000;  // senza fix da tanto (app visibile): si riavvia watchPosition
 const SPEED_MAX_DEV_MS = 2.5;    // scostamento massimo dalla velocità GPS con fix fresco
 /* --- stimatore del segno del giroscopio --- */
 const GSIGN_TAU_S = 4;         // memoria della correlazione rollio/derivata-accelerometro
@@ -209,6 +211,9 @@ const state = {
   gps: { lat: null, lon: null, alt: null, heading: null, acc: null }, // smussata: solo marker
   pos: { lat: null, lon: null },   // grezza: distanze, traccia, avvisi autovelox
   gpsStatus: 'waiting',
+  gpsFixT: 0,                // performance.now() dell'ultimo fix (0 = mai)
+  gpsLostS: null,            // secondi senza fix quando "perso", altrimenti null
+  gpsDenied: false,          // permesso posizione negato (errore 1)
   logging: false,
   rows: [],
   track: [],                 // {lat, lon, alt, t, ts} — live, cappata a TRACK_MAX
