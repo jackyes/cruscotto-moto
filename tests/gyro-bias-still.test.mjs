@@ -1,87 +1,82 @@
 // Bias del giroscopio misurato da fermi (gyroBiasStillStep, js/sensors-pipe.js).
 // Il bias attorno alla verticale non si impara dalla gravità ed entra dritto nella
 // compensazione centripeta (piega ≈ atan(v·ω/g)): da fermi si misura e si toglie.
+// Simulazione realistica: tests/lean-sim.mjs (orologio simulato, GPS a 1 Hz).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { api, resetState, vmSandbox as sb } from './harness.mjs';
+import { api } from './harness.mjs';
+import { withSim, rng, turnError, meanOver } from './lean-sim.mjs';
 
-const { state, processSample, buildBasis, G } = api;
-const now = () => sb.performance.now();          // orologio della sandbox (speedGpsT)
-const B = () => buildBasis({ x: 1, y: 0, z: 0 }); // up = x, right = y, fwd = −z
-function rng(seed) { let x = seed; return () => (x = (x * 1664525 + 1013904223) >>> 0) / 4294967296; }
+const { G } = api;
 
-/* Sosta di stopS secondi poi marcia a 20 m/s (curva tenuta a `deg`), bias vero
-   `bias` °/s su tutti e tre gli assi, vibrazione `rms` g RMS (rumore uniforme),
-   rumore giroscopio ±5 °/s. Errore medio sulla piega da 20 s dopo la partenza. */
-function ride({ deg = 0, bias = 0, rms = 0, stopS = 0, seed = 7, moveS = 65, stopSpeed = 0, stopGyro = null, gpsFresh = true }) {
-  const v = 20, phi = deg * Math.PI / 180, psi = deg ? (G * Math.tan(phi) / v) * (180 / Math.PI) : 0;
-  const w = { x: -psi * Math.cos(phi), y: -psi * Math.sin(phi), z: 0 }, f = { x: G / Math.cos(phi), y: 0, z: 0 };
-  resetState(); state.calib = B();
-  const r = rng(seed), amp = rms * Math.sqrt(3);
-  let t = 300000, s = 0, n = 0;
-  for (let i = 0; i < (stopS + moveS) * 60; i++) {
-    const moving = i >= stopS * 60;
-    t += 1000 / 60; api.lastMotionT = t - 1000 / 60;
-    if (i % 60 === 0 && (moving || gpsFresh)) { state.speedGpsMs = moving ? v : stopSpeed; state.speedGpsT = now(); }
-    if (i === stopS * 60) { state.speedFusMs = v; state._spBase = v; state._aInt = 0; state.lonG = 0; }
-    const ww = moving ? w : (stopGyro ? stopGyro(r) : { x: 0, y: 0, z: 0 });
-    const ff = moving ? f : { x: G, y: 0, z: 0 };
-    const gn = () => (r() * 2 - 1) * 5;
-    processSample({
-      acc: { x: ff.x + (r() * 2 - 1) * amp * G, y: (r() * 2 - 1) * amp * G, z: (r() * 2 - 1) * amp * G },
-      gyro: { x: ww.x + bias + gn(), y: ww.y + bias + gn(), z: ww.z + bias + gn() }, grav: null, lin: null, t,
-    });
-    if (moving && i >= (stopS + 20) * 60) { s += Math.abs(state.lean - (moving ? deg : 0)); n++; }
-  }
-  return { err: n ? s / n : NaN, b: { ...state.gyroBiasStill }, n: state.gyroBiasStillN };
+/* Solo la sosta: `stopS` secondi fermi (GPS a `speed`), giroscopio = bias + rumore
+   + `extra(r)`; ritorna la stima e quante finestre sono servite. */
+function stop({ bias = 2, rms = 0, stopS = 10, speed = 0, extra = null, gpsFresh = true, seed = 7 } = {}) {
+  return withSim((sim, st) => {
+    const r = rng(seed), amp = rms * Math.sqrt(3);
+    for (let i = 0; i < stopS * 60; i++) {
+      if (i % 60 === 0 && gpsFresh) sim.gps(speed);
+      const e = extra ? extra(r) : { x: 0, y: 0, z: 0 };
+      sim.step(
+        { x: G + (r() * 2 - 1) * amp * G, y: (r() * 2 - 1) * amp * G, z: (r() * 2 - 1) * amp * G },
+        { x: bias + e.x + (r() * 2 - 1) * 5, y: bias + e.y + (r() * 2 - 1) * 5, z: bias + e.z + (r() * 2 - 1) * 5 });
+    }
+    return { b: { ...st.gyroBiasStill }, n: st.gyroBiasStillN };
+  });
 }
 
 test('da fermi misura il bias su tutti e tre gli assi, anche col motore che vibra', () => {
   for (const rms of [0, 0.3]) {
-    const r = ride({ bias: 2, rms, stopS: 10, moveS: 1 });
-    assert.ok(r.n >= 2, 'finestre di quiete: ' + r.n);
+    const r = stop({ rms });
+    assert.ok(r.n >= 3, 'finestre di quiete: ' + r.n);
     for (const k of ['x', 'y', 'z']) assert.ok(Math.abs(r.b[k] - 2) < 0.3, rms + ' g: ' + k + ' = ' + r.b[k].toFixed(2));
   }
 });
 
-test('rettilineo con bias 2 °/s: da ~6° a sotto 1° dopo una sosta di 10 s', () => {
-  const senza = ride({ bias: 2, stopS: 0 }).err, con = ride({ bias: 2, stopS: 10 }).err;
-  assert.ok(senza > 4, 'premessa: senza sosta ' + senza.toFixed(2) + '°');
-  assert.ok(con < 1, 'con sosta ' + con.toFixed(2) + '°');
-  assert.ok(ride({ bias: 2, rms: 0.3, stopS: 10 }).err < 2.5, 'con vibrazione 0,3 g RMS');
+// Misura da 20 a 65 s dopo la partenza, media su 5 semi.
+const LONG = { from: 20, to: 65 };
+
+test('rettilineo con bias 2 °/s: da ~5° a sotto 1° dopo una sosta di 10 s', () => {
+  const senza = meanOver({ deg: 0, bias: 2, ...LONG }), con = meanOver({ deg: 0, bias: 2, stopS: 10, ...LONG });
+  assert.ok(senza > 4, 'premessa: senza sosta ' + senza.toFixed(2) + '°');                  // misurato 5,2°
+  assert.ok(con < 1, 'con sosta ' + con.toFixed(2) + '°');                                  // misurato 0,6°
+  const vib = meanOver({ deg: 0, bias: 2, amp: 0.3 * Math.sqrt(3), stopS: 10, ...LONG });
+  assert.ok(vib < 2.3, 'con 0,3 g RMS: ' + vib.toFixed(2) + '°');                          // misurato 1,7°
 });
 
 test('curva tenuta: dopo la sosta il bias non conta più (errore uguale a bias zero)', () => {
-  const b2 = ride({ deg: 30, bias: 2, stopS: 10 }).err, b0 = ride({ deg: 30, bias: 0, stopS: 10 }).err;
-  const senza = ride({ deg: 30, bias: 2, stopS: 0 }).err;
-  assert.ok(senza > b2 + 3, 'premessa: senza sosta ' + senza.toFixed(2) + '° contro ' + b2.toFixed(2) + '°');
-  assert.ok(Math.abs(b2 - b0) < 0.5, 'bias 2: ' + b2.toFixed(2) + '°, bias 0: ' + b0.toFixed(2) + '°');
+  const b2 = meanOver({ deg: 30, bias: 2, stopS: 10, ...LONG }), b0 = meanOver({ deg: 30, bias: 0, stopS: 10, ...LONG });
+  const senza = meanOver({ deg: 30, bias: 2, ...LONG });
+  assert.ok(senza > b2 + 3, 'premessa: senza sosta ' + senza.toFixed(2) + '° contro ' + b2.toFixed(2) + '°');  // 5,7 contro 0,6
+  assert.ok(Math.abs(b2 - b0) < 0.3, 'bias 2: ' + b2.toFixed(2) + '°, bias 0: ' + b0.toFixed(2) + '°');
 });
 
 test('nessun falso fermo: in marcia, in galleria, in una curva a passo d\'uomo, col telefono in mano', () => {
-  // In marcia (GPS 20 m/s): mai.
-  assert.equal(ride({ deg: 30, bias: 1, moveS: 30 }).n, 0);
-  // Galleria: velocità "0" ma GPS stantio.
-  assert.equal(ride({ bias: 1, stopS: 10, moveS: 1, gpsFresh: false }).n, 0);
+  // In marcia (GPS 20 m/s, curva tenuta): mai.
+  const moving = withSim((sim, st) => {
+    for (let i = 0; i < 30 * 60; i++) { if (i % 60 === 0) sim.gps(20); sim.step({ x: G / Math.cos(Math.PI / 6), y: 0, z: 0 }, { x: -12, y: -7, z: 1 }); }
+    return st.gyroBiasStillN;
+  });
+  assert.equal(moving, 0);
+  // Galleria: nessun fix nuovo, il GPS è stantio.
+  assert.equal(stop({ bias: 1, gpsFresh: false }).n, 0);
   // Manovra a passo d'uomo (GPS 0,3 m/s) girando a 10 °/s: rotazione vera, non bias.
-  assert.equal(ride({ bias: 1, stopS: 10, moveS: 1, stopSpeed: 0.3, stopGyro: () => ({ x: 10, y: 0, z: 0 }) }).n, 0);
+  assert.equal(stop({ bias: 1, speed: 0.3, extra: () => ({ x: 10, y: 0, z: 0 }) }).n, 0);
   // Telefono maneggiato da fermi: rotazioni ampie a media quasi nulla.
-  const hand = r => ({ x: (r() * 2 - 1) * 60, y: (r() * 2 - 1) * 60, z: (r() * 2 - 1) * 60 });
-  assert.equal(ride({ bias: 1, stopS: 10, moveS: 1, stopGyro: hand }).n, 0);
+  assert.equal(stop({ bias: 1, extra: r => ({ x: (r() * 2 - 1) * 60, y: (r() * 2 - 1) * 60, z: (r() * 2 - 1) * 60 }) }).n, 0);
 });
 
 test('il bias da fermi azzera il residuo imparato dal filtro e resta fuori dal segno del giroscopio', () => {
-  resetState(); state.calib = B();
-  state.attBias = { x: 0.7, y: -0.4, z: 0.2 };
-  state.gyroSign = -1;
-  let t = 300000;
-  for (let i = 0; i < 180; i++) {
-    t += 1000 / 60; api.lastMotionT = t - 1000 / 60;
-    if (i % 60 === 0) { state.speedGpsMs = 0; state.speedGpsT = now(); }
-    processSample({ acc: { x: G, y: 0, z: 0 }, gyro: { x: 1.5, y: -0.5, z: 0.25 }, grav: null, lin: null, t });
-  }
-  // Stimato negli assi del SENSORE: stesso valore qualunque sia gyroSign.
-  assert.ok(state.gyroBiasStillN >= 1);
-  assert.ok(Math.abs(state.gyroBiasStill.x - 1.5) < 1e-6 && Math.abs(state.gyroBiasStill.z - 0.25) < 1e-6);
-  assert.ok(Math.abs(state.attBias.x) < 0.05, 'residuo del filtro non azzerato: ' + state.attBias.x);
+  withSim((sim, st) => {
+    st.attBias = { x: 0.7, y: -0.4, z: 0.2 };
+    st.gyroSign = -1;
+    for (let i = 0; i < 180; i++) {
+      if (i % 60 === 0) sim.gps(0);
+      sim.step({ x: G, y: 0, z: 0 }, { x: 1.5, y: -0.5, z: 0.25 });
+    }
+    // Stimato negli assi del SENSORE: stesso valore qualunque sia gyroSign.
+    assert.ok(st.gyroBiasStillN >= 1);
+    assert.ok(Math.abs(st.gyroBiasStill.x - 1.5) < 1e-6 && Math.abs(st.gyroBiasStill.z - 0.25) < 1e-6);
+    assert.ok(Math.abs(st.attBias.x) < 0.05, 'residuo del filtro non azzerato: ' + st.attBias.x);
+  });
 });

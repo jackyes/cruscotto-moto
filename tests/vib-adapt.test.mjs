@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert';
 import { api, resetState } from './harness.mjs';
+import { meanOver } from './lean-sim.mjs';
 
 const { state, processSample, buildBasis, vibScale, biquadStep, biquadInit, updateRectDetector,
         updateAttitude, csvRows, CSV_HEADER, G, ATT_KP, RECT_NULL_MAX_G } = api;
@@ -168,47 +169,27 @@ test('CSV: colonne vib_rect_g e speed_stale in coda', () => {
   assert.ok(csvRows([{ t: 1, speedStale: 1 }]).endsWith(',1'));
 });
 
-/* Simulazione della curva tenuta a 30° con vibrazione. Il rumore è UNIFORME fra
-   −A e +A, il cui valore efficace è A/√3: prima questi test si chiamavano
-   "0,3 g RMS" e "0,6 g RMS" ma simulavano 0,17 e 0,35 g RMS. E passavano solo
-   col seme 42: con 3 semi su 5 superavano la soglia. Adesso media su 5 semi,
-   5 s di assestamento e 10 s di misura; soglie = valore misurato + ~30%. */
-function simVib(amp, seed) {
-  resetState();
-  state.calib = B();
-  const v = 20;
-  state.speedGpsMs = v; state.speedGpsT = Date.now(); state.speedFusMs = v;
-  state._spBase = v; state._aInt = 0; state.lonG = 0;
-  const { w, f } = steadyTurn(30);
-  const r = rng(seed);
-  const dt = 1 / 60;
-  let t = 300000, sum = 0, n = 0;
-  for (let i = 0; i < 900; i++) {
-    t += dt * 1000;
-    api.lastMotionT = t - dt * 1000;
-    const acc = { x: f.x + (r()*2-1)*amp*G, y: (r()*2-1)*amp*G, z: (r()*2-1)*amp*G };
-    const gy = { x: w.x + (r()*2-1)*5, y: w.y + (r()*2-1)*5, z: (r()*2-1)*5 };
-    processSample({ acc, gyro: gy, grav: null, lin: null, t });
-    if (i >= 300) { sum += Math.abs(state.lean - 30); n++; }
-  }
-  return sum / n;
-}
-const SIM_SEEDS = [1, 7, 42, 99, 123];
-const simVibMean = amp => SIM_SEEDS.reduce((s, sd) => s + simVib(amp, sd), 0) / SIM_SEEDS.length;
+/* Curva tenuta a 30° con vibrazione, simulazione realistica (tests/lean-sim.mjs:
+   orologio simulato e fix GPS a 1 Hz che riancora la velocità, come nell'app).
+   Il rumore è UNIFORME fra −A e +A, con valore efficace A/√3: "±0,3 g" sono
+   0,17 g RMS. Media su 5 semi, misura da 5 a 15 s; soglie = misurato + ~35%.
+   Una versione precedente non riancorava la velocità al GPS e misurava circa
+   il doppio: la velocità fusa derivava integrando il rumore. */
 const RMS = rms => rms * Math.sqrt(3);   // semi-ampiezza del rumore uniforme con quella RMS
 
 for (const [label, amp, max] of [
-  ['±0,3 g uniforme (0,17 g RMS)', 0.3, 2.6],        // misurato 2,0°
-  ['±0,6 g uniforme (0,35 g RMS)', 0.6, 4.5],        // misurato 3,4°
-  ['0,3 g RMS', RMS(0.3), 4.5],                      // misurato 3,5°
-  ['0,6 g RMS', RMS(0.6), 6.4],                      // misurato 4,9°
+  ['±0,3 g uniforme (0,17 g RMS)', 0.3, 1.4],        // misurato 1,0°
+  ['±0,6 g uniforme (0,35 g RMS)', 0.6, 2.7],        // misurato 2,0°
+  ['0,3 g RMS', RMS(0.3), 2.1],                      // misurato 1,6°
+  ['0,6 g RMS', RMS(0.6), 5.4],                      // misurato 4,2°
 ]) {
   test('sim: curva tenuta 30° con vibrazione ' + label + ' — errore medio sotto ' + max + '°', () => {
-    const e = simVibMean(amp);
+    const e = meanOver({ deg: 30, amp });
     assert.ok(e < max, 'errore medio su 5 semi ' + e.toFixed(2) + '°');
   });
 }
 
-test('sim: senza vibrazione l\'errore resta sotto il grado', () => {
-  assert.ok(simVibMean(0) < 1, 'errore medio ' + simVibMean(0).toFixed(2) + '°');
+test('sim: senza vibrazione né rumore l\'errore resta sotto mezzo grado', () => {
+  const e = meanOver({ deg: 30, amp: 0, gA: 0 });
+  assert.ok(e < 0.5, 'errore medio ' + e.toFixed(2) + '°');
 });
