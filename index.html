@@ -486,6 +486,17 @@
         <button id="btnBench">Test banco 20 s</button>
         <div id="benchOut" class="bench-out"></div>
       </details>
+
+      <details id="issuePanel">
+        <summary>Errori app <span id="issueCount" class="issue-count" hidden></span></summary>
+        <p class="hint">Versione <b id="appVersion">—</b>. Gli errori restano qui anche dopo aver chiuso l'app
+          (gli ultimi 50): dopo un giro, <b>Copia</b> e incolla il testo in un messaggio.</p>
+        <pre id="issueList" class="issue-list"></pre>
+        <div class="controls">
+          <button id="btnIssueCopy">📋 Copia</button>
+          <button id="btnIssueClear">Svuota</button>
+        </div>
+      </details>
     </section>
 
     <!-- ===== Navigatore ===== -->
@@ -643,6 +654,7 @@
   </nav>
 </div>
 
+<script src="js/issues.js"></script>
 <script src="js/core.js"></script>
 <script src="js/geo.js"></script>
 <script src="js/curvy.js"></script>

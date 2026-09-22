@@ -74,7 +74,7 @@ async function navPersistRoute() {
   } catch (e) {
     // Persistenza rotta rotta: la navigazione continua, ma al riavvio non ci
     // sarà nulla da riprendere — prima moriva in silenzio.
-    try { console.warn('navPersistRoute: salvataggio rotta fallito', e && e.message); } catch (e2) {}
+    try { logWarn('navPersistRoute: salvataggio rotta fallito', e && e.message); } catch (e2) {}
   }
 }
 let navProgT = 0;
@@ -101,7 +101,7 @@ function navPersistProgress() {
     ts: now, sAlong: nv.sAlong, nextMan: nv.nextMan,
     lat: nv.lastLat, lon: nv.lastLon,
   }).catch(e => {
-    try { console.warn('navPersistProgress: salvataggio progresso fallito', e && e.message); } catch (e2) {}
+    try { logWarn('navPersistProgress: salvataggio progresso fallito', e && e.message); } catch (e2) {}
   });
 }
 

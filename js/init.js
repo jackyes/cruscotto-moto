@@ -62,6 +62,9 @@ const els = {
   gravityModeSel: $('gravityModeSel'), rectNull: $('rectNull'),
   guidaAlwaysChk: $('guidaAlways'),
   autoLogChk: $('autoLog'),
+  issuePanel: $('issuePanel'), issueCount: $('issueCount'), issueList: $('issueList'),
+  appVersion: $('appVersion'), btnIssueCopy: $('btnIssueCopy'), btnIssueClear: $('btnIssueClear'),
+  tabHistory: document.querySelector('nav.tabbar button[data-tab="history"]'),
   toasts: $('toasts'), secWarn: $('secWarn'), mapBox: document.querySelector('.map-box'),
   leanConf: $('leanConf'), leanConfFill: $('leanConfFill'), leanConfTxt: $('leanConfTxt'),
   diagVerdict: $('diagVerdict'),
@@ -581,13 +584,26 @@ function init() {
   // Errori imprevisti non devono restare silenziosi in moto: un TypeError nel
   // wiring (id di markup disallineato) prima congelava il cruscotto senza alcun
   // messaggio visibile.
+  // La registrazione nel registro errori è già attiva da js/issues.js (primo
+  // script della pagina): qui solo il toast, che richiede il DOM.
   window.addEventListener('error', ev => {
-    try { toast('Errore app: ' + (ev && ev.message ? ev.message : 'sconosciuto'), 'err', 8000); } catch (e) {}
+    try { toast('Errore app: ' + (ev && ev.message ? ev.message : 'sconosciuto') + ' (dettagli in Storico → Errori app)', 'err', 8000); } catch (e) {}
   });
   window.addEventListener('unhandledrejection', ev => {
     const m = ev && ev.reason && (ev.reason.message || ev.reason);
-    try { toast('Errore app: ' + (m || 'promise rifiutata'), 'err', 8000); } catch (e) {}
+    try { toast('Errore app: ' + (m || 'promise rifiutata') + ' (dettagli in Storico → Errori app)', 'err', 8000); } catch (e) {}
   });
+  try {
+    renderIssueBadge();
+    els.issuePanel.addEventListener('toggle', () => {
+      if (!els.issuePanel.open) return;
+      renderIssues();
+      markIssuesSeen();
+      renderIssueBadge();
+    });
+    els.btnIssueCopy.addEventListener('click', copyIssues);
+    els.btnIssueClear.addEventListener('click', () => { clearIssues(); renderIssues(); renderIssueBadge(); });
+  } catch (e) { logWarn('registro errori: wiring fallito', e); }
 
   loadSettings();
   navSpeak.init();

@@ -60,7 +60,7 @@ const idb = {
           // dell'altra scheda può essere già finito), i successivi scalano —
           // prima ritentava a raffica senza limiti.
           openRetryN = (openRetryN || 0) + 1;
-          if (openRetryN > 8) { try { console.warn('idb: troppi tentativi di riapertura dopo upgrade.'); } catch (e3) {} openRetryN = 0; }
+          if (openRetryN > 8) { try { logWarn('idb: troppi tentativi di riapertura dopo upgrade.'); } catch (e3) {} openRetryN = 0; }
           const delay = openRetryN > 1 ? Math.min(250 * (openRetryN - 1), 4000) : 0;
           setTimeout(() => { idb.open().catch(() => {}); }, delay);
         };

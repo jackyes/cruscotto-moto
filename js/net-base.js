@@ -81,13 +81,13 @@ async function cacheGetFresh(key, ttl) {
   } catch (err) {
     // "Non trovato" e "IDB rotto" restano indistinguibili per il caller (che
     // rifà comunque la fetch: è la risposta sicura), ma l'errore non è più muto.
-    try { console.warn('cacheGetFresh: lettura fallita per ' + key, err && err.message); } catch (e) {}
+    try { logWarn('cacheGetFresh: lettura fallita per ' + key, err && err.message); } catch (e) {}
     return null;
   }
 }
 async function cachePut(key, body, ttl) {
   try { await idb.kvPut(key, { ts: Date.now(), ttl: ttl, body: body }); }
-  catch (err) { try { console.warn('cachePut: scrittura fallita per ' + key, err && err.message); } catch (e) {} }
+  catch (err) { try { logWarn('cachePut: scrittura fallita per ' + key, err && err.message); } catch (e) {} }
 }
 
 function takeLogAvg() {

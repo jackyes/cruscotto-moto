@@ -66,7 +66,8 @@ function parseCamerasFile(text) {
   } catch (e) {
     // JSON malformato: prima indistinguibile da un CSV vuoto (e il CSV veniva
     // comunque provato sotto), ora almeno un warn per chi debugga.
-    try { console.warn('parseCamerasFile: JSON non leggibile', e && e.message); } catch (e2) {}
+    // Anche nel viewer, che non carica js/issues.js: lì resta console.warn.
+    try { (typeof logWarn === 'function' ? logWarn : console.warn)('parseCamerasFile: JSON non leggibile', e && e.message); } catch (e2) {}
   }
   return out;
 }

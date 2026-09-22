@@ -394,7 +394,7 @@ function updateDisplay() {
      congelerebbe tutto (in fullscreen, in marcia, anche l'HUD). Log una volta:
      a 15 Hz sarebbe solo rumore. */
   try { updateMapHud(); } catch (e) {
-    if (!mapHudErr) { mapHudErr = true; console.warn('[hud]', e); }
+    if (!mapHudErr) { mapHudErr = true; logWarn('[hud]', e); }
   }
   updateGpsStatus();
   updateCamStatus();

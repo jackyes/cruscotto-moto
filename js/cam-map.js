@@ -87,7 +87,7 @@ async function loadCachedCameras() {
   // traboccava con DB grandi e perdeva la cache senza dire nulla.
   let c = null;
   try { c = await idb.kvGet('cachedCameras'); } catch (e) {
-    try { console.warn('loadCachedCameras: lettura cache fallita', e && e.message); } catch (e2) {}
+    try { logWarn('loadCachedCameras: lettura cache fallita', e && e.message); } catch (e2) {}
   }
   if (c && c.cameras && c.cameras.length) {
     state.cameras = c.cameras;

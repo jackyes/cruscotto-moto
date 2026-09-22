@@ -34,7 +34,8 @@ Alternative (entrambe HTTPS automatico):
 > Il service worker si registra solo su HTTPS (o `localhost`). Senza di lui l'app resta
 > funzionante ma perde l'avvio offline. Il codice dell'app si serve dalla rete per primo, quindi
 > online il telefono ha sempre la versione pubblicata; alzare `CACHE_VERSION` in `sw.js` rinnova
-> in un colpo tutta la copia offline e fa comparire "Nuova versione disponibile". La CI
+> in un colpo tutta la copia offline e fa comparire "Nuova versione disponibile"; va alzata insieme ad
+> `APP_VERSION` in `js/issues.js` (un test controlla che coincidano). La CI
 > (`.github/workflows/test.yml`) lancia i test a ogni push e avvisa, senza bloccare, se cambiano
 > file della SHELL senza l'aumento. L'aggiornamento del worker avviene **solo quando non stai
 > registrando**: se un log è attivo, il nuovo codice resta in attesa e si applica al
@@ -170,6 +171,7 @@ tutti tornanti, e voglio tornare a casa"*. Questa scheda parte da lì.
 - A ogni **Stop Log** la sessione viene salvata in **IndexedDB** (dati 20 Hz + traccia GPS).
   I giri oltre ~2,5 h si salvano **interi**: in memoria resta solo la coda recente, e al salvataggio le righe più vecchie si rileggono dai blocchi già scritti su disco. Prima di questa correzione l'inizio di un giro lungo andava perso.
 - **CSV (sessione)** e **GPX (sessione)** esportano il giro corrente intero anche oltre le ~2,5 h: le righe più vecchie si rileggono dal disco, e la traccia è quella completa, non quella cappata della mappa live.
+- **Errori app** (in fondo allo Storico): gli errori JavaScript e quelli che l'app gestisce senza fermarsi (mappa, rete, storage, sensori) restano registrati anche dopo aver chiuso l'app, gli ultimi 50, con ora, file e riga e versione; quelli che si ripetono stanno su una riga con il conteggio. Un pallino rosso sulla scheda Storico segnala voci nuove. **Copia** mette tutto negli appunti, versione e browser compresi, da incollare in un messaggio dopo un giro; **Svuota** azzera. In moto la console non si vede, e il toast di errore dura 8 secondi.
 - **Formato compatto**: le righe si salvano in colonne (array tipizzati, `js/rows-codec.js`) e non come un oggetto per campione, e occupano circa 3 volte meno spazio (un'ora di log: 31,8 → 9,6 MB prima della compressione di IndexedDB). Tempo, posizione e velocità sono esatti; i sensori sono in Float32, quindi nel CSV circa una cella su 5000 cambia di 1 sull'ultima cifra. I giri salvati prima vengono convertiti in sottofondo, uno alla volta, qualche secondo dopo l'avvio e mai durante un log. Il formato del backup non cambia.
 - **Spazio protetto**: al primo Start Log l'app chiede al browser lo storage persistente, così lo storico non viene cancellato quando il telefono ha poco spazio (Chrome lo concede da solo, di solito se l'app è installata). Sotto il riepilogo c'è lo spazio usato; se la protezione è negata compare un avviso che invita a fare il backup.
 - Elenco giri passati con **riepilogo in testa**: quanti giri, quanti km e quanto tempo in sella in tutto.

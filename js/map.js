@@ -77,7 +77,7 @@ async function recoverChunks() {
   try { chunks = await idb.getChunks(); } catch (e) {
     // Errore IDB all'avvio: prima era invisibile, e l'utente non aveva modo di
     // sapere che il recupero non era nemmeno stato tentato.
-    try { console.warn('recoverChunks: getChunks fallito', e && e.message); } catch (e2) {}
+    try { logWarn('recoverChunks: getChunks fallito', e && e.message); } catch (e2) {}
     return;
   }
   if (!chunks.length) return;
@@ -110,7 +110,7 @@ async function recoverChunks() {
   for (const c of chunks) if (c.track) for (const p of c.track) trackChunks.push(p);
   let saved = null;
   try { saved = await idb.kvGet('activeTrack'); } catch (e) {
-    try { console.warn('recoverChunks: lettura activeTrack fallita', e && e.message); } catch (e2) {}
+    try { logWarn('recoverChunks: lettura activeTrack fallita', e && e.message); } catch (e2) {}
   }
   const track = trackChunks.length ? trackChunks
     : ((saved && saved.sid === last.sid && saved.track) ? saved.track : []);

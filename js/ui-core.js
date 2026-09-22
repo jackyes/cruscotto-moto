@@ -391,3 +391,37 @@ function updateGpsStatus() {
   // Velocità congelata sull'ultimo fix: si spegne invece di sembrare vera.
   if (els.speedVal) els.speedVal.classList.toggle('stale', state.gpsLostS != null);
 }
+
+/* Pallino rosso sulla scheda Storico e contatore sul pannello "Errori app":
+   voci nuove dall'ultima apertura. La chiama anche logIssue (js/issues.js). */
+function renderIssueBadge() {
+  if (!els || !els.issueCount) return;
+  const n = unseenIssues();
+  els.issueCount.hidden = n === 0;
+  els.issueCount.textContent = n > 99 ? '99+' : String(n);
+  const tab = els.tabHistory;
+  if (tab) tab.classList.toggle('has-issues', n > 0);
+}
+
+function issuesMeta() {
+  let ua = '';
+  try { ua = navigator.userAgent || ''; } catch (e) {}
+  return ua;
+}
+
+function renderIssues() {
+  if (!els.issueList) return;
+  if (els.appVersion) els.appVersion.textContent = APP_VERSION;
+  els.issueList.textContent = formatIssues(readIssues(), issuesMeta());
+}
+
+async function copyIssues() {
+  const text = formatIssues(readIssues(), issuesMeta());
+  try {
+    await navigator.clipboard.writeText(text);
+    toast('Errori copiati: incollali in un messaggio.', 'ok', 3000);
+  } catch (e) {
+    // Senza permesso appunti (o HTTP): il testo resta selezionabile a mano.
+    toast('Copia non riuscita: tieni premuto sul testo per selezionarlo.', 'err', 5000);
+  }
+}

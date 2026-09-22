@@ -131,7 +131,7 @@ function startGenericSensors() {
       // Gyro/grav/lin morti: prima l'errore era scartato senza traccia e la cache
       // restava congelata all'ultimo valore. Si azzera il sensore: il campione
       // successivo lo vede null invece di un ω vecchio spacciato per vivo.
-      try { console.warn('sensore fermo (' + n + '): ' + (sen && sen.constructor && sen.constructor.name)); } catch (e) {}
+      try { logWarn('sensore fermo (' + n + '): ' + (sen && sen.constructor && sen.constructor.name)); } catch (e) {}
       const idx = sensorSrc.list.indexOf(sen);
       if (idx >= 0) sensorSrc.list.splice(idx, 1);
       if (sen === sensorSrc.gyro) { sensorSrc.gyro = null; sensorSrc.gyroLast = null; }
