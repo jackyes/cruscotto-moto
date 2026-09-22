@@ -61,7 +61,16 @@ function roundedAlpha(x, y, size) {
 }
 
 // Disegno: anello (raggio R, spessore W), lancetta ruotata 35°, centro.
-function draw(x, y, size) {
+// opts.maskable: fondo pieno fino ai bordi (niente angoli trasparenti: il
+// launcher Android ritaglia lui la forma) e disegno scalato di `scale` attorno
+// al centro, dentro la zona sicura (cerchio di raggio 40% del lato).
+function draw(x, y, size, opts) {
+  const o = opts || {};
+  if (o.scale) {
+    const c = size / 2;
+    x = c + (x - c) / o.scale;
+    y = c + (y - c) / o.scale;
+  }
   const S = size / 512;
   const cx = 256 * S, cy = 256 * S;
   const ringR = 150 * S, ringW = 24 * S;
@@ -80,7 +89,7 @@ function draw(x, y, size) {
   const inDot = Math.hypot(px, py) <= dotR;
 
   const fg = inRing || inDot || inNeedle;
-  const alpha = roundedAlpha(x, y, size);
+  const alpha = o.maskable ? 255 : roundedAlpha(x, y, size);
   const col = fg ? ACC : BG;
   return [col[0], col[1], col[2], alpha];
 }
@@ -90,4 +99,7 @@ mkdirSync(dir, { recursive: true });
 writeFileSync(join(dir, 'icon-192.png'), png(192, draw));
 writeFileSync(join(dir, 'icon-512.png'), png(512, draw));
 writeFileSync(join(dir, 'apple-touch-icon.png'), png(180, draw));
+// Maskable: raggio esterno dell'anello 162 × 0,85 ≈ 138 px, sotto i 204 px della
+// zona sicura anche con la maschera circolare più stretta.
+writeFileSync(join(dir, 'icon-maskable-512.png'), png(512, (x, y, size) => draw(x, y, size, { maskable: true, scale: 0.85 })));
 console.log('ok');

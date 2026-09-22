@@ -41,6 +41,7 @@ test('sw.js SHELL include i file non-js di avvio offline', () => {
   for (const e of [
     './', './index.html', './viewer.html', './manifest.webmanifest', './css/app.css',
     './icons/icon-192.png', './icons/icon-512.png', './icons/apple-touch-icon.png',
+    './icons/icon-maskable-512.png',
   ]) {
     assert.ok(entries.includes(e), e + ' mancante nella SHELL');
   }
@@ -72,4 +73,27 @@ test('index.html: niente script né stili inline, CSP script-src senza unsafe-in
   // init.js è l'ultimo: avvia l'app quando tutti i moduli sono definiti.
   const srcs = htmlJsSrcs(html);
   assert.equal(srcs[srcs.length - 1], 'js/init.js');
+});
+
+test('manifest: icona maskable dedicata, a fondo pieno fino agli angoli', async () => {
+  const { inflateSync } = await import('node:zlib');
+  const man = JSON.parse(readFileSync(join(root, 'manifest.webmanifest'), 'utf8'));
+  const mask = man.icons.filter(i => i.purpose === 'maskable' && i.type === 'image/png');
+  assert.equal(mask.length, 1);
+  assert.equal(mask[0].src, './icons/icon-maskable-512.png');
+  // Angolo in alto a sinistra opaco: con angoli trasparenti il launcher mostra
+  // spicchi bianchi nelle forme squircle/quadrate. PNG RGBA 8 bit, filtro 0.
+  const buf = readFileSync(join(root, 'icons', 'icon-maskable-512.png'));
+  const idat = [];
+  let colorType = null;
+  for (let o = 8; o < buf.length;) {
+    const len = buf.readUInt32BE(o), type = buf.toString('ascii', o + 4, o + 8);
+    if (type === 'IHDR') colorType = buf[o + 8 + 9];
+    if (type === 'IDAT') idat.push(buf.subarray(o + 8, o + 8 + len));
+    o += 12 + len;
+  }
+  assert.equal(colorType, 6, 'atteso RGBA');
+  const raw = inflateSync(Buffer.concat(idat));
+  assert.equal(raw[0], 0, 'filtro della prima riga');
+  assert.equal(raw[4], 255, 'angolo trasparente');
 });
