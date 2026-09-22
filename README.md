@@ -279,11 +279,13 @@ piega, transitorio di avvio escluso:
 | curva tenuta 15° | 15,3° | **0,0°** |
 | curva tenuta 30° | 6,8° | **0,0°** |
 | curva tenuta 40° | 9,0° | **0,0°** |
-| curva 30° + vibrazione 0,3 g RMS | 30,9° | **1,7°** |
-| curva 30° + vibrazione 0,6 g RMS | 25,8° | **2,7°** |
+| curva 30° + vibrazione ±0,3 g (0,17 g RMS) | 30,9° | **2,0°** |
+| curva 30° + vibrazione ±0,6 g (0,35 g RMS) | 25,8° | **3,4°** |
+| curva 30° + vibrazione 0,3 g RMS | — | **3,5°** |
+| curva 30° + vibrazione 0,6 g RMS | — | **4,9°** |
 | curva 35° su pendenza 10% | 40,1° | **0,0°** |
 | chicane ±40° a 0,25 Hz | 25,5° | **1,3°** |
-| chicane + vibrazione 0,3 g | 25,5° | **2,2°** |
+| chicane + vibrazione ±0,3 g | 25,5° | **2,2°** ¹ |
 
 Altri casi, solo sulla versione nuova: bias giroscopio fino a 2 °/s su tutti e tre gli assi
 ≤ 2,5°; GPS assente per 8 s a metà curva 0,0°; frenata da 5 m/s² tenendo 30° di piega 6,5°
@@ -291,7 +293,15 @@ durante la manovra, con rientro a 0,0° in un secondo; segno del giroscopio inve
 stesso risultato finale dopo l'auto-correzione.
 
 > Sono numeri di **simulazione**: verificano l'algoritmo, non il tuo supporto. La vibrazione è
-> modellata come rumore bianco, che è ciò che il filtro può togliere. L'aliasing no — vedi sotto.
+> modellata come rumore bianco **uniforme**: "±0,3 g" è l'ampiezza, e il suo valore efficace è
+> 0,3/√3 ≈ 0,17 g RMS. Prima le righe si chiamavano "0,3 g RMS" e "0,6 g RMS" ma misuravano
+> questo rumore più debole; le righe "g RMS" sono ora misurate davvero a quel valore efficace.
+> Le righe con vibrazione della colonna "adesso" sono medie su 5 semi, 10 s di misura dopo 5 s di
+> assestamento (`tests/vib-adapt.test.mjs` le ricontrolla a ogni push). Sotto vibrazione l'errore
+> non cresce nel tempo ma oscilla lentamente, 2-7° a 0,3 g RMS, tenendo lo stesso segno per
+> decine di secondi: su un intervallo breve si può leggere molto meglio o molto peggio della media.
+> ¹ Chicane non rimisurata: il simulatore dei test non ha questa manovra. L'aliasing non è
+> modellato — vedi sotto.
 
 ### Con la vibrazione: prima e dopo l'adattamento
 
@@ -299,22 +309,28 @@ Stessa catena reale, ma con rumore bianco su **tutti e tre gli assi** dell'accel
 giroscopio, a 60 Hz, velocità GPS nota (niente ritardo Doppler: isola il contributo del filtro).
 Errore medio sulla piega, transitorio di avvio escluso, curva tenuta a 20 m/s:
 
+Rumore uniforme: "±0,3 g" è l'ampiezza (0,17 g RMS), "gyro ±5 °/s" idem. Curve tenute
+rimisurate come sopra (media su 5 semi, 10 s dopo 5 s); "prima" = adattamento spento.
+
 | scenario | prima (filtro fisso) | adesso (adattivo) |
 |---|---|---|
 | curva tenuta 30°, quieta | 0,0° | **0,0°** |
-| curva tenuta 30° + vibrazione 0,3 g RMS, gyro 5 °/s | 2,9° | **0,7°** |
-| curva tenuta 30° + vibrazione 0,6 g RMS, gyro 5 °/s | 2,3° | **1,4°** |
-| curva tenuta 30° + vibrazione 0,6 g RMS, gyro 20 °/s | 1,3° | **1,9°** |
-| curva tenuta 40° + vibrazione 0,6 g RMS, gyro 5 °/s | 3,9° | **1,4°** |
-| chicane ±40° a 0,25 Hz, quieta | 1,1° | **1,5°** |
-| chicane ±40° + vibrazione 0,3 g RMS | 1,1° | **2,1°** |
-| chicane ±40° + vibrazione 0,6 g RMS, gyro 5 °/s | 2,1° | **3,6°** |
+| curva tenuta 30° + vibrazione ±0,3 g, gyro ±5 °/s | 4,3° | **2,0°** |
+| curva tenuta 30° + vibrazione ±0,6 g, gyro ±5 °/s | 5,0° | **3,4°** |
+| curva tenuta 30° + vibrazione ±0,6 g, gyro ±20 °/s | 4,9° | **4,1°** |
+| curva tenuta 40° + vibrazione ±0,6 g, gyro ±5 °/s | 6,0° | **3,2°** |
+| chicane ±40° a 0,25 Hz, quieta ¹ | 1,1° | **1,5°** |
+| chicane ±40° + vibrazione ±0,3 g ¹ | 1,1° | **2,1°** |
+| chicane ±40° + vibrazione ±0,6 g, gyro ±5 °/s ¹ | 2,1° | **3,6°** |
+
+¹ Misure originali, non rimisurate (il simulatore dei test non ha la chicane).
 
 La lettura: in curva tenuta (la situazione in cui si guida con la moto che vibra) l'errore si
-riduce di 2-3 volte; nella chicane veloce la dinamica paga ~1° per l'adattamento. Il caso
-peggiore resta il rumore bianco fortissimo e indipendente sul giroscopio (20 °/s su tutti gli
-assi): lì l'adattamento pesa di meno del filtro fisso, ma è un corner sintetico — su un device
-reale accelerometro e giroscopio vibrano insieme e il filtro sull'imbardata lavora meglio.
+riduce di circa due volte a vibrazione moderata, meno quando è fortissima: oltre una certa
+vibrazione l'adattamento satura e a 0,6 g RMS veri il guadagno è minimo (4,9° contro 5,2°).
+Nella chicane veloce la dinamica paga ~1° per l'adattamento. Una versione precedente di questa
+tabella dava l'adattivo peggiore del fisso col rumore fortissimo sul giroscopio (±20 °/s):
+rimisurato su più semi è il contrario, 4,1° contro 4,9°.
 
 Puoi disattivare la fusione da **Impostazioni → Fusione giroscopio**: si torna a inseguire il
 solo riferimento accelerometrico.
