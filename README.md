@@ -287,8 +287,19 @@ piega, transitorio di avvio escluso:
 | chicane ±40° a 0,25 Hz | 25,5° | **1,3°** |
 | chicane + vibrazione ±0,3 g | 25,5° | **2,2°** ¹ |
 
-Altri casi, solo sulla versione nuova: bias giroscopio fino a 2 °/s su tutti e tre gli assi
-≤ 2,5°; GPS assente per 8 s a metà curva 0,0°; frenata da 5 m/s² tenendo 30° di piega 6,5°
+**Bias del giroscopio.** Il filtro di assetto impara il bias confrontando il giroscopio con la
+gravità, ma il bias attorno alla **verticale** non cambia la direzione della gravità e resta
+invisibile; entra però dritto nella compensazione centripeta (piega ≈ atan(v·ω/g): 1 °/s a
+20 m/s vale ~2°). Per questo il bias si **misura da fermi**: con GPS fresco sotto 0,5 m/s, per
+2 s, la media del giroscopio è il bias su tutti e tre gli assi, e si toglie all'ingresso; ogni
+semaforo lo rinfresca. Simulazione con bias vero di 2 °/s su tutti e tre gli assi
+(`tests/gyro-bias-still.test.mjs`): senza nessuna sosta l'errore resta ~6° anche in rettilineo
+e ~9° in curva; dopo 10 s da fermi scende a 0,6° in rettilineo (1,6° con 0,3 g RMS di
+vibrazione del minimo) e in curva diventa uguale a quello senza bias. Una versione precedente
+di questo testo dava "≤ 2,5° con 2 °/s" senza sosta: non è riproducibile, e il rilevatore di
+fermo descritto più sotto non esisteva più nel codice.
+
+Altri casi, solo sulla versione nuova: GPS assente per 8 s a metà curva 0,0°; frenata da 5 m/s² tenendo 30° di piega 6,5°
 durante la manovra, con rientro a 0,0° in un secondo; segno del giroscopio invertito all'avvio,
 stesso risultato finale dopo l'auto-correzione.
 
@@ -455,7 +466,7 @@ Se il HAL non espone i sensori compositi, Chromium ripiega su una propria fusion
 
 > Un osservatore che invece integrasse la velocità correggendola solo in parte a ogni fix si assesterebbe su un errore stazionario appena l'accelerometro ha un offset — e l'offset c'è per forza, perché `lonG` viene da `ig − g·û` e un residuo di beccheggio ci si scarica dentro. Misurato: −1,06 m/s a regime, cioè 3,5° di piega di troppo dopo ogni staccata.
 
-Corretto anche il caso in cui `coords.speed` è `null` (provider fuso, uscita da una galleria, pagina in background): prima veniva scritto come 0, il tachimetro andava a zero a velocità di marcia e — peggio — il rilevatore di "fermo" del bias giroscopio scattava **in corsa**, mangiando due secondi di rollio vero come se fosse bias. Adesso "velocità non riportata" e "velocità zero" sono cose diverse, e il fermo si accerta con evidenza **positiva**: fix fresco che riporta velocità bassa, più assenza di rotazione, più vibrazione bassa.
+Corretto anche il caso in cui `coords.speed` è `null` (provider fuso, uscita da una galleria, pagina in background): prima veniva scritto come 0, il tachimetro andava a zero a velocità di marcia e — peggio — il rilevatore di "fermo" del bias giroscopio scattava **in corsa**, mangiando due secondi di rollio vero come se fosse bias. Adesso "velocità non riportata" e "velocità zero" sono cose diverse, e il fermo si accerta con evidenza **positiva**: fix GPS fresco che riporta meno di 0,5 m/s, e su una finestra di 2 s rotazione media sotto 5 °/s, dispersione del giroscopio sotto 20 °/s (niente telefono maneggiato) e norma media dell'accelerazione entro il 10% di g. La norma si controlla sulla media della finestra e non campione per campione: col motore al minimo il singolo campione esce spesso dal margine e la finestra non si chiudeva mai. In galleria (GPS stantio), in una manovra a passo d'uomo che gira o col telefono in mano non si aggiorna niente.
 
 Sotto ~0,1 Hz comanda il GPS, sopra l'accelerometro. In curva a regime l'accelerometro legge 0,000 g di laterale (la risultante è ⟂ al telaio): il canale fuso legge 0,500 g su una curva da 0,5 g. Le colonne originali restano invariate, quelle fuse si aggiungono. Il ramo inerziale della fusione (residuo rispetto al passa-basso) riceve un **LP proprio con tau adattivo alla vibrazione**: prima la vibrazione passava tutta dentro `lat_accel_fus_g`/`lon_accel_fus_g`, adesso i canali fusi restano leggibili anche al minimo del motore, senza toccare lo stato stazionario né i picchi (che stanno nelle colonne `*_peak_g`).
 
@@ -465,7 +476,7 @@ Sotto ~0,1 Hz comanda il GPS, sopra l'accelerometro. In curva a regime l'acceler
 
 ### Diagnostica e test a banco
 
-**Storico → Diagnostica vibrazioni** mostra in tempo reale frequenza del sensore, vibrazione RMS e fuori banda, norma filtrata, fiducia nel riferimento, bias giroscopio (rollio e modulo del vettore), piega e beccheggio letti, imbardata, piega cinematica, velocità fusa contro velocità GPS, le tre accelerazioni con il rispettivo riferimento GPS, l'offset rilevato, la sorgente sensori attiva (Generic Sensor API o `devicemotion`), l'origine della gravità (con l'angolo di disaccordo del cross-check), il **fattore di adattamento alla vibrazione** con il guadagno effettivo, la **stima di rettificazione MEMS** e il **riferimento attivo in quell'istante**:
+**Storico → Diagnostica vibrazioni** mostra in tempo reale frequenza del sensore, vibrazione RMS e fuori banda, norma filtrata, fiducia nel riferimento, bias giroscopio (rollio e modulo del vettore imparati dal filtro, più quello misurato da fermo), piega e beccheggio letti, imbardata, piega cinematica, velocità fusa contro velocità GPS, le tre accelerazioni con il rispettivo riferimento GPS, l'offset rilevato, la sorgente sensori attiva (Generic Sensor API o `devicemotion`), l'origine della gravità (con l'angolo di disaccordo del cross-check), il **fattore di adattamento alla vibrazione** con il guadagno effettivo, la **stima di rettificazione MEMS** e il **riferimento attivo in quell'istante**:
 
 | riferimento | significato |
 |---|---|

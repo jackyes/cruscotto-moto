@@ -68,6 +68,38 @@ function gyroSat(v) {
   return v > LEAN_GYRO_MAX_DPS ? LEAN_GYRO_MAX_DPS : (v < -LEAN_GYRO_MAX_DPS ? -LEAN_GYRO_MAX_DPS : v);
 }
 
+/* Bias del giroscopio da fermi (vedi GBIAS_STILL_* in js/core.js). Evidenza
+   POSITIVA di quiete, mai dedotta da un dato che manca: GPS fresco che riporta
+   velocità bassa, norma dell'accelerazione ≈ g, e sulla finestra rotazione media
+   piccola e dispersione contenuta. Galleria (GPS stantio), curva lenta, telefono
+   in mano: nessun aggiornamento. Stima negli assi del SENSORE, prima di gyroSign:
+   resta valida se il segno viene corretto dopo. */
+function gyroBiasStillStep(g, dt, nowPerf) {
+  const still = nowPerf - state.speedGpsT < SPEED_STALE_MS &&
+    state.speedGpsMs != null && state.speedGpsMs < GBIAS_STILL_SPEED_MS;
+  if (!still) { state._gbAcc = null; return false; }
+  const a = state._gbAcc || (state._gbAcc = { x: 0, y: 0, z: 0, q: 0, gr: 0, s: 0 });
+  a.x += g.x * dt; a.y += g.y * dt; a.z += g.z * dt;
+  a.q += (g.x * g.x + g.y * g.y + g.z * g.z) * dt;
+  a.gr += (isFinite(state.gRatio) ? state.gRatio : 1) * dt;
+  a.s += dt;
+  if (a.s < GBIAS_STILL_WIN_S) return false;
+  state._gbAcc = null;
+  const m = { x: a.x / a.s, y: a.y / a.s, z: a.z / a.s };
+  const rms = Math.sqrt(Math.max(0, a.q / a.s - (m.x * m.x + m.y * m.y + m.z * m.z)));
+  if (Math.abs(a.gr / a.s - 1) > GBIAS_STILL_G_TOL) return false;
+  if (vlen(m) > GBIAS_STILL_MAX_DPS || rms > GBIAS_STILL_RMS_DPS) return false;
+  const b = state.gyroBiasStill;
+  const k = state.gyroBiasStillN ? GBIAS_STILL_ALPHA : 1;
+  state.gyroBiasStill = { x: b.x + k * (m.x - b.x), y: b.y + k * (m.y - b.y), z: b.z + k * (m.z - b.z) };
+  state.gyroBiasStillN++;
+  /* Il bias appena misurato è quello TOTALE: il residuo che il filtro di
+     assetto aveva imparato (anche dal rumore, sotto vibrazione) va rifatto
+     da capo, altrimenti si sottrarrebbe due volte. */
+  state.attBias = { x: 0, y: 0, z: 0 };
+  return true;
+}
+
 function processSample(sm) {
   if (state.demo) return;
   const nowP = sm.t;
@@ -141,9 +173,11 @@ function processSample(sm) {
   let W = wRaw;
   state.hasGyro = !!sm.gyro;
   if (sm.gyro) {
-    wRaw.x = gyroSat(sm.gyro.x) * state.gyroSign;
-    wRaw.y = gyroSat(sm.gyro.y) * state.gyroSign;
-    wRaw.z = gyroSat(sm.gyro.z) * state.gyroSign;
+    gyroBiasStillStep(sm.gyro, dt, nowPerf);
+    const gb = state.gyroBiasStill;
+    wRaw.x = gyroSat(sm.gyro.x - gb.x) * state.gyroSign;
+    wRaw.y = gyroSat(sm.gyro.y - gb.y) * state.gyroSign;
+    wRaw.z = gyroSat(sm.gyro.z - gb.z) * state.gyroSign;
     // Passa-basso sul VETTORE prima dell'integrazione: riduce la varianza che
     // alimenta il random walk. tau base 40 ms (adattivo con la vibrazione),
     // ritardo trascurabile in ingresso curva. EMA del 1° ordine, NON il biquad

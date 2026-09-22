@@ -158,6 +158,20 @@ const RECT_NULL_MAX_G = 0.05;    // tetto della correzione applicata
 const GPS_LAG_S = 0.6;         // ritardo tipico della velocità Doppler; compensato via storia di v̂
 const SPEED_HIST_S = 3;        // profondità della storia di v̂ (s)
 const SPEED_STALE_MS = 3000;   // oltre questo la velocità GPS non è più utilizzabile
+/* --- bias del giroscopio misurato da fermi ---
+   Il filtro di assetto impara il bias dal confronto con la gravità, ma il bias
+   attorno alla VERTICALE non cambia la direzione della gravità ed è invisibile:
+   entra dritto nella compensazione centripeta (piega ≈ atan(v·ω/g), 1 °/s a
+   20 m/s ≈ 2°). Da fermi invece la rotazione vera è zero e la media del
+   giroscopio È il bias, su tutti e tre gli assi. */
+const GBIAS_STILL_WIN_S = 2;        // finestra di quiete da mediare
+const GBIAS_STILL_SPEED_MS = 0.5;   // velocità GPS fresca sotto questa: fermi
+const GBIAS_STILL_G_TOL = 0.1;      // |media di ‖a‖/g − 1| sulla finestra: niente accelerazioni
+                                    // (sulla media: campione per campione la vibrazione del
+                                    // minimo la supera spesso e la finestra non si chiudeva mai)
+const GBIAS_STILL_MAX_DPS = 5;      // modulo della media oltre questo: rotazione vera, non bias
+const GBIAS_STILL_RMS_DPS = 20;     // dispersione oltre questa: telefono maneggiato
+const GBIAS_STILL_ALPHA = 0.5;      // peso di una finestra nuova (la prima vale da sola)
 const GPS_LOST_MS = SPEED_STALE_MS; // senza fix da tanto: a schermo "GPS perso", velocità spenta
 const GPS_RESTART_MS = 30000;  // senza fix da tanto (app visibile): si riavvia watchPosition
 /* --- avvio automatico del log --- */
@@ -281,6 +295,8 @@ const state = {
   leanConf: 1,        // affidabilità della piega 0..1 (guidata dalla vibrazione)
   attBias: { x: 0, y: 0, z: 0 }, // bias giroscopio VETTORIALE appreso dal termine integrale (°/s)
   leanBias: 0,        // proiezione del bias sull'asse di rollio (°/s), per la diagnostica
+  gyroBiasStill: { x: 0, y: 0, z: 0 }, // bias giroscopio misurato da fermi, assi del SENSORE (°/s)
+  gyroBiasStillN: 0,         // finestre di quiete usate (0 = mai misurato)
   gyroSign: LEAN_GYRO_SIGN_DEFAULT, // segno del vettore rotationRate, imparato a runtime
   gyroSignScore: 0,   // correlazione accumulata: <0 = segno da ribaltare
   gyroSignEnergy: 0,  // quanta evidenza è stata raccolta

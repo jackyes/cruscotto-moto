@@ -139,8 +139,12 @@ function updateDiag() {
   els.dgNorm.textContent = state.gRatio.toFixed(3) + ' g';
   els.dgK.textContent = (state.calib || state.demo) ? (state.attTrust * 100).toFixed(0) + ' %' : '—';
   const b = state.attBias || { x: 0, y: 0, z: 0 };
+  // Due stime: quella imparata dal filtro (non vede l'asse verticale) e quella
+  // misurata da fermi, che vale su tutti e tre gli assi.
+  const gs = state.gyroBiasStill;
   els.dgBias.textContent = (state.calib && state.hasGyro)
-    ? (state.leanBias || 0).toFixed(2) + ' °/s rollio · |b| ' + vlen(b).toFixed(2)
+    ? (state.leanBias || 0).toFixed(2) + ' °/s rollio · |b| ' + vlen(b).toFixed(2) +
+      ' · da fermo ' + (state.gyroBiasStillN ? vlen(gs).toFixed(2) + ' °/s' : 'mai misurato')
     : 'non stimato';
   els.dgLean.textContent = (state.calib || state.demo) ? state.lean.toFixed(1) + '°' : 'non calibrato';
 
