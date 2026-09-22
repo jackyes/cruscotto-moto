@@ -1,5 +1,5 @@
 'use strict';
-/* js/misc.js (step 29): wakeLock request/release, renderHistory/renderHistTotals, sessionTotals/sessKey/planRestore/parseBackup, backupSessions/restoreSessions/loadAllSessions/buildBackupParts, openSessionDetail, loadImportedCameras, navBuild. Ordine: dopo js/ui-core.js. */
+/* js/misc.js (step 29): wakeLock request/release, renderHistory/renderHistTotals, sessionTotals/sessKey/planRestore/parseBackup, backupSessions/restoreSessions/buildBackupParts, openSessionDetail, loadImportedCameras, navBuild. Ordine: dopo js/ui-core.js. */
 async function loadImportedCameras() {
   let cams = null;
   try { cams = await idb.kvGet('importedCameras'); } catch (e) {}
@@ -271,20 +271,6 @@ async function renderStorageInfo() {
   el.hidden = false;
 }
 
-/* Legge tutte le sessioni dallo storico. Una per volta: caricarle tutte insieme
-   su ore di log significa tenere in RAM centinaia di MB. */
-async function loadAllSessions() {
-  let ids = [];
-  try { ids = await idb.keys(); } catch (e) { return []; }
-  const out = [];
-  for (const id of ids) {
-    let s = null;
-    try { s = await idb.get(id); } catch (e) { continue; }
-    if (s && s.meta) out.push(s);
-  }
-  return out;
-}
-
 /* Il formato del backup a pezzi: intestazione, una voce per sessione, chiusura.
    Si copiano solo i campi noti (id/meta/rows/track); null se la sessione non si
    serializza, così una voce rotta non fa fallire tutto il file. */
@@ -320,7 +306,7 @@ const BACKUP_BLOB_CHARS = 8 * 1024 * 1024;
    che sfratta lo storage o un telefono nuovo li perdono, e i CSV/GPX sono per
    singolo giro e non si reimportano.
    Una sessione alla volta: si legge, si serializza e si lascia andare prima di
-   leggere la successiva. Prima caricava tutto lo storico (loadAllSessions) e poi
+   leggere la successiva. Prima caricava tutto lo storico insieme e poi
    ne teneva anche il testo: due copie intere in RAM. Ogni ~8 MB di testo le
    parti diventano un Blob, che il browser tiene fuori dall'heap JS: il picco
    resta quello del giro più grande, non dell'intero storico. */

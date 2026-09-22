@@ -5,7 +5,7 @@ import { createFakeIndexedDB } from './fake-indexeddb.mjs';
 
 const {
   idb, els, sessionTotals, sessKey, planRestore, parseBackup, buildBackupParts,
-  loadAllSessions, restoreSessions, rowsForChart, renderHistory,
+  restoreSessions, rowsForChart, renderHistory,
 } = api;
 
 async function initDb() {
@@ -99,14 +99,13 @@ test('rowsForChart: solo righe disegnabili', () => {
   assert.equal(rowsForChart(undefined).length, 0);
 });
 
-test('storico: loadAllSessions, riepilogo e ripristino su IndexedDB', async () => {
+test('storico: riepilogo e ripristino su IndexedDB', async () => {
   resetState();
   await initDb();
   await idb.put(sess('a', '2024-05-01T10:00:00Z', { distKm: 12.5, duration: 3600 }));
   await idb.put(sess('b', '2024-05-02T10:00:00Z', { distKm: 7.5, duration: 1800 }));
 
-  const all = await loadAllSessions();
-  assert.deepEqual(Array.from(all, s => s.id).sort(), ['a', 'b']);
+  assert.deepEqual(Array.from(await idb.keys()).sort(), ['a', 'b']);
   const t = sessionTotals(await idb.getMetas());
   assert.equal(t.n, 2);
   assert.equal(t.km, 20);
@@ -124,7 +123,7 @@ test('storico: loadAllSessions, riepilogo e ripristino su IndexedDB', async () =
 
   // Backup delle due sessioni, poi ripristino su uno storico che ne ha già una
   // e ne ha persa un'altra: torna solo quella mancante.
-  const payload = { sessions: await loadAllSessions() };
+  const payload = { sessions: [await idb.get('a'), await idb.get('b')] };
   const file = { text: async () => JSON.stringify(payload) };
   await idb.del('a');
   assert.equal((await idb.getMetas()).length, 1);
@@ -140,7 +139,7 @@ test('storico: loadAllSessions, riepilogo e ripristino su IndexedDB', async () =
 
   // Telefono nuovo: storico vuoto, e lo stesso file rimette tutto.
   await idb.del('a'); await idb.del('b');
-  assert.equal((await loadAllSessions()).length, 0);
+  assert.equal((await idb.keys()).length, 0);
   await restoreSessions(file);
   assert.equal((await idb.getMetas()).length, 2);
 
@@ -179,7 +178,7 @@ test('backupSessions: una sessione alla volta, Blob intermedi, file che si rileg
   const orig = { dl: vmSandbox.downloadBlob, get: idb.get, blob: vmSandbox.Blob };
   vmSandbox.Blob = Blob;
   vmSandbox.downloadBlob = (name, parts) => { got = { name, parts }; };
-  // Letture singole per id, non getAll/loadAllSessions dell'intero storico.
+  // Letture singole per id, non l'intero storico caricato insieme.
   idb.get = async id => { loaded.push(id); return orig.get(id); };
   try {
     await api.backupSessions();
