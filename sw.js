@@ -10,7 +10,7 @@
 
 'use strict';
 
-const CACHE_VERSION = 'v28';   // shell (codice app): alzare per forzare il rinnovo
+const CACHE_VERSION = 'v29';   // shell (codice app): alzare per forzare il rinnovo
 const MAP_VERSION  = 'v12';    // tile/liberty/satellite: indipendente dallo shell. Parte
                                // dallo stesso valore del vecchio schema (v12) così il primo
                                // deploy NON orfanizza le cache già scaricate; va alzato solo
@@ -81,8 +81,15 @@ const LIB_HOSTS = ['unpkg.com'];
 // Leaflet è ora vendored (nella SHELL). MapLibre/Three per il video 3D restano
 // CDN on-demand e vengono cacheate dal ramo LIB_HOSTS del fetch handler.
 const LIB_PRECACHE = [];
-const TILE_HOST_RE = /\.tile\.openstreetmap\.org$/;
-const TILE_MAX = 800; // tetto approssimativo di tile conservate
+// OSM ha abbandonato i sottodomini a/b/c (HTTP/2 non ne ha bisogno): le tile
+// arrivano da tile.openstreetmap.org. I vecchi host restano riconosciuti per le
+// tile già in cache, migrate alla chiave nuova al primo uso (tileFirst).
+const TILE_HOST = 'tile.openstreetmap.org';
+const TILE_HOST_RE = /^([abc]\.)?tile\.openstreetmap\.org$/;
+// Tetto di tile conservate. 800 (~15 MB) non bastava a un giro da 150 km agli
+// zoom 15-16: le tile della zona di partenza sparivano prima del ritorno.
+// 4000 sono ~60-100 MB, sotto quota su qualunque telefono recente.
+const TILE_MAX = 4000;
 
 self.addEventListener('install', event => {
   event.waitUntil(
@@ -147,7 +154,7 @@ async function cacheFirst(req, cacheName, opts) {
   const hit = await cache.match(req);
   if (hit) return hit;
   const res = await fetch(req);
-  // Le tile OSM arrivano in CORS: si conservano solo risposte valide.
+  // Si conservano solo risposte valide (le tile OSM arrivano in CORS, vedi tileFirst).
   if (res && (res.ok || res.type === 'opaque')) {
     try {
       await cache.put(req, res.clone());
@@ -160,6 +167,50 @@ async function cacheFirst(req, cacheName, opts) {
     if (opts && opts.max) await maybeTrim(cacheName, opts.max);
   }
   return res;
+}
+
+/* Tile OSM: cache-first con due aggiunte.
+   - LRU approssimato: trimCache butta le chiavi più vecchie in ordine di
+     inserimento, quindi le tile di casa (le più usate, ma scaricate per prime)
+     erano le prime a sparire. Al primo uso in questa vita del worker una tile
+     viene ri-inserita (put sulla stessa chiave la sposta in fondo): si scartano
+     quelle non viste da più tempo. Una volta sola per tile, non a ogni hit.
+   - Migrazione pigra: una tile mancante sotto tile.openstreetmap.org si cerca
+     sotto i vecchi a./b./c.; se c'è, passa alla chiave nuova.
+   Le tile salvate prima di crossOrigin sono risposte opache: una richiesta CORS
+   non le può usare (il browser rifiuta l'immagine), quindi si scartano e si
+   riscaricano. */
+const tileTouched = new Set();
+const tileUsable = (hit, req) => hit.type !== 'opaque' || req.mode === 'no-cors';
+async function tileFirst(req) {
+  const cache = await caches.open(TILE_CACHE);
+  let hit = await cache.match(req);
+  if (hit && !tileUsable(hit, req)) {
+    await cache.delete(req).catch(() => {});
+    hit = null;
+  }
+  if (hit) {
+    if (!tileTouched.has(req.url)) {
+      if (tileTouched.size >= TILE_MAX) tileTouched.clear();
+      tileTouched.add(req.url);
+      cache.put(req, hit.clone()).catch(() => {});
+    }
+    return hit;
+  }
+  const u = new URL(req.url);
+  if (u.hostname === TILE_HOST) {
+    for (const sub of ['a', 'b', 'c']) {
+      const old = 'https://' + sub + '.' + TILE_HOST + u.pathname;
+      hit = await cache.match(old);
+      if (hit && !tileUsable(hit, req)) { await cache.delete(old).catch(() => {}); continue; }
+      if (hit) {
+        tileTouched.add(req.url);
+        try { await cache.put(req, hit.clone()); await cache.delete(old); } catch (e) {}
+        return hit;
+      }
+    }
+  }
+  return cacheFirst(req, TILE_CACHE, { max: TILE_MAX });
 }
 
 /* fetch con timeout: su rete presente ma lentissima (galleria, zona rurale — il
@@ -242,7 +293,7 @@ self.addEventListener('fetch', event => {
   }
 
   if (TILE_HOST_RE.test(url.hostname)) {
-    event.respondWith(cacheFirst(req, TILE_CACHE, { max: TILE_MAX }).catch(() => Response.error()));
+    event.respondWith(tileFirst(req).catch(() => Response.error()));
     return;
   }
 

@@ -19,8 +19,8 @@ class FakeRequest {
   }
 }
 class FakeResponse {
-  constructor(body, status = 200) { this.body = body; this.status = status; this.ok = status >= 200 && status < 300; }
-  clone() { return new FakeResponse(this.body, this.status); }
+  constructor(body, status = 200, type = 'basic') { this.body = body; this.status = status; this.ok = status >= 200 && status < 300; this.type = type; }
+  clone() { return new FakeResponse(this.body, this.status, this.type); }
 }
 
 /* Worker finto: una sola cache condivisa (i nomi non contano per questi test) e
@@ -30,10 +30,11 @@ function loadSw(net) {
   const store = new Map();
   const cache = {
     match: async r => store.get(typeof r === 'string' ? new URL(r, ORIGIN + '/').href : r.url),
-    put: async (r, res) => { store.set(r.url, res); },
+    // Come la Cache API: put su una chiave esistente la sposta in fondo.
+    put: async (r, res) => { const k = r.url; store.delete(k); store.set(k, res); },
     add: async r => { cache.added.push(r); },
-    keys: async () => [],
-    delete: async () => true,
+    keys: async () => Array.from(store.keys(), url => ({ url })),
+    delete: async r => store.delete(typeof r === 'string' ? new URL(r, ORIGIN + '/').href : r.url),
     added: [],
   };
   const fetchCalls = [];
@@ -124,4 +125,59 @@ test('sw: il precache all\'install scavalca la HTTP cache', async () => {
   await done;
   assert.ok(sw.cache.added.length > 10);
   for (const r of sw.cache.added) assert.equal(r.cache, 'reload', r.url);
+});
+
+// ---- tile OSM ----
+const TILE = 'https://tile.openstreetmap.org/15/17300/11700.png';
+const flush = () => new Promise(r => setTimeout(r, 0));
+
+test('sw tile: hit servito dalla cache e spostato in fondo (LRU approssimato)', async () => {
+  const sw = loadSw(() => Promise.reject(new Error('rete non attesa')));
+  sw.store.set(TILE, new FakeResponse('casa'));
+  sw.store.set('https://tile.openstreetmap.org/15/1/1.png', new FakeResponse('altra'));
+  assert.equal((await sw.dispatch(TILE)).body, 'casa');
+  await flush();
+  const keys = Array.from(sw.store.keys());
+  assert.equal(keys[keys.length - 1], TILE, 'la tile appena usata non deve essere la prossima scartata');
+  assert.equal(sw.fetchCalls.length, 0);
+});
+
+test('sw tile: tile dei vecchi sottodomini a./b./c. migrata alla chiave nuova, senza rete', async () => {
+  const sw = loadSw(() => Promise.reject(new Error('rete non attesa')));
+  const legacy = 'https://b.tile.openstreetmap.org/15/17300/11700.png';
+  sw.store.set(legacy, new FakeResponse('vecchia'));
+  assert.equal((await sw.dispatch(TILE)).body, 'vecchia');
+  assert.ok(sw.store.has(TILE), 'chiave nuova scritta');
+  assert.ok(!sw.store.has(legacy), 'chiave vecchia rimossa');
+  assert.equal(sw.fetchCalls.length, 0);
+});
+
+test('sw tile: risposta opaca in cache inutilizzabile da una richiesta CORS → riscaricata', async () => {
+  const sw = loadSw(() => Promise.resolve(new FakeResponse('cors')));
+  sw.store.set(TILE, new FakeResponse('', 0, 'opaque'));
+  sw.store.set('https://a.tile.openstreetmap.org/15/17300/11700.png', new FakeResponse('', 0, 'opaque'));
+  assert.equal((await sw.dispatch(TILE)).body, 'cors');
+  assert.equal(sw.fetchCalls.length, 1);
+  assert.equal(sw.store.get(TILE).type, 'basic', 'in cache ora la risposta CORS');
+  assert.ok(!sw.store.has('https://a.tile.openstreetmap.org/15/17300/11700.png'), 'opaca vecchia scartata');
+});
+
+test('sw tile: senza cache si va in rete e si salva', async () => {
+  const sw = loadSw(() => Promise.resolve(new FakeResponse('rete')));
+  assert.equal((await sw.dispatch(TILE)).body, 'rete');
+  assert.equal(sw.store.get(TILE).body, 'rete');
+});
+
+test('mappa: tile da tile.openstreetmap.org in CORS, CSP allineata', () => {
+  const root = join(__dirname, '..');
+  for (const f of ['js/map.js', 'viewer.html']) {
+    const src = readFileSync(join(root, f), 'utf8');
+    assert.ok(src.includes("'https://tile.openstreetmap.org/{z}/{x}/{y}.png'"), f + ': URL senza sottodominio');
+    assert.ok(!src.includes('{s}.tile.openstreetmap.org'), f + ': sottodomini a/b/c residui');
+    assert.match(src, /tile\.openstreetmap\.org[^]*?crossOrigin: true/, f + ': crossOrigin mancante');
+  }
+  for (const f of ['index.html', 'viewer.html']) {
+    const src = readFileSync(join(root, f), 'utf8');
+    assert.match(src, /img-src[^;]*https:\/\/tile\.openstreetmap\.org[ ;]/, f + ': CSP senza tile.openstreetmap.org');
+  }
 });

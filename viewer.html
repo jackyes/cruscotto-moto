@@ -9,7 +9,7 @@
   default-src 'none';
   script-src 'self' 'unsafe-inline' https://unpkg.com;
   style-src 'self' 'unsafe-inline' https://unpkg.com;
-  img-src 'self' data: blob: https://*.tile.openstreetmap.org https://unpkg.com https://tiles.openfreemap.org https://s3.amazonaws.com https://server.arcgisonline.com;
+  img-src 'self' data: blob: https://tile.openstreetmap.org https://unpkg.com https://tiles.openfreemap.org https://s3.amazonaws.com https://server.arcgisonline.com;
   connect-src 'self' https://tiles.openfreemap.org https://s3.amazonaws.com https://server.arcgisonline.com;
   font-src 'self';
   worker-src 'self' blob:;
@@ -487,8 +487,8 @@ const canvasTheme = {
     if (!hasLeaflet()) return;
     if (!map) {
       map = L.map('map');
-      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-        maxZoom: 19, attribution: '© OpenStreetMap'
+      L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        maxZoom: 19, attribution: '© OpenStreetMap', crossOrigin: true
       }).addTo(map);
     }
     if (polyline) map.removeLayer(polyline);

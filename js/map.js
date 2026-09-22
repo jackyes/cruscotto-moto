@@ -273,8 +273,11 @@ function initLeaflet() {
   state.mapType = 'leaflet';
   const map = L.map('map', { zoomControl: false });
   L.control.zoom({ position: 'bottomright' }).addTo(map);
-  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-    attribution: '© OpenStreetMap', maxZoom: 19
+  // crossOrigin: senza, le tile arrivano opache e Chrome ne conta ~7 MB l'una
+  // nella quota: poche centinaia in cache bastavano a esaurirla. OSM risponde
+  // con Access-Control-Allow-Origin: *, quindi in CORS pesano quanto sono.
+  L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    attribution: '© OpenStreetMap', maxZoom: 19, crossOrigin: true
   }).addTo(map);
   map.setView([42.5, 12.5], MAP_INIT_ZOOM); // vista iniziale (Italia) prima del primo fix
   state.map = map;
