@@ -32,8 +32,11 @@ Alternative (entrambe HTTPS automatico):
 - **Netlify**: drag-and-drop della cartella su app.netlify.com.
 
 > Il service worker si registra solo su HTTPS (o `localhost`). Senza di lui l'app resta
-> funzionante ma perde l'avvio offline. Per pubblicare una versione nuova alza
-> `CACHE_VERSION` in `sw.js`. L'aggiornamento del worker avviene **solo quando non stai
+> funzionante ma perde l'avvio offline. Il codice dell'app si serve dalla rete per primo, quindi
+> online il telefono ha sempre la versione pubblicata; alzare `CACHE_VERSION` in `sw.js` rinnova
+> in un colpo tutta la copia offline e fa comparire "Nuova versione disponibile". La CI
+> (`.github/workflows/test.yml`) lancia i test a ogni push e avvisa, senza bloccare, se cambiano
+> file della SHELL senza l'aumento. L'aggiornamento del worker avviene **solo quando non stai
 > registrando**: se un log è attivo, il nuovo codice resta in attesa e si applica al
 > primo Stop Log (la sessione è già salvata su disco).
 

@@ -1,0 +1,26 @@
+name: Test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # serve la storia per confrontare sw.js col commit di base
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Test
+        run: npm test
+      # Solo un avviso: il service worker è "rete prima", online il codice nuovo
+      # arriva comunque. Vedi il commento in cima allo script.
+      - name: Avviso se la SHELL cambia senza CACHE_VERSION
+        run: node .github/scripts/check-cache-version.mjs --warn "$BASE" "$GITHUB_SHA"
+        env:
+          BASE: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
