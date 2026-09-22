@@ -159,3 +159,27 @@ const idb = {
     return idb._tx('kv', 'readwrite', tx => { tx.objectStore('kv').delete(k); });
   },
 };
+
+/* Senza persistenza il browser può svuotare IndexedDB quando il telefono è a
+   corto di spazio, e con lui tutto lo storico. persist() non chiede nulla
+   all'utente su Chrome: concede o nega da solo (app installata = concesso).
+   null = API assente, mai un errore per il chiamante. */
+async function requestPersistentStorage() {
+  try {
+    const s = navigator.storage;
+    if (!s || !s.persist) return null;
+    if (s.persisted && await s.persisted()) return true;
+    return !!(await s.persist());
+  } catch (e) { return null; }
+}
+
+/* Stato dello spazio per lo Storico: { persisted: bool|null, usage: byte|null }. */
+async function storageStatus() {
+  const out = { persisted: null, usage: null };
+  try {
+    const s = navigator.storage;
+    if (s && s.persisted) out.persisted = !!(await s.persisted());
+    if (s && s.estimate) { const e = await s.estimate(); if (e && isFinite(e.usage)) out.usage = e.usage; }
+  } catch (e) {}
+  return out;
+}

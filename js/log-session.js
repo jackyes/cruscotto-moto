@@ -17,6 +17,9 @@ function startLog() {
   state._trimWarned = false;
   state._flushFailN = 0;
   state._flushBackoffUntil = 0;
+  // Protezione dello storico dallo sfratto: il momento giusto è quando sta
+  // per nascere un giro da salvare. Non blocca l'avvio.
+  requestPersistentStorage();
   state.rows = [];
   state.track = [];
   state.trackFull = [];
@@ -31,6 +34,7 @@ function startLog() {
   state.sessionId = 's_' + Date.now();
   state.flushSeq = 0;
   state.flushedRows = 0;
+  state._rowsTrimmed = 0;
   lastSampleWall = 0;
   lastTrackT = 0;   // altrimenti il gate 1 Hz ritarda/scarta il primo punto della sessione nuova
   state.session = {

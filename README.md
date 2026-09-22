@@ -159,6 +159,8 @@ tutti tornanti, e voglio tornare a casa"*. Questa scheda parte da lì.
 
 ### Storico sessioni
 - A ogni **Stop Log** la sessione viene salvata in **IndexedDB** (dati 20 Hz + traccia GPS).
+  I giri oltre ~2,5 h si salvano **interi**: in memoria resta solo la coda recente, e al salvataggio le righe più vecchie si rileggono dai blocchi già scritti su disco. Prima di questa correzione l'inizio di un giro lungo andava perso.
+- **Spazio protetto**: al primo Start Log l'app chiede al browser lo storage persistente, così lo storico non viene cancellato quando il telefono ha poco spazio (Chrome lo concede da solo, di solito se l'app è installata). Sotto il riepilogo c'è lo spazio usato; se la protezione è negata compare un avviso che invita a fare il backup.
 - Elenco giri passati con **riepilogo in testa**: quanti giri, quanti km e quanto tempo in sella in tutto.
 - Tap → dettaglio: statistiche, **replay della traccia su mappa**, **grafici di velocità e piega di tutto il giro** (stessa `drawChart` dei grafici dal vivo, ma su tutte le righe invece che sugli ultimi 60 s), e **Export CSV / GPX / video / Card PNG / Elimina**.
 - **Backup e ripristino** (`💾 Backup giri` / `♻ Ripristina giri`): un file JSON con tutto lo storico, righe e tracce comprese, che si può rimettere dentro l'app. Serve perché i giri vivono in IndexedDB e "cancella dati del sito", un browser che sfratta lo spazio o un telefono nuovo li perdono — mentre CSV e GPX sono per singolo giro e non si reimportano. Il ripristino aggiunge solo i giri che mancano (riconosciuti da inizio + durata, non dall'id), salta le voci malformate e non sovrascrive mai una sessione esistente.

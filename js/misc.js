@@ -190,6 +190,7 @@ async function renderHistory() {
   sessions = sessions.filter(s => s && s.meta);
   sessions.sort((a, b) => (a.meta.startISO < b.meta.startISO ? 1 : -1));
   renderHistTotals(sessions);
+  renderStorageInfo();
   const list = els.sessionList;
   if (!sessions.length) {
     list.innerHTML = '<div class="empty">Nessun giro salvato. Avvia un log e fermalo per salvarlo qui.</div>';
@@ -252,6 +253,22 @@ function renderHistTotals(metas) {
   // Un decimale: sui totali il centesimo di km è rumore.
   el.appendChild(row('Totali', t.km.toFixed(1) + ' km'));
   el.appendChild(row('In sella', fmtDurH(t.sec)));
+}
+
+/* Spazio occupato e protezione dallo sfratto. Senza persistenza lo storico
+   può sparire da solo: l'avviso rimanda al backup, l'unica difesa rimasta. */
+async function renderStorageInfo() {
+  const el = els.histStorage;
+  if (!el) return;
+  const st = await storageStatus();
+  if (st.persisted == null && st.usage == null) { el.hidden = true; return; }
+  const parts = [];
+  if (st.usage != null) parts.push('Spazio usato ' + (st.usage / (1024 * 1024)).toFixed(1) + ' MB');
+  if (st.persisted === true) parts.push('protetto dal browser');
+  else if (st.persisted === false) parts.push('⚠ non protetto: il browser può cancellarlo, fai un backup');
+  el.textContent = parts.join(' · ');
+  el.classList.toggle('warn', st.persisted === false);
+  el.hidden = false;
 }
 
 /* Legge tutte le sessioni dallo storico. Una per volta: caricarle tutte insieme

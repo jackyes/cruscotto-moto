@@ -1,5 +1,27 @@
 'use strict';
 /* js/map.js (step 26): saveSession/recoverChunks, showSessionDetail, initMap/Leaflet/canvas, updateLeaflet/Map, drawCanvasMap/TrackOnCanvas, canvasTheme. Ordine: dopo js/video3d.js. */
+/* Righe complete della sessione da salvare. Oltre MAX_ROWS sampleTick taglia
+   da state.rows le righe già scritte nei chunk: salvare solo state.rows (e poi
+   cancellare i chunk) perdeva per sempre l'inizio dei giri oltre ~2,5 h.
+   Qui le righe tagliate si rileggono dai chunk della sessione e si cuciono con
+   la coda in memoria, per tempo: un flush in volo può aver già scritto righe
+   che flushedRows non conta ancora, e il confronto su t evita i doppioni.
+   null se i chunk non si leggono: il chiamante salva quello che ha ma NON li
+   cancella, così il recupero all'avvio (stesso id) può completare il giro. */
+async function sessionRowsForSave() {
+  if (!(state._rowsTrimmed > 0)) return state.rows.slice();
+  let chunks = [];
+  try { chunks = await idb.getChunks(); } catch (e) { return null; }
+  const sid = state.sessionId;
+  const mine = chunks.filter(c => c && c.sid === sid && c.rows).sort((a, b) => a.seq - b.seq);
+  const out = [];
+  for (const c of mine) for (const r of c.rows) out.push(r);
+  if (!out.length) return null;
+  const lastT = out[out.length - 1].t;
+  for (const r of state.rows) if (r.t > lastT) out.push(r);
+  return out;
+}
+
 async function saveSession() {
   if (!state.session.startWall) return;
   const endWall = state.session.endWall || Date.now();
@@ -15,12 +37,14 @@ async function saveSession() {
     id: state.sessionId || ('s_' + state.session.startWall),
     meta,
     track: (state.trackFull.length ? state.trackFull : state.track).slice(),
-    rows: state.rows.slice(),
+    rows: null,
   };
+  const full = await sessionRowsForSave();
+  sess.rows = full || state.rows.slice();
   try {
     await idb.put(sess);
     // Salvata: i chunk di recupero non servono più e liberano spazio.
-    await idb.clearChunks().catch(() => {});
+    if (full) await idb.clearChunks().catch(() => {});
     toast('Giro salvato (' + sess.rows.length + ' campioni).', 'ok');
   } catch (e) {
     // Prima l'errore era muto: l'utente credeva di avere il giro nello storico.

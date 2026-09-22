@@ -56,6 +56,9 @@ function sampleTick() {
       const drop = Math.min(over + Math.ceil(MAX_ROWS * 0.1), state.flushedRows);
       state.rows.splice(0, drop);
       state.flushedRows -= drop;
+      // Le righe tagliate vivono ormai solo nei chunk: saveSession deve
+      // ricomporle da lì, altrimenti un giro oltre MAX_ROWS perde l'inizio.
+      state._rowsTrimmed = (state._rowsTrimmed || 0) + drop;
     } else if ((state._flushFailN || 0) >= 2) {
       // Rete di sicurezza: se il flush fallisce per quota esaurita e nessuna riga
       // è più "sicura" da scartare, l'array crescerebbe senza limite fino all'OOM
