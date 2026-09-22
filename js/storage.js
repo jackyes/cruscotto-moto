@@ -89,9 +89,13 @@ const idb = {
     if (idb.db) return run();
     return idb.open().then(run);
   },
+  /* Le righe viaggiano in colonne (js/rows-codec.js): put/putChunk codificano,
+     get/getChunks decodificano, e chi chiama vede sempre array di oggetti.
+     I record del formato vecchio (rows come array) si leggono uguale. */
   put(obj) {
+    const rec = withRowsCol(obj);
     return idb._tx(['sessions', 'meta'], 'readwrite', tx => {
-      tx.objectStore('sessions').put(obj);
+      tx.objectStore('sessions').put(rec);
       tx.objectStore('meta').put({ id: obj.id, meta: obj.meta, points: (obj.rows || []).length });
     });
   },
@@ -103,6 +107,9 @@ const idb = {
     }).then(() => val);
   },
   get(id) {
+    return idb._getRaw(id).then(withRows);
+  },
+  _getRaw(id) {
     let val = null;
     return idb._tx('sessions', 'readonly', tx => {
       const rq = tx.objectStore('sessions').get(id);
@@ -123,14 +130,15 @@ const idb = {
     });
   },
   putChunk(obj) {
-    return idb._tx('logchunks', 'readwrite', tx => { tx.objectStore('logchunks').put(obj); });
+    const rec = withRowsCol(obj);
+    return idb._tx('logchunks', 'readwrite', tx => { tx.objectStore('logchunks').put(rec); });
   },
   getChunks() {
     let val = [];
     return idb._tx('logchunks', 'readonly', tx => {
       const rq = tx.objectStore('logchunks').getAll();
       rq.onsuccess = () => { val = rq.result || []; };
-    }).then(() => val);
+    }).then(() => val.map(withRows));
   },
   clearChunks() {
     return idb._tx(['logchunks', 'kv'], 'readwrite', tx => {
@@ -159,6 +167,43 @@ const idb = {
     return idb._tx('kv', 'readwrite', tx => { tx.objectStore('kv').delete(k); });
   },
 };
+
+/* Copia del record con rows → rowsCol. Righe non codificabili (non oggetti):
+   il record resta com'era. Mai modificato l'oggetto del chiamante. */
+function withRowsCol(obj) {
+  if (!obj || !Array.isArray(obj.rows)) return obj;
+  const enc = encodeRows(obj.rows);
+  if (!enc) return obj;
+  const rec = Object.assign({}, obj, { rowsCol: enc });
+  delete rec.rows;
+  return rec;
+}
+function withRows(rec) {
+  if (!rec || !rec.rowsCol) return rec;
+  const out = Object.assign({}, rec, { rows: decodeRows(rec.rowsCol) });
+  delete out.rowsCol;
+  return out;
+}
+
+/* Converte in colonne i giri salvati col formato vecchio, uno alla volta e in
+   sottofondo: liberano spazio anche senza essere riaperti. Si ferma se pause()
+   diventa vero (log avviato) e riprende al prossimo avvio; a lavoro finito un
+   flag in kv evita di rileggere lo storico a ogni boot. */
+async function migrateRowsFormat(pause) {
+  try { if (await idb.kvGet('rowsFmt') === ROWS_CODEC_V) return 0; } catch (e) { return 0; }
+  let ids = [];
+  try { ids = await idb.keys(); } catch (e) { return 0; }
+  let n = 0;
+  for (const id of ids) {
+    if (pause && pause()) return n;
+    let rec = null;
+    try { rec = await idb._getRaw(id); } catch (e) { continue; }
+    if (!rec || !Array.isArray(rec.rows)) continue;
+    try { await idb.put(rec); n++; } catch (e) { return n; }   // quota: riprova al prossimo avvio
+  }
+  try { await idb.kvPut('rowsFmt', ROWS_CODEC_V); } catch (e) {}
+  return n;
+}
 
 /* Senza persistenza il browser può svuotare IndexedDB quando il telefono è a
    corto di spazio, e con lui tutto lo storico. persist() non chiede nulla

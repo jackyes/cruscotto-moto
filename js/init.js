@@ -1024,6 +1024,8 @@ function init() {
     await renderHistory();
     await recoverChunks();
     await navRestore();   // dentro il .then(): fuori, _tx() rigetta con "DB non aperto"
+    // Giri del formato vecchio → colonne, a boot finito e mai durante un log.
+    setTimeout(() => { migrateRowsFormat(() => state.logging).catch(() => {}); }, 5000);
   }).catch(() => toast('Storico non disponibile (IndexedDB non accessibile).', 'err', 5000));
 
   // Flush opportunistico prima che il sistema possa scaricare la pagina.
