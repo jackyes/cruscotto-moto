@@ -87,6 +87,32 @@ test('righe non oggetto: nessuna codifica; formato vecchio e input rotti in lett
   assert.equal(decodeRows(encodeRows([])).length, 0);
 });
 
+/* Sonda del dictionary mode: --allow-natives-syntax acceso a runtime, prima di
+   compilarla. Una riga che ci finisce pesa ~3 volte una di snapshot(): su un giro
+   lungo riletto dai chunk erano centinaia di MB allo Stop (rowTemplate). */
+v8.setFlagsFromString('--allow-natives-syntax');
+const fastProps = new Function('o', 'return %HasFastProperties(o)');
+
+test('righe decodificate in fast mode, non in dictionary mode', () => {
+  const src = rows(300);
+  // Controllo della sonda: costruita chiave per chiave, come faceva decodeRows,
+  // la riga va in dictionary mode. Se V8 smettesse di farlo la sagoma non
+  // servirebbe più, e questo assert lo direbbe.
+  const slow = {};
+  for (const k of Object.keys(src[0])) slow[k] = src[0][k];
+  assert.equal(fastProps(slow), false, 'riga costruita chiave per chiave non in dictionary mode');
+  assert.equal(fastProps(src[0]), true, 'riga di snapshot() non in fast mode');
+  const back = decodeRows(encodeRows(src));
+  for (const i of [0, 150, 299]) assert.equal(fastProps(back[i]), true, 'riga ' + i + ' in dictionary mode');
+});
+
+test('colonna "__proto__" da un backup: resta una chiave, non diventa il prototipo della riga', () => {
+  const src = JSON.parse('[{"t":0,"__proto__":{"x":1}},{"t":1,"__proto__":{"x":2}}]');
+  const back = decodeRows(encodeRows(src));
+  assert.equal(back[0].x, undefined, 'prototipo della riga sostituito');
+  assert.ok(Object.hasOwn(back[1], '__proto__'));
+});
+
 test('dimensione: un\'ora di log almeno 3 volte più piccola serializzata', () => {
   const src = rows(72000);
   const before = v8.serialize(src).length;
@@ -115,6 +141,14 @@ test('idb: chunk di recupero in colonne, riletti come righe', async () => {
   assert.equal(c.sid, 's1');
   assert.equal(c.rows.length, 20);
   assert.equal(c.rows[19].t, rows(20)[19].t);
+});
+
+test('idb: righe di get e dei chunk in fast mode', async () => {
+  await initDb();
+  await idb.put({ id: 'f', meta: { startISO: '2024-01-01T00:00:00Z' }, track: [], rows: rows(50) });
+  await idb.putChunk({ sid: 's1', seq: 0, startWall: 1, rows: rows(50), track: [] });
+  assert.equal(fastProps((await idb.get('f')).rows[25]), true, 'get: riga in dictionary mode');
+  assert.equal(fastProps((await idb.getChunks())[0].rows[25]), true, 'getChunks: riga in dictionary mode');
 });
 
 test('migrazione: i giri vecchi passano in colonne, una volta sola, e si ferma su pause()', async () => {

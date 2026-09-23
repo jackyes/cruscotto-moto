@@ -13,7 +13,10 @@ function appendTrackPoint(lat, lon, alt) {
   // giro oltre ~2,8 h veniva troncato silenziosamente in export e salvataggio.
   state.trackFull.push(pt);
   if (state.track.length > TRACK_MAX) {
-    const removed = state.track.length - TRACK_MAX;
+    // Margine del 10% come per MAX_ROWS (js/log-core.js): togliendo un punto
+    // alla volta, oltre TRACK_MAX ogni punto nuovo ricostruiva da capo la
+    // polyline intera, una volta al secondo per tutto il resto del giro.
+    const removed = state.track.length - TRACK_MAX + Math.ceil(TRACK_MAX * 0.1);
     state.track.splice(0, removed);
     // Il trim toglie i punti più vecchi: la polyline Leaflet non ha API per
     // rimuoverli dal davanti, quindi si marca il rebuild completo.

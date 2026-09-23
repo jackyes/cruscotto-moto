@@ -85,13 +85,36 @@ function rawColumn(rows, k, n) {
   return { k: 'raw', d: a, present };
 }
 
+/* Sagoma delle righe decodificate: le chiavi con una colonna, nell'ordine di keys.
+   Un oggetto vuoto che riceve le ~28 chiavi una alla volta, con chiave calcolata,
+   V8 lo passa in dictionary mode oltre una dozzina di proprietà: ~2 KB a riga
+   contro i ~660 B di una riga di snapshot() (misurati in Node), e lo Stop di un
+   giro di 3 h, che rilegge tutte le righe dai chunk, costava ~420 MB in più. La
+   copia di una sagoma nasce con tutte le chiavi al loro posto e le scritture
+   toccano solo chiavi esistenti: la riga resta fast mode.
+   null se una colonna ha chiavi assenti in qualche riga (present): la sagoma le
+   farebbe comparire ovunque, e lì resta la costruzione chiave per chiave. */
+function rowTemplate(enc) {
+  const entries = [];
+  for (const k of enc.keys) {
+    const c = enc.cols[k];
+    if (!c) continue;
+    if (c.present) return null;
+    entries.push([k, null]);
+  }
+  return Object.fromEntries(entries);
+}
+
 /* Record di storage → righe. Accetta anche il formato vecchio (array di oggetti). */
 function decodeRows(enc) {
   if (Array.isArray(enc)) return enc;
   if (!enc || enc.v !== ROWS_CODEC_V || !enc.cols || !Array.isArray(enc.keys)) return [];
   const n = enc.n | 0;
   const out = new Array(n);
-  for (let i = 0; i < n; i++) out[i] = {};
+  // Spread e non Object.assign: copia le chiavi senza passare dai setter
+  // (una colonna "__proto__" da un backup non cambia il prototipo della riga).
+  const tpl = rowTemplate(enc);
+  for (let i = 0; i < n; i++) out[i] = tpl ? { ...tpl } : {};
   for (const k of enc.keys) {
     const c = enc.cols[k];
     if (!c) continue;
