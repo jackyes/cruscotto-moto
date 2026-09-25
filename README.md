@@ -194,12 +194,13 @@ tutti tornanti, e voglio tornare a casa"*. Questa scheda parte da lì.
 - **Mappa e dati allineati nel tempo**: la mappa del video (2D e 3D, scia e colore per piega compresi) si aggancia alle righe del log per **tempo**. Prima l'aggancio era per proporzione di indice, ma le righe arrivano a 20 Hz anche da fermi mentre la traccia prende punti solo in marcia: su un'ora con 10 minuti di sosta la mappa finiva 3 km indietro, avanzava di 8 km a moto ferma (con la velocità a 0) e ripartiva 5 km avanti. Giri vecchi senza orari nella traccia usano ancora l'aggancio proporzionale.
 - Dal dettaglio di una sessione (Storico → tap) c'è **Export video**.
 - Render **postumo**, tutto lato client, catturato da canvas → **WebM** via MediaRecorder. Nessun server, nessun ffmpeg.
-- Opzioni: risoluzione (720p / 1080p), velocità (1× / 2× / 4× / 12×) e tipo:
+- Opzioni: risoluzione (720p / 1080p / 9:16 reel), velocità (1× / 2× / 4× / 12×), FPS (30 / 24 / 15 / 10 / 5) e tipo:
   - **3D (default)**: mappa 3D MapLibre (terreno AWS Terrain + stile OpenFreeMap, gratis senza chiave) con telecamera che segue il tracciato e una **moto 3D** stilizzata (primitive Three.js) che si inclina con la piega e ha le ruote in rotazione.
   - **2D**: cruscotto animato (velocità, piega, accelerazioni) + tracciato stilizzato.
 - Dipendenze 3D caricate **on demand** da CDN (MapLibre GL + Three.js, ~1,4 MB); senza rete si ripiega sul render 2D.
 - Formato: **WebM** ovunque, più **MP4** (muxer `mp4-muxer` vendorizzato, codifica **WebCodecs**) dove `VideoEncoder` esiste — Chrome/Edge desktop e Android. Dove WebCodecs c'è, il render è **offline**: più veloce del tempo reale e senza `captureStream`.
 - Il render realtime (MediaRecorder + `canvas.captureStream`) avanza a 1× la durata del giro; 2×/4×/12× accorciano. Il percorso offline no: è più rapido del tempo reale.
+- **FPS**: nel percorso offline ogni frame costa un disegno (mappa 3D compresa) e un encode, quindi il tempo di export scende circa in proporzione ai frame: 15 fps ≈ metà di 30, 5 fps ≈ un sesto (stima dal numero di frame, non cronometrata). Il file non si rimpicciolisce: la dimensione dipende dal bitrate. Nel realtime gli fps alleggeriscono CPU ed encoder ma la durata dell'export non cambia. Keyframe ogni ~5 s di video a qualunque framerate. Se il giro è troppo lungo per la RAM, l'auto-fit può abbassare gli fps (a 24 o 15), mai alzarli sopra la scelta. L'MP4 è solo video: la traccia audio sintetica (motore + vento) è stata tolta.
 - **Su iOS/Safari**: `VideoEncoder` non è disponibile, quindi niente MP4 e niente percorso offline; resta il realtime, che su iOS può mancare di `canvas.captureStream`. In quel caso l'app lo dice con un avviso invece di restare appesa. Da verificare su un iPhone vero: qui non è stato provato.
 
 ## Angolo di piega — come funziona
@@ -559,6 +560,7 @@ Il file usa la virgola come separatore. Su Excel italiano potresti vedere tutto 
 ### Viewer web (CSV)
 - `viewer.html` (nella stessa cartella dell'app) apre il CSV esportato via **drag&drop** o click.
 - Mostra statistiche (durata, V max, piega D/S, distanza, campioni), grafici (velocità, piega, accelerazioni, quota) e il tracciato su mappa OpenStreetMap ricavato dalle colonne `lat`/`lon`.
+- **Export video** con le stesse opzioni dell'app (FPS compresi); le scelte restano salvate tra un export e l'altro.
 - Tutto in locale nel browser: nessun dato viene inviato altrove. Serve connessione solo per i tile della mappa.
 
 ## Sensori usati (API web standard)
