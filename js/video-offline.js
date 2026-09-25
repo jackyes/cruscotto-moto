@@ -26,6 +26,46 @@ function videoOfflineKeyframeEvery(fps) {
   return Math.max(1, Math.round(f * 5));
 }
 
+/* Raccoglitore dei chunk di StreamTarget che rispetta la posizione. I muxer
+   non scrivono solo in coda: a fine file tornano indietro a correggere
+   dimensioni e durata (mdat dell'MP4; cluster, seek head e durata del WebM).
+   Accodare ogni chunk ignorando pos dava file illeggibili appena si superava
+   un chunk (16 MB): le correzioni finivano in fondo invece che al loro posto.
+   Segmenti ordinati e disgiunti; una scrittura sovrapposta ritaglia con
+   Blob.slice (nessuna copia dei dati). */
+function videoBlobParts() {
+  let segs = [];   // {pos, blob}, ordinati per pos, senza sovrapposizioni
+  return {
+    write(data, pos) {
+      const blob = new Blob([data]);
+      const end = pos + blob.size;
+      const last = segs[segs.length - 1];
+      if (!last || pos >= last.pos + last.blob.size) {
+        const lastEnd = last ? last.pos + last.blob.size : 0;
+        if (pos > lastEnd) segs.push({ pos: lastEnd, blob: new Blob([new Uint8Array(pos - lastEnd)]) });
+        segs.push({ pos, blob });
+        return;
+      }
+      const out = [];
+      let placed = false;
+      for (const s of segs) {
+        const sEnd = s.pos + s.blob.size;
+        if (sEnd <= pos || s.pos >= end) {
+          if (!placed && s.pos >= end) { out.push({ pos, blob }); placed = true; }
+          out.push(s);
+          continue;
+        }
+        if (s.pos < pos) out.push({ pos: s.pos, blob: s.blob.slice(0, pos - s.pos) });
+        if (!placed) { out.push({ pos, blob }); placed = true; }
+        if (sEnd > end) out.push({ pos: end, blob: s.blob.slice(end - s.pos) });
+      }
+      if (!placed) out.push({ pos, blob });
+      segs = out;
+    },
+    blob(type) { return new Blob(segs.map(s => s.blob), { type }); },
+  };
+}
+
 /* Pura: durata video risultante in secondi, applicando mult+slow-mo (stessa
    progressione di videoOfflineLoop). Serve per la stima della dimensione finale
    PRIMA di avviare l'encode. */

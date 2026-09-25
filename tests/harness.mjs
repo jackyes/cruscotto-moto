@@ -92,7 +92,7 @@ const exportLine = `
   videoMapBounds, videoLeanBin, videoMapProj, videoLeanAtPoint,
   videoMapBgKey,
   mp4ConfigFor, mp4CodecCandidates, mp4FrameStepUs,
-  webmConfigFor, webmCodecCandidates, videoOfflineFrameStepUs, videoOfflineKeyframeEvery,
+  webmConfigFor, webmCodecCandidates, videoOfflineFrameStepUs, videoOfflineKeyframeEvery, videoBlobParts,
   videoOfflineDurSec, videoOfflineMaxBytes, videoOfflineGuard,
   videoOfflineFitCfg, videoFitBitrateLadder, videoFitResFor,
   videoMapOptions, videoMapPixelRatio, videoSkyOptions, videoSkyVisible,
@@ -210,7 +210,7 @@ const sandbox = {
   // Node non li mette nella vm sandbox in automatico (non sono globali
   // ECMAScript, sono aggiunte del runtime): servono a js/vendor/webm-muxer.js
   // (SubtitleEncoder li usa a livello di modulo, quindi ad ogni load).
-  TextEncoder, TextDecoder,
+  TextEncoder, TextDecoder, Blob,
   /* Come TextEncoder: non e' un globale ECMAScript, quindi la vm non lo eredita da
      Node. Senza, fetchWithTimeout (js/net-base.js) esplode alla prima riga e ogni
      percorso di rete resta non testabile. `fetch` invece NON si mette qui: lo

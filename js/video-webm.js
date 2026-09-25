@@ -122,9 +122,9 @@ async function startVideoRenderWebmOfflineInner(pre, mode, Muxer, picked) {
   // StreamTarget chunked: i chunk diventano subito Blob (memoria nativa, fuori
   // dall'heap V8). Tenere gli Uint8Array in un array JS saturava l'heap su
   // Chrome Android 32-bit (~512 MB) → crash del tab senza alcun errore.
-  const parts = [];
+  const parts = videoBlobParts();
   const muxerOpts = {
-    target: new Muxer.StreamTarget({ chunked: true, onData: (d, pos) => parts.push(new Blob([d])) }),
+    target: new Muxer.StreamTarget({ chunked: true, onData: (d, pos) => parts.write(d, pos) }),
     video: { codec: picked.mux, width: W, height: H, frameRate: picked.cfg.framerate || 30 },
   };
   // configure() tira su risoluzioni/profili non supportati: senza guardia
@@ -186,7 +186,7 @@ async function startVideoRenderWebmOfflineInner(pre, mode, Muxer, picked) {
   let blob = null;
   try {
     muxer.finalize();
-    blob = new Blob(parts, { type: 'video/webm' });
+    blob = parts.blob('video/webm');
   } catch (e) {
     failStatus(e);
     return;

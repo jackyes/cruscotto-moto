@@ -160,10 +160,13 @@ async function startVideoRenderMp4Inner(pre, mode, Muxer, cfg) {
   // Chrome Android 32-bit (~512 MB) → crash del tab senza alcun errore.
   // fastStart 'in-memory' teneva TUTTI i sample in RAM (di nuovo 1× extra):
   // via → moov in coda, file valido per il download locale.
-  const parts = [];
+  const parts = videoBlobParts();
   const muxerOpts = {
-    target: new Muxer.StreamTarget({ chunked: true, onData: (d, pos) => parts.push(new Blob([d])) }),
+    target: new Muxer.StreamTarget({ chunked: true, onData: (d, pos) => parts.write(d, pos) }),
     video: { codec: 'avc', width: W, height: H },
+    // Obbligatoria per il muxer: senza, il costruttore lanciava e ogni export
+    // MP4 cadeva sul WebM. false = moov in coda, niente sample tenuti in RAM.
+    fastStart: false,
   };
   // configure() tira su risoluzioni/profili non supportati: senza guardia
   // usciva come promise rejection muta (modale appesa su "Encode MP4…").
@@ -226,7 +229,7 @@ async function startVideoRenderMp4Inner(pre, mode, Muxer, cfg) {
   let blob = null;
   try {
     muxer.finalize();
-    blob = new Blob(parts, { type: 'video/mp4' });
+    blob = parts.blob('video/mp4');
   } catch (e) {
     failStatus(e);
     return;
