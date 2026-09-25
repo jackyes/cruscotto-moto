@@ -151,6 +151,12 @@
           <option value="12">12×</option>
         </select>
       </div>
+      <div class="m-row"><span>Slow-mo curve</span>
+        <select id="videoSlow">
+          <option value="off" selected>No (velocità costante)</option>
+          <option value="on">Sì (curve forti e buche)</option>
+        </select>
+      </div>
       <div class="m-row"><span>FPS</span>
         <select id="videoFps">
           <option value="30" selected>30 (fluido)</option>
@@ -213,7 +219,7 @@
 /* Shim viewer→video: els/toast/canvasTheme locali (niente dipendenza dall'app).
    toast riusa il box #err del viewer; canvasTheme legge le --c-* già in :root. */
 var els = {
-  videoModal: null, videoRes: null, videoSpeed: null, videoFps: null, videoType: null,
+  videoModal: null, videoRes: null, videoSpeed: null, videoSlow: null, videoFps: null, videoType: null,
   videoStyle: null, videoBuildings: null, videoFormat: null,
   videoProg: null, videoStatus: null, videoStart: null, videoCancel: null,
 };
@@ -877,7 +883,7 @@ const canvasTheme = {
   $('btnOverlay').addEventListener('click', () => fileInput2.click());
   try { viewerBindEls(); } catch (e) {}
   loadVideoPrefs();
-  for (const id of ['videoRes', 'videoSpeed', 'videoFps', 'videoType', 'videoStyle', 'videoBuildings', 'videoFormat']) {
+  for (const id of ['videoRes', 'videoSpeed', 'videoSlow', 'videoFps', 'videoType', 'videoStyle', 'videoBuildings', 'videoFormat']) {
     const el = $(id);
     if (el) el.addEventListener('change', () => { saveVideoPrefs(); updateVideoSummary(); });
   }
@@ -975,7 +981,8 @@ const canvasTheme = {
     const g = id => { const el = $(id); return el ? (el.options[el.selectedIndex] || {}).text || el.value : '?'; };
     $('videoSummary').textContent =
       g('videoRes') + ' · ' + g('videoSpeed') + ' · ' + g('videoFps') + ' fps · ' + g('videoType') + ' · ' +
-      g('videoStyle') + ' · ' + g('videoFormat') + videoEtaText();
+      g('videoStyle') + ' · ' + g('videoFormat') +
+      ((($('videoSlow') || {}).value === 'on') ? ' · slow-mo' : '') + videoEtaText();
   }
 
   // Scelte video persistenti (come loadSettings/saveSettings dell'app).
@@ -983,7 +990,7 @@ const canvasTheme = {
   function saveVideoPrefs() {
     try {
       const o = {};
-      for (const id of ['videoRes', 'videoSpeed', 'videoFps', 'videoType', 'videoStyle', 'videoBuildings', 'videoFormat']) {
+      for (const id of ['videoRes', 'videoSpeed', 'videoSlow', 'videoFps', 'videoType', 'videoStyle', 'videoBuildings', 'videoFormat']) {
         const el = $(id); if (el) o[id] = el.value;
       }
       localStorage.setItem(VIDEO_PREF_KEY, JSON.stringify(o));

@@ -49,7 +49,7 @@ const els = {
   navVoice: $('navVoice'), navNoHw: $('navNoHw'), navNoToll: $('navNoToll'),
   navBackroads: $('navBackroads'), navNoFerry: $('navNoFerry'),
   btnImportCam: $('btnImportCam'), camFile: $('camFile'), btnViewer: $('btnViewer'),
-  videoModal: $('videoModal'), videoRes: $('videoRes'), videoSpeed: $('videoSpeed'), videoFps: $('videoFps'), videoType: $('videoType'),
+  videoModal: $('videoModal'), videoRes: $('videoRes'), videoSpeed: $('videoSpeed'), videoSlow: $('videoSlow'), videoFps: $('videoFps'), videoType: $('videoType'),
   videoStyle: $('videoStyle'), videoBuildings: $('videoBuildings'),
   videoFormat: $('videoFormat'),
   videoProg: $('videoProg'), videoStatus: $('videoStatus'),

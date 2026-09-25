@@ -152,6 +152,14 @@ function buildSlowZones(rows, base) {
   return { base: b, zones: merged, slow: 0.35, ramp: 0.5 };
 }
 
+/* Pura: slow-mo solo se chiesto. Prima era sempre acceso e a 12× ogni curva
+   sopra 25° scendeva a 0.35×: il video sembrava andare a strappi. Spento =
+   velocità costante (nessuna zona, slowMultAt rende sempre base). */
+function videoSlowFor(rows, mult, on) {
+  if (on) return buildSlowZones(rows, mult);
+  return { base: isFinite(mult) && mult > 0 ? mult : 1, zones: [] };
+}
+
 /* Pura: moltiplicatore con ramp lineare in/out (niente scalini nel video). */
 function slowMultAt(t, slow) {
   if (!slow || !slow.zones || !slow.zones.length) return slow && isFinite(slow.base) ? slow.base : 1;
@@ -340,8 +348,9 @@ function startVideoRender(s) {
   const wantSat = !!(els.videoStyle && els.videoStyle.value === 'sat');
   // Palazzi 3D: acceso di default (select assente = vecchia UI = acceso).
   const buildings = !(els.videoBuildings && els.videoBuildings.value === 'off');
+  const wantSlow = !!(els.videoSlow && els.videoSlow.value === 'on');
   const pre = { mime, res, mult, fps, rows, track, mapPts, mapT, spark, dist, tEnd, speedMax,
-    slow: buildSlowZones(rows, mult), sat: false, buildings };
+    slow: videoSlowFor(rows, mult, wantSlow), sat: false, buildings };
   // Giro senza GPS (solo IMU, es. rulli): la mappa 3D centrerebbe l'Italia
   // di default e centrerebbe il nulla. Forza il 2D SOLO per questo render —
   // scrivere els.videoType.value sovrascriveva la preferenza utente in

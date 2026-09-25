@@ -67,3 +67,15 @@ test('speedLinesFor: vuote sotto soglia, n proporzionale, deterministiche', () =
     assert.ok(l.a >= 0.15 && l.a <= 0.5, 'alpha bound');
   }
 });
+
+test('videoSlowFor: spento = velocità costante anche in piega, acceso = zone', () => {
+  const { videoSlowFor } = api;
+  const rows = [];
+  for (let k = 0; k < 200; k++) rows.push(R(k * 0.05, { lean: k >= 40 && k < 120 ? 30 : 0 }));
+  const off = videoSlowFor(rows, 12, false);
+  for (const t of [0, 3, 4, 5, 9.9]) assert.equal(slowMultAt(t, off), 12);
+  assert.equal(videoSlowFor(rows, NaN, false).base, 1);
+  const on = videoSlowFor(rows, 12, true);
+  assert.equal(on.zones.length, 1);
+  assert.equal(slowMultAt(4, on), 0.35);
+});
