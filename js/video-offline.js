@@ -12,6 +12,12 @@ const OFF_ENC_QUEUE_HI = 8;          // sopra questo l'encoder è saturo: si asp
 const OFF_ENC_QUEUE_LO = 4;          // sotto questo si riprende a codificare
 const OFF_MAP_READY_MS = 6000;       // guardia su style.load delle tile 3D
 const OFF_MIN_RAM_BYTES = 256 * 1024 * 1024;  // floor della stima RAM disponibile
+const OFF_TILE_WAIT_MS = 4000;       // attesa max delle tile per frame (rete lenta)
+const OFF_TILE_FIRST_MS = 20000;     // primo frame: tutta la vista iniziale, DEM compreso
+const OFF_TILE_SHORT_MS = 300;       // attesa ridotta dopo troppi timeout di fila
+const OFF_TILE_GIVEUP = 3;           // timeout di fila prima dell'attesa ridotta
+const OFF_TILE_POLL_MS = 25;         // passo del controllo areTilesLoaded
+const OFF_TILE_SLOW_MS = 500;        // oltre, la riga di stato dice che si aspettano tile
 
 /* Pura: passo frame dal framerate (30 fps -> 33333 µs). */
 function videoOfflineFrameStepUs(fps) {
@@ -256,6 +262,52 @@ function videoOfflineSetupMap(job, pre) {
   });
 }
 
+/* Aspetta che la mappa abbia tutte le tile della vista corrente (satellite,
+   DEM, vettoriali) prima di catturare il frame. Prima il frame si catturava
+   subito dopo jumpTo: le tile richieste arrivavano quando la camera era già
+   oltre, e a 12× il satellite restava sgranato o mancante. Offline il tempo
+   non è legato all'orologio, quindi aspettare allunga solo l'export.
+   Quando arrivano si ridisegna e si ricontrolla: col DEM caricato la
+   copertura cambia e il redraw può chiedere altre tile. Le tile in errore
+   contano come caricate (areTilesLoaded), quindi una rete assente non blocca;
+   il tetto serve per le richieste appese. Dopo OFF_TILE_GIVEUP timeout di
+   fila l'attesa si accorcia, e torna piena al primo frame completato.
+   Ritorna true se ha aspettato: il chiamante deve ricomporre il frame. */
+async function videoOfflineWaitTiles(job, maxMs, onSlow) {
+  const map = job && job.map;
+  if (!map || typeof map.areTilesLoaded !== 'function') return false;
+  // Eccezione (stile non ancora pronto in v5) = niente da aspettare.
+  const loaded = () => { try { return !!map.areTilesLoaded(); } catch (e) { return true; } };
+  const redraw = () => { try { if (typeof map.redraw === 'function') map.redraw(); } catch (e) {} };
+  if (loaded()) return false;
+  const miss = job.tileMiss || 0;
+  const cap = miss >= OFF_TILE_GIVEUP ? OFF_TILE_SHORT_MS : (maxMs > 0 ? maxMs : OFF_TILE_WAIT_MS);
+  const t0 = Date.now();
+  let ok = false, slowSaid = false;
+  while (!job.cancelled && Date.now() - t0 < cap) {
+    await new Promise(res => setTimeout(res, OFF_TILE_POLL_MS));
+    if (!slowSaid && onSlow && Date.now() - t0 >= OFF_TILE_SLOW_MS) {
+      slowSaid = true;
+      try { onSlow(); } catch (e) {}
+    }
+    if (job.cancelled) break;
+    if (!loaded()) continue;
+    redraw();
+    if (loaded()) { ok = true; break; }
+  }
+  if (job.cancelled) return true;
+  if (!ok) redraw();   // tetto raggiunto: si usa quello che è arrivato
+  job.tileMiss = ok ? 0 : miss + 1;
+  return true;
+}
+
+/* Disegna il frame e, in 3D, aspetta le tile prima che venga catturato. */
+async function videoOfflineDrawFrame(job, stepSec, maxMs, onSlow) {
+  drawVideoFrame(job, stepSec);
+  if (job.mode !== '3d' || !job.map || !job.mapReady) return;
+  if (await videoOfflineWaitTiles(job, maxMs, onSlow)) videoRecompose3D(job);
+}
+
 /* Loop offline generico: disegna ogni frame e lo passa a un VideoEncoder con
    timestamp manuale (più veloce del realtime, niente captureStream).
    encState = {enc, frame} (job.mp4 o job.webm, mutato sul posto).
@@ -279,13 +331,19 @@ async function videoOfflineLoop(job, encState, opts) {
   // di stepSec*slowMultAt per frame e drawVideoFrame pesca la riga via findRowAt.
   // Prima il loop scorreva 1:1 sui campioni e ignorava del tutto il moltiplicatore
   // selezionato (un export "12×" produceva comunque un video 1:1).
+  const pctAt = t => Math.min(100, Math.round(((t - t0) / Math.max(1e-9, tEnd - t0)) * 100));
+  const tileStatus = () => {
+    els.videoStatus.textContent = 'Encode ' + label + ' ' + pctAt(job.tSim) + '% · scarico tile mappa…';
+  };
   let tSim = t0;
   let k = 0;
   const maxFrames = OFF_MAX_FRAMES;   // guardia anti-loop infinito
   while (tSim < tEnd && k < maxFrames) {
     if (job.cancelled) return;
     job.tSim = tSim;
-    drawVideoFrame(job, stepSec);
+    // Primo frame: attesa lunga, è il vantaggio iniziale per la vista di partenza.
+    await videoOfflineDrawFrame(job, stepSec, k === 0 ? OFF_TILE_FIRST_MS : 0, tileStatus);
+    if (job.cancelled) return;
     const ts = Math.round(k * stepUs);
     let frame = null;
     try { frame = new VideoFrame(job.canvas, { timestamp: Math.max(0, ts), duration: stepUs }); }
@@ -321,7 +379,7 @@ async function videoOfflineLoop(job, encState, opts) {
     encState.frame++;
     // UI viva: yield ogni 15 frame + progress (loop da migliaia di frame).
     if (encState.frame % 15 === 0) {
-      const pct = Math.min(100, Math.round(((tSim - t0) / Math.max(1e-9, tEnd - t0)) * 100));
+      const pct = pctAt(tSim);
       els.videoProg.style.width = pct + '%';
       els.videoStatus.textContent = 'Encode ' + label + ' ' + pct + '%';
       await new Promise(res => setTimeout(res, 0));
@@ -333,7 +391,8 @@ async function videoOfflineLoop(job, encState, opts) {
   // il video risultava più corto di un frame e l'ultimo istante del giro spariva.
   if (!job.cancelled && !encState.encErr) {
     job.tSim = tEnd;
-    drawVideoFrame(job, stepSec);
+    await videoOfflineDrawFrame(job, stepSec, 0, tileStatus);
+    if (job.cancelled) return;
     let frame = null;
     try { frame = new VideoFrame(job.canvas, { timestamp: Math.round(k * stepUs), duration: stepUs }); }
     catch (e) { frame = null; }

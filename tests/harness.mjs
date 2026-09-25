@@ -93,6 +93,7 @@ const exportLine = `
   videoMapBgKey,
   mp4ConfigFor, mp4CodecCandidates, mp4FrameStepUs,
   webmConfigFor, webmCodecCandidates, videoOfflineFrameStepUs, videoOfflineKeyframeEvery, videoBlobParts,
+  videoOfflineWaitTiles, videoCompose3D, videoRecompose3D,
   videoOfflineDurSec, videoOfflineMaxBytes, videoOfflineGuard,
   videoOfflineFitCfg, videoFitBitrateLadder, videoFitResFor,
   videoMapOptions, videoMapPixelRatio, videoSkyOptions, videoSkyVisible,

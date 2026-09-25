@@ -1039,7 +1039,7 @@ function videoCameraFor(speedKmh, leanDeg, vert, latDeg, viewportHPx) {
 }
 
 function drawVideoFrame3D(job, dt) {
-  const { ctx, map, moto, rows, mapPts, keyframes, dist, speedMax, tSim } = job;
+  const { map, moto, rows, mapPts, keyframes, tSim } = job;
   const W = job.canvas.width, H = job.canvas.height;
   const i = Math.max(0, findRowAt(rows, tSim));
   const r = rows[i] || {};
@@ -1090,14 +1090,29 @@ function drawVideoFrame3D(job, dt) {
   const spin = videoWheelSpin(r.speedKmh || 0, dt == null ? 1 / 30 : dt);
   for (const w of moto.wheels) w.rotation.y += spin;
 
-  moto.renderer.render(moto.scene, moto.camera);
+  videoCompose3D(job, r, i);
+}
 
-  // Composizione: mappa + moto + HUD.
+/* Composizione: mappa + moto + HUD sul canvas master. Separata dalla posa
+   (camera smorzata, ruote) perché il loop offline la ripete dopo aver
+   aspettato le tile, senza far avanzare di nuovo camera e ruote. */
+function videoCompose3D(job, r, i) {
+  const { ctx, map, moto, dist, speedMax, tSim } = job;
+  const W = job.canvas.width, H = job.canvas.height;
+  moto.renderer.render(moto.scene, moto.camera);
   ctx.clearRect(0, 0, W, H);
   const mc = map.getCanvas();
   if (mc) ctx.drawImage(mc, 0, 0, W, H);
   ctx.drawImage(moto.renderer.domElement, 0, 0, W, H);
   drawVideoHUD3D(ctx, job, r, tSim, dist[i] || 0, speedMax);
+}
+
+/* Ricompone il frame corrente (stessa posa) con la mappa appena ridisegnata.
+   Dopo un annulla cleanupVideoJob ha già tolto moto e mappa: niente da fare. */
+function videoRecompose3D(job) {
+  if (!job || job.cancelled || !job.moto || !job.map) return;
+  const i = Math.max(0, findRowAt(job.rows, job.tSim));
+  videoCompose3D(job, job.rows[i] || {}, i);
 }
 
 /* Pura: estremi per indice riga nel formato {tickR,tickL} che l'HUD legge. */
