@@ -83,6 +83,7 @@ const exportLine = `
   buildCameraKeyframes, disposeVideoMoto3D, videoWheelSpin, videoTrackIndexForRow,
   requestVideoFallback, clearVideoTimers, trackVideoTimer,
   VIDEO3D_CONF, VIDEO3D_SAT_HIDE, loadVideo3DScript, ensureVideo3DLibs, initVideoMoto3D, videoRiderLean, videoCameraFor,
+  MOTO3D, moto3dLoft, moto3dStations,
   drawVideoHUD3D, videoColorKey, canvasTheme, videoColor, resetVideoColors, HUD3D_COLORS,
   videoHasGps, videoResFor, videoFpsFor, videoBitrateFor, videoFrameLayout,
   buildSlowZones, videoSlowFor, slowMultAt, shakeAmpFor, shakeOffset, speedLinesFor,

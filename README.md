@@ -195,7 +195,7 @@ tutti tornanti, e voglio tornare a casa"*. Questa scheda parte da lì.
 - Dal dettaglio di una sessione (Storico → tap) c'è **Export video**.
 - Render **postumo**, tutto lato client, catturato da canvas → **WebM** via MediaRecorder. Nessun server, nessun ffmpeg.
 - Opzioni: risoluzione (720p / 1080p / 9:16 reel), velocità (1× / 2× / 4× / 12×), slow-mo curve, FPS (30 / 24 / 15 / 10 / 5) e tipo:
-  - **3D (default)**: mappa 3D MapLibre (terreno AWS Terrain + stile OpenFreeMap, gratis senza chiave) con telecamera che segue il tracciato e una **moto 3D** stilizzata (primitive Three.js) che si inclina con la piega e ha le ruote in rotazione.
+  - **3D (default)**: mappa 3D MapLibre (terreno AWS Terrain + stile OpenFreeMap, gratis senza chiave) con telecamera che segue il tracciato e una **moto sportiva 3D** procedurale (Three.js, nessun modello da scaricare): carena, codino con LED, ruote con dischi flottanti, pilota in tuta e casco. Si inclina con la piega, le ruote girano, e in curva il pilota si sporge verso l'interno col ginocchio fuori e lo sguardo in curva; l'ombra si sposta con la piega. Colori della livrea in `MOTO3D` (`js/video3d.js`).
   - **2D**: cruscotto animato (velocità, piega, accelerazioni) + tracciato stilizzato.
 - Dipendenze 3D caricate **on demand** da CDN (MapLibre GL + Three.js, ~1,4 MB); senza rete si ripiega sul render 2D.
 - Formato: **WebM** ovunque, più **MP4** (muxer `mp4-muxer` vendorizzato, codifica **WebCodecs**) dove `VideoEncoder` esiste — Chrome/Edge desktop e Android. Dove WebCodecs c'è, il render è **offline**: più veloce del tempo reale e senza `captureStream`.
