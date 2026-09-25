@@ -110,8 +110,9 @@ function videoOfflineFitCfg(cfg, pre, maxBytes) {
     if (b <= allowedBps) { bps = Math.min(bps0, b); break; }
   }
   if (!bps) return null;
+  // Solo verso il basso: se l'utente ha scelto 15 fps non si risale a 24.
   let fps = fps0;
-  if (bps < 1500000) fps = 15; else if (bps < 3500000) fps = 24;
+  if (bps < 1500000) fps = Math.min(fps0, 15); else if (bps < 3500000) fps = Math.min(fps0, 24);
   const newRes = videoFitResFor(res, bps);
   const outCfg = Object.assign({}, c, { bitrate: bps, framerate: fps });
   if (newRes) { outCfg.width = newRes[0]; outCfg.height = newRes[1]; }

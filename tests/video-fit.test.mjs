@@ -110,3 +110,15 @@ test('videoOfflineFitCfg: budget 4GB coerente con videoBitrateFor', () => {
   assert.equal(fit.changed, false);
   assert.equal(MAX_BYTES, 4 * 384 * 1024 * 1024);
 });
+
+test('videoOfflineFitCfg: fps scelti dall\'utente non risalgono mai', () => {
+  // Budget ok → fps dell'utente restano.
+  assert.equal(videoOfflineFitCfg({ bitrate: 5000000, framerate: 15 }, preFor(60)).cfg.framerate, 15);
+  // Gradino 2.5 Mbps (auto 24 fps) con utente a 15 → resta 15, messaggio senza fps.
+  const f = videoOfflineFitCfg({ bitrate: 5000000, framerate: 15 }, preFor(4200));
+  assert.equal(f.cfg.bitrate, 2500000);
+  assert.equal(f.cfg.framerate, 15);
+  assert.ok(f.msg.indexOf('fps') < 0);
+  // Utente a 24, gradino sotto 1.5 Mbps → scende a 15.
+  assert.equal(videoOfflineFitCfg({ bitrate: 5000000, framerate: 24 }, preFor(10240)).cfg.framerate, 15);
+});

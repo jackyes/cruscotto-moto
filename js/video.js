@@ -80,6 +80,14 @@ function videoResFor(key) {
   return [1280, 720];
 }
 
+/* Pura: fps da chiave select. Offline il tempo di export è ~lineare nel
+   numero di frame (draw + encode per frame): 15 fps ≈ metà tempo. Realtime
+   non accorcia, alleggerisce solo CPU/encoder. Ignote → 30. */
+function videoFpsFor(key) {
+  const f = Number(key);
+  return f === 24 || f === 15 ? f : CAPTURE_FPS;
+}
+
 /* Pura: bitrate da larghezza canvas. 9:16 ha 0.92 Mpx come il 720p:
    stesso budget, non serve fascia extra. */
 function videoBitrateFor(width) {
@@ -102,7 +110,7 @@ function videoRealtimeMaxBytes() {
    null (bloccato). */
 function videoRealtimeFit(pre) {
   const f = typeof videoOfflineFitCfg === 'function'
-    ? videoOfflineFitCfg({ bitrate: videoBitrateFor(pre.res[0]), framerate: CAPTURE_FPS }, pre, videoRealtimeMaxBytes())
+    ? videoOfflineFitCfg({ bitrate: videoBitrateFor(pre.res[0]), framerate: pre.fps || CAPTURE_FPS }, pre, videoRealtimeMaxBytes())
     : null;
   if (!f) {
     toast('Video troppo grande per la RAM su questo browser (realtime). Riduci la durata o la risoluzione.', 'err', 10000);
@@ -280,6 +288,7 @@ function startVideoRender(s) {
 
   const res = videoResFor(els.videoRes ? els.videoRes.value : '720');
   const mult = Number(els.videoSpeed.value) || 1;
+  const fps = videoFpsFor(els.videoFps ? els.videoFps.value : '30');
 
   // Distanza cumulativa per riga (km), riusando haversine dell'app.
   // NaN != null è vero: senza isFinite un lat NaN avvelenava bbox/keyframe/camera.
@@ -330,7 +339,7 @@ function startVideoRender(s) {
   const wantSat = !!(els.videoStyle && els.videoStyle.value === 'sat');
   // Palazzi 3D: acceso di default (select assente = vecchia UI = acceso).
   const buildings = !(els.videoBuildings && els.videoBuildings.value === 'off');
-  const pre = { mime, res, mult, rows, track, mapPts, mapT, spark, dist, tEnd, speedMax,
+  const pre = { mime, res, mult, fps, rows, track, mapPts, mapT, spark, dist, tEnd, speedMax,
     slow: buildSlowZones(rows, mult), sat: false, buildings };
   // Giro senza GPS (solo IMU, es. rulli): la mappa 3D centrerebbe l'Italia
   // di default e centrerebbe il nulla. Forza il 2D SOLO per questo render —

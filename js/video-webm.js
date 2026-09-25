@@ -80,7 +80,7 @@ async function startVideoRenderWebmOffline(pre, mode) {
   let picked = null;
   for (const cand of webmCodecCandidates()) {
     try {
-      const res = await videoOfflinePickEncoderConfig(webmConfigFor(W, H, cand.wc));
+      const res = await videoOfflinePickEncoderConfig(webmConfigFor(W, H, cand.wc, pre.fps));
       if (res.supported) { picked = { cfg: res.cfg, mux: cand.mux }; break; }
     } catch (e) {}
   }

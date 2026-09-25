@@ -84,7 +84,7 @@ const exportLine = `
   requestVideoFallback, clearVideoTimers, trackVideoTimer,
   VIDEO3D_CONF, VIDEO3D_SAT_HIDE, loadVideo3DScript, ensureVideo3DLibs, initVideoMoto3D, videoRiderLean, videoCameraFor,
   drawVideoHUD3D, videoColorKey, canvasTheme, videoColor, resetVideoColors, HUD3D_COLORS,
-  videoHasGps, videoResFor, videoBitrateFor, videoFrameLayout,
+  videoHasGps, videoResFor, videoFpsFor, videoBitrateFor, videoFrameLayout,
   buildSlowZones, slowMultAt, shakeAmpFor, shakeOffset, speedLinesFor,
   videoBearingSeries, videoSmoothBearings, videoPathSampleAt, videoTrackPosForRow,
   videoDamp, videoDampAngle, videoCamHeightFor, videoZoomForHeight, videoSatProbe, videoCamAltFor,

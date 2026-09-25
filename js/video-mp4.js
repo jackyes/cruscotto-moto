@@ -245,7 +245,7 @@ async function startVideoRenderMp4(pre, mode) {
   let picked = null;
   for (const codec of mp4CodecCandidates()) {
     try {
-      const cfg = mp4ConfigFor(pre.res[0], pre.res[1]);
+      const cfg = mp4ConfigFor(pre.res[0], pre.res[1], pre.fps);
       cfg.codec = codec;
       const res = await videoOfflinePickEncoderConfig(cfg);
       if (res.supported) { picked = res; break; }

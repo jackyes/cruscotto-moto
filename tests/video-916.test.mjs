@@ -68,3 +68,12 @@ test('hudLayout 9:16: nessun widget sul box moto, nessuna sovrapposizione', () =
     assert.ok(r.x >= 0 && r.y >= 0 && r.x + r.w <= 720 && r.y + r.h <= 1280, k + ' in frame');
   }
 });
+
+test('videoFpsFor: 30/24/15, default 30 su ignote', () => {
+  const { videoFpsFor } = api;
+  assert.equal(videoFpsFor('30'), 30);
+  assert.equal(videoFpsFor('24'), 24);
+  assert.equal(videoFpsFor('15'), 15);
+  assert.equal(videoFpsFor('60'), 30);
+  assert.equal(videoFpsFor(null), 30);
+});
