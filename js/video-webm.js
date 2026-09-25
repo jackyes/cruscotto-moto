@@ -183,7 +183,6 @@ async function startVideoRenderWebmOfflineInner(pre, mode, Muxer, picked) {
     failStatus(fail);
     return;
   }
-  // Niente audio (fuori scope: il WebM realtime oggi non ne ha comunque).
   let blob = null;
   try {
     muxer.finalize();

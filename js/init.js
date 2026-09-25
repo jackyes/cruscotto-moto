@@ -51,7 +51,7 @@ const els = {
   btnImportCam: $('btnImportCam'), camFile: $('camFile'), btnViewer: $('btnViewer'),
   videoModal: $('videoModal'), videoRes: $('videoRes'), videoSpeed: $('videoSpeed'), videoFps: $('videoFps'), videoType: $('videoType'),
   videoStyle: $('videoStyle'), videoBuildings: $('videoBuildings'),
-  videoFormat: $('videoFormat'), videoAudio: $('videoAudio'),
+  videoFormat: $('videoFormat'),
   videoProg: $('videoProg'), videoStatus: $('videoStatus'),
   videoStart: $('videoStart'), videoCancel: $('videoCancel'),
   videoCard: $('videoCard'), videoCardFmt: $('videoCardFmt'), videoCardPrevWrap: $('videoCardPrevWrap'),

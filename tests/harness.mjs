@@ -91,7 +91,7 @@ const exportLine = `
   videoLeanColor, videoLeanColorExpr, videoTrackSegGeoJson, videoSegLeansFor,
   videoMapBounds, videoLeanBin, videoMapProj, videoLeanAtPoint,
   videoMapBgKey,
-  mp4ConfigFor, mp4CodecCandidates, engineToneFor, windGainFor, mp4FrameStepUs,
+  mp4ConfigFor, mp4CodecCandidates, mp4FrameStepUs,
   webmConfigFor, webmCodecCandidates, videoOfflineFrameStepUs, videoOfflineKeyframeEvery,
   videoOfflineDurSec, videoOfflineMaxBytes, videoOfflineGuard,
   videoOfflineFitCfg, videoFitBitrateLadder, videoFitResFor,

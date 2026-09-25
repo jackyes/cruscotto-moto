@@ -151,6 +151,15 @@
           <option value="12">12×</option>
         </select>
       </div>
+      <div class="m-row"><span>FPS</span>
+        <select id="videoFps">
+          <option value="30" selected>30 (fluido)</option>
+          <option value="24">24 (cinema)</option>
+          <option value="15">15 (export veloce)</option>
+          <option value="10">10 (molto veloce)</option>
+          <option value="5">5 (anteprima)</option>
+        </select>
+      </div>
       <div class="m-row"><span>Tipo</span>
         <select id="videoType">
           <option value="3d" selected>3D (mappa + moto)</option>
@@ -173,12 +182,6 @@
         <select id="videoFormat">
           <option value="webm" selected>WebM (compatibile)</option>
           <option value="mp4">MP4 (reel/social)</option>
-        </select>
-      </div>
-      <div class="m-row"><span>Audio</span>
-        <select id="videoAudio">
-          <option value="on" selected>Motore + vento</option>
-          <option value="off">Muto</option>
         </select>
       </div>
       <div class="m-progress"><div id="videoProg"></div></div>
@@ -210,8 +213,8 @@
 /* Shim viewer→video: els/toast/canvasTheme locali (niente dipendenza dall'app).
    toast riusa il box #err del viewer; canvasTheme legge le --c-* già in :root. */
 var els = {
-  videoModal: null, videoRes: null, videoSpeed: null, videoType: null,
-  videoStyle: null, videoBuildings: null, videoFormat: null, videoAudio: null,
+  videoModal: null, videoRes: null, videoSpeed: null, videoFps: null, videoType: null,
+  videoStyle: null, videoBuildings: null, videoFormat: null,
   videoProg: null, videoStatus: null, videoStart: null, videoCancel: null,
 };
 function viewerBindEls() {
@@ -874,7 +877,7 @@ const canvasTheme = {
   $('btnOverlay').addEventListener('click', () => fileInput2.click());
   try { viewerBindEls(); } catch (e) {}
   loadVideoPrefs();
-  for (const id of ['videoRes', 'videoSpeed', 'videoType', 'videoStyle', 'videoBuildings', 'videoFormat', 'videoAudio']) {
+  for (const id of ['videoRes', 'videoSpeed', 'videoFps', 'videoType', 'videoStyle', 'videoBuildings', 'videoFormat']) {
     const el = $(id);
     if (el) el.addEventListener('change', () => { saveVideoPrefs(); updateVideoSummary(); });
   }
@@ -971,7 +974,7 @@ const canvasTheme = {
   function updateVideoSummary() {
     const g = id => { const el = $(id); return el ? (el.options[el.selectedIndex] || {}).text || el.value : '?'; };
     $('videoSummary').textContent =
-      g('videoRes') + ' · ' + g('videoSpeed') + ' · ' + g('videoType') + ' · ' +
+      g('videoRes') + ' · ' + g('videoSpeed') + ' · ' + g('videoFps') + ' fps · ' + g('videoType') + ' · ' +
       g('videoStyle') + ' · ' + g('videoFormat') + videoEtaText();
   }
 
@@ -980,7 +983,7 @@ const canvasTheme = {
   function saveVideoPrefs() {
     try {
       const o = {};
-      for (const id of ['videoRes', 'videoSpeed', 'videoType', 'videoStyle', 'videoBuildings', 'videoFormat', 'videoAudio']) {
+      for (const id of ['videoRes', 'videoSpeed', 'videoFps', 'videoType', 'videoStyle', 'videoBuildings', 'videoFormat']) {
         const el = $(id); if (el) o[id] = el.value;
       }
       localStorage.setItem(VIDEO_PREF_KEY, JSON.stringify(o));

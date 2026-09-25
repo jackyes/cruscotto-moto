@@ -1,9 +1,9 @@
 'use strict';
-/* js/video-mp4.js: export MP4 (WebCodecs + mp4-muxer vendored) + audio motore.
+/* js/video-mp4.js: export MP4 (WebCodecs + mp4-muxer vendored), solo video.
    Ordine: dopo js/video-offline.js (loop di encode condiviso con il WebM
    offline) e js/video3d.js (riusa pre/makeVideoCanvas/drawVideoFrame), prima
    di js/share.js. Tutto impuro qui resta non testato in harness: solo le
-   pure (mp4ConfigFor/engineToneFor/windGainFor/mp4FrameStepUs) vanno
+   pure (mp4ConfigFor/mp4FrameStepUs) vanno
    nell'export. */
 
 /* Pura: config encode da risoluzione (stesso budget bitrate del WebM).
@@ -16,24 +16,6 @@ function mp4ConfigFor(W, H, fps) {
   return { codec: 'avc1.640028', width: w, height: h,
     bitrate: videoBitrateFor(w), framerate: isFinite(fps) && fps > 0 ? fps : 30,
     hardwareAcceleration: 'prefer-hardware' };
-}
-
-/* --- audio sintetico: profili (prima letterali 60/2.2 e v/130*0.15) --- */
-const ENGINE_BASE_HZ = 60;        // frequenza motore da fermo
-const ENGINE_HZ_PER_KMH = 2.2;    // incremento per km/h
-const WIND_GAIN_RATE = 1 / 130;   // guadagno vento per km/h
-const WIND_GAIN_MAX = 0.15;       // saturazione del vento a 130+
-
-/* Pura: frequenza motore da velocità (saw 60 Hz fermo → ~320 a 120 km/h). */
-function engineToneFor(speedKmh) {
-  const v = isFinite(speedKmh) ? Math.max(0, speedKmh) : 0;
-  return ENGINE_BASE_HZ + v * ENGINE_HZ_PER_KMH;
-}
-
-/* Pura: guadagno vento da velocità (0 fermo → 0.15 a 130+). */
-function windGainFor(speedKmh) {
-  const v = isFinite(speedKmh) ? Math.max(0, speedKmh) : 0;
-  return Math.min(1, v * WIND_GAIN_RATE) * WIND_GAIN_MAX;
 }
 
 /* Disponibile solo dove WebCodecs esiste (Chrome/Edge desktop+Android):
@@ -49,62 +31,6 @@ function videoMp4Supported() {
 function loadMp4Muxer() {
   const g = (typeof globalThis !== 'undefined' && globalThis.Mp4Muxer) ? globalThis.Mp4Muxer : null;
   return g && g.Muxer ? Promise.resolve(g) : Promise.reject(new Error('Mp4Muxer non presente'));
-}
-
-/* Audio motore+vento: osc saw (pitch da velocità) + rumore bianco filtrato.
-   Ritorna {ctx, dest, osc, oscGain, noiseGain} o null (muto/non supportato). */
-function videoAudioGraph(muted) {
-  if (muted) return null;
-  let AC = null;
-  try { AC = window.AudioContext || window.webkitAudioContext; } catch (e) {}
-  if (!AC) return null;
-  let ctx = null;
-  try { ctx = new AC({ sampleRate: 44100 }); } catch (e) { return null; }
-  try {
-    const dest = ctx.createMediaStreamDestination();
-    const osc = ctx.createOscillator();
-    osc.type = 'sawtooth';
-    osc.frequency.value = engineToneFor(0);
-    const lp = ctx.createBiquadFilter();
-    lp.type = 'lowpass'; lp.frequency.value = 800;
-    const oscGain = ctx.createGain();
-    oscGain.gain.value = 0.06;
-    osc.connect(lp); lp.connect(oscGain); oscGain.connect(dest);
-    osc.start();
-    // Rumore bianco 1 s in loop (vento): buffer statico, gain da velocità.
-    const len = ctx.sampleRate;
-    const buf = ctx.createBuffer(1, len, ctx.sampleRate);
-    const d = buf.getChannelData(0);
-    for (let k = 0; k < len; k++) d[k] = Math.random() * 2 - 1;
-    const noise = ctx.createBufferSource();
-    noise.buffer = buf; noise.loop = true;
-    const nlp = ctx.createBiquadFilter();
-    nlp.type = 'lowpass'; nlp.frequency.value = 1200;
-    const noiseGain = ctx.createGain();
-    noiseGain.gain.value = 0;
-    noise.connect(nlp); nlp.connect(noiseGain); noiseGain.connect(dest);
-    noise.start();
-    return { ctx, dest, osc, oscGain, noiseGain };
-  } catch (e) {
-    try { ctx.close(); } catch (e2) {}
-    return null;
-  }
-}
-
-/* Aggiorna pitch/gain per frame (chiamato dal loop con la riga corrente). */
-function videoAudioUpdate(ag, speedKmh) {
-  if (!ag) return;
-  try {
-    const t = ag.ctx.currentTime;
-    ag.osc.frequency.setTargetAtTime(engineToneFor(speedKmh), t, 0.05);
-    ag.noiseGain.gain.setTargetAtTime(windGainFor(speedKmh), t, 0.1);
-  } catch (e) {}
-}
-
-function videoAudioClose(ag) {
-  if (!ag) return;
-  try { ag.osc.stop(); } catch (e) {}
-  try { ag.ctx.close(); } catch (e) {}
 }
 
 /* Pura: passo frame dal framerate (30 fps → 33333 µs). Wrapper sottile sulla
@@ -125,77 +51,6 @@ function videoMp4SetupMap(job, pre) {
 async function videoMp4Loop(job, W, H) {
   await videoOfflineLoop(job, job.mp4, { fps: job.mp4.fps || 30, label: 'MP4' });
   void W; void H;
-}
-
-/* Audio AAC sintetico offline: saw motore (engineToneFor) + rumore bianco
-   (windGainFor), 44.1 kHz mono. Niente ScriptProcessor: campioni generati
-   dagli stessi profili del graph live, timestamp dalla t delle righe.
-   ASYNC con yield periodici: prima il while girava sincrono dentro la Promise
-   e per sessioni lunghe congelava l'UI — "Annulla" incluso, che non poteva
-   mai essere processato. */
-async function videoMp4MuxAudio(muxer, rows, slow, stepUs) {
-  try {
-    if (typeof AudioEncoder === 'undefined' || !rows.length) return false;
-    const SR = 44100;
-    let aErr = null;   // gli errori encoder non devono essere swallowati: il
-                       // file uscirebbe (quasi) muto senza alcun avviso
-    const aenc = new AudioEncoder({
-      output: (chunk, meta) => { try { muxer.addAudioChunk(chunk, meta); } catch (e) {} },
-      error: e => { aErr = aErr || e; },
-    });
-    aenc.configure({ codec: 'mp4a.40.2', sampleRate: SR, numberOfChannels: 1, bitrate: 128000 });
-    const t0 = rows[0].t, tEnd = rows[rows.length - 1].t;
-    const s = slow || { base: 1 };
-    const stepUs_ = (stepUs && stepUs > 0) ? stepUs : 33333;
-    const stepSec = stepUs_ / 1e6;
-    const SAMP_FRAME = Math.round(SR * stepSec);
-    let tsUs = 0, phase = 0;
-    // Chunk da 0.5 s: pochi encode, memoria costante.
-    const CH = Math.floor(SR / 2);
-    let cur = new Float32Array(CH), n = 0;
-    const flushCur = () => {
-      if (!n) return;
-      const data = new AudioData({
-        format: 'f32', sampleRate: SR, numberOfFrames: n, numberOfChannels: 1,
-        timestamp: tsUs, data: cur.slice(0, n).buffer,
-      });
-      tsUs += Math.round((n / SR) * 1e6);
-      try { aenc.encode(data); } catch (e) { aErr = aErr || e; }
-      try { data.close(); } catch (e) {}
-      n = 0;
-    };
-    // L'audio scorre nel TEMPO VIDEO (stessa progressione tSim di videoOfflineLoop),
-    // non nel tempo delle righe: altrimenti mult/slow-mo desincronizzerebbero
-    // audio e video. Pitch/vento letti dalla riga a tSim via findRowAt.
-    let tSim = t0, k = 0;
-    while (tSim < tEnd) {
-      const i = Math.max(0, findRowAt(rows, tSim));
-      const r = rows[i] || {};
-      const f = engineToneFor(r.speedKmh || 0), g = windGainFor(r.speedKmh || 0);
-      for (let s2 = 0; s2 < SAMP_FRAME; s2++) {
-        phase += f / SR;
-        cur[n++] = ((phase % 1) * 2 - 1) * 0.06 + (Math.random() * 2 - 1) * g;
-        if (n >= CH) flushCur();
-      }
-      tSim += stepSec * slowMultAt(tSim, s);
-      k++;
-      // Yield ogni ~4 s di audio: UI viva, "Annulla" processabile, progress.
-      if (k % 120 === 0) {
-        await new Promise(res => setTimeout(res, 0));
-        if (typeof videoJob !== 'undefined' && videoJob && videoJob.cancelled) {
-          try { aenc.close(); } catch (e) {}
-          return false;
-        }
-      }
-    }
-    flushCur();
-    if (aErr) { try { aenc.close(); } catch (e2) {} return false; }
-    await new Promise((res, rej) => {
-      aenc.flush().then(() => res()).catch(err => rej(err));
-    });
-    try { aenc.close(); } catch (e) {}
-    return true;
-  } catch (e) { return false; }
 }
 
 /* Fallback MP4→WebM: prima offline (WebCodecs, memoria-safe), poi realtime.
@@ -300,7 +155,6 @@ async function startVideoRenderMp4Inner(pre, mode, Muxer, cfg) {
     if (fit.res) pre.res = fit.res;   // canvas mappa/2D e muxer leggono pre.res
   }
   const W = pre.res[0], H = pre.res[1];
-  const muted = !!(els.videoAudio && els.videoAudio.value === 'off');
   // StreamTarget chunked: i chunk diventano subito Blob (memoria nativa, fuori
   // dall'heap V8). Tenere gli Uint8Array in un array JS saturava l'heap su
   // Chrome Android 32-bit (~512 MB) → crash del tab senza alcun errore.
@@ -311,12 +165,6 @@ async function startVideoRenderMp4Inner(pre, mode, Muxer, cfg) {
     target: new Muxer.StreamTarget({ chunked: true, onData: (d, pos) => parts.push(new Blob([d])) }),
     video: { codec: 'avc', width: W, height: H },
   };
-  // Traccia audio AAC solo se non muto: sintetizzata offline dagli stessi
-  // profili del live (engineToneFor/windGainFor), niente AudioContext aperto
-  // durante l'encode (suonerebbe dalle casse senza finire nel file).
-  if (!muted && typeof AudioEncoder !== 'undefined') {
-    muxerOpts.audio = { codec: 'aac', sampleRate: 44100, numberOfChannels: 1 };
-  }
   // configure() tira su risoluzioni/profili non supportati: senza guardia
   // usciva come promise rejection muta (modale appesa su "Encode MP4…").
   let muxer = null, enc = null, encErr = null;
@@ -337,14 +185,12 @@ async function startVideoRenderMp4Inner(pre, mode, Muxer, cfg) {
   // anche qui lasciava un canvas orfano nel DOM a ogni export.
   const canvas = mode === '3d' ? null : makeVideoCanvas(pre.res);
   const ctx = canvas ? canvas.getContext('2d') : null;
-  // Niente graph live durante l'encode offline (suonerebbe dalle casse):
-  // l'audio si sintetizza dopo in videoMp4MuxAudio. ag resta per compat.
   const job = {
     mode: mode, running: true, cancelled: false, canvas, ctx,
     rows: pre.rows, track: pre.track, mapPts: pre.mapPts, mapT: pre.mapT, spark: pre.spark,
     dist: pre.dist, tEnd: pre.tEnd, mult: pre.mult, speedMax: pre.speedMax,
     slow: pre.slow, tSim: pre.rows.length ? pre.rows[0].t : 0,
-    mp4: { enc, muxer, ag: null, frame: 0, _lastV: null, fps: cfg.framerate || 30 },
+    mp4: { enc, muxer, frame: 0, fps: cfg.framerate || 30 },
   };
   videoJob = job;
   els.videoStart.disabled = true;
@@ -376,19 +222,6 @@ async function startVideoRenderMp4Inner(pre, mode, Muxer, cfg) {
   if (fail) {
     failStatus(fail);
     return;
-  }
-  // Audio dopo il video: scorre nel tempo video (mult+slow-mo), non nel tempo
-  // delle righe, così resta sincrono con il video.
-  if (!muted) {
-    els.videoStatus.textContent = 'Audio MP4…';
-    let audioOk = false;
-    try { audioOk = await videoMp4MuxAudio(muxer, pre.rows, pre.slow, videoOfflineFrameStepUs(job.mp4.fps || 30)); } catch (e) {}
-    // Se AudioEncoder c'è e la sintesi fallisce, la traccia audio è già stata
-    // dichiarata nel muxer: avvisa che il file uscirà (quasi) muto, invece di
-    // consegnare un MP4 con traccia audio vuota e nessun segnale.
-    if (!audioOk && typeof AudioEncoder !== 'undefined') {
-      toast('Audio non disponibile: MP4 esportato senza audio.', 'err', 6000);
-    }
   }
   let blob = null;
   try {
