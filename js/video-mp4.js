@@ -123,7 +123,7 @@ function videoMp4SetupMap(job, pre) {
    manuale (più veloce del realtime, niente captureStream). Wrapper sottile
    sul loop generico in video-offline.js (condiviso col WebM offline). */
 async function videoMp4Loop(job, W, H) {
-  await videoOfflineLoop(job, job.mp4, { fps: job.mp4.fps || 30, keyframeEvery: 150, label: 'MP4' });
+  await videoOfflineLoop(job, job.mp4, { fps: job.mp4.fps || 30, label: 'MP4' });
   void W; void H;
 }
 

@@ -19,6 +19,13 @@ function videoOfflineFrameStepUs(fps) {
   return Math.round(1e6 / f);
 }
 
+/* Pura: keyframe ogni ~5 s di video qualunque sia il framerate (30 fps → 150,
+   come prima). Fisso a 150 frame, a 5 fps il seek saltava di 30 s. */
+function videoOfflineKeyframeEvery(fps) {
+  const f = isFinite(fps) && fps > 0 ? fps : 30;
+  return Math.max(1, Math.round(f * 5));
+}
+
 /* Pura: durata video risultante in secondi, applicando mult+slow-mo (stessa
    progressione di videoOfflineLoop). Serve per la stima della dimensione finale
    PRIMA di avviare l'encode. */
@@ -216,7 +223,7 @@ function videoOfflineSetupMap(job, pre) {
 async function videoOfflineLoop(job, encState, opts) {
   const enc = encState.enc;
   const fps = (opts && opts.fps) || 30;
-  const keyframeEvery = (opts && opts.keyframeEvery) || 150;
+  const keyframeEvery = (opts && opts.keyframeEvery) || videoOfflineKeyframeEvery(fps);
   const label = (opts && opts.label) || 'video';
   const stepUs = videoOfflineFrameStepUs(fps);
   const stepSec = stepUs / 1e6;

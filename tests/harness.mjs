@@ -92,7 +92,7 @@ const exportLine = `
   videoMapBounds, videoLeanBin, videoMapProj, videoLeanAtPoint,
   videoMapBgKey,
   mp4ConfigFor, mp4CodecCandidates, engineToneFor, windGainFor, mp4FrameStepUs,
-  webmConfigFor, webmCodecCandidates, videoOfflineFrameStepUs,
+  webmConfigFor, webmCodecCandidates, videoOfflineFrameStepUs, videoOfflineKeyframeEvery,
   videoOfflineDurSec, videoOfflineMaxBytes, videoOfflineGuard,
   videoOfflineFitCfg, videoFitBitrateLadder, videoFitResFor,
   videoMapOptions, videoMapPixelRatio, videoSkyOptions, videoSkyVisible,

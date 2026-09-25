@@ -69,11 +69,14 @@ test('hudLayout 9:16: nessun widget sul box moto, nessuna sovrapposizione', () =
   }
 });
 
-test('videoFpsFor: 30/24/15, default 30 su ignote', () => {
+test('videoFpsFor: 30/24/15/10/5, default 30 su ignote', () => {
   const { videoFpsFor } = api;
   assert.equal(videoFpsFor('30'), 30);
   assert.equal(videoFpsFor('24'), 24);
   assert.equal(videoFpsFor('15'), 15);
+  assert.equal(videoFpsFor('10'), 10);
+  assert.equal(videoFpsFor('5'), 5);
+  assert.equal(videoFpsFor('0'), 30);
   assert.equal(videoFpsFor('60'), 30);
   assert.equal(videoFpsFor(null), 30);
 });

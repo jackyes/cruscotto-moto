@@ -122,3 +122,11 @@ test('videoOfflineFitCfg: fps scelti dall\'utente non risalgono mai', () => {
   // Utente a 24, gradino sotto 1.5 Mbps → scende a 15.
   assert.equal(videoOfflineFitCfg({ bitrate: 5000000, framerate: 24 }, preFor(10240)).cfg.framerate, 15);
 });
+
+test('videoOfflineKeyframeEvery: un keyframe ogni ~5 s', () => {
+  const { videoOfflineKeyframeEvery } = api;
+  assert.equal(videoOfflineKeyframeEvery(30), 150);
+  assert.equal(videoOfflineKeyframeEvery(15), 75);
+  assert.equal(videoOfflineKeyframeEvery(5), 25);
+  assert.equal(videoOfflineKeyframeEvery(NaN), 150);
+});

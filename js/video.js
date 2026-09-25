@@ -83,9 +83,10 @@ function videoResFor(key) {
 /* Pura: fps da chiave select. Offline il tempo di export è ~lineare nel
    numero di frame (draw + encode per frame): 15 fps ≈ metà tempo. Realtime
    non accorcia, alleggerisce solo CPU/encoder. Ignote → 30. */
+const VIDEO_FPS_CHOICES = [30, 24, 15, 10, 5];
 function videoFpsFor(key) {
   const f = Number(key);
-  return f === 24 || f === 15 ? f : CAPTURE_FPS;
+  return VIDEO_FPS_CHOICES.indexOf(f) >= 0 ? f : CAPTURE_FPS;
 }
 
 /* Pura: bitrate da larghezza canvas. 9:16 ha 0.92 Mpx come il 720p:

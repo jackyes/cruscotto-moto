@@ -169,7 +169,7 @@ async function startVideoRenderWebmOfflineInner(pre, mode, Muxer, picked) {
   };
   try {
     if (mode === '3d') await videoOfflineSetupMap(job, pre);
-    await videoOfflineLoop(job, job.webm, { fps: picked.cfg.framerate || 30, keyframeEvery: 150, label: 'WebM' });
+    await videoOfflineLoop(job, job.webm, { fps: picked.cfg.framerate || 30, label: 'WebM' });
   } catch (e) {
     failStatus((e && e.message ? e.message : String(e)) ||
       (encErr && encErr.message ? encErr.message : 'errore'));
